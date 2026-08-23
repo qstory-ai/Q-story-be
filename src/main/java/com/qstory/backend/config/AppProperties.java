@@ -10,7 +10,21 @@ public record AppProperties(
         long requestTimeoutMs,
         String ffmpegPath,
         Providers providers,
-        Supabase supabase) {
+        Supabase supabase,
+        Admin admin,
+        Auth auth) {
+
+    public record Admin(String storyImportToken) {
+        public boolean storyImportTokenConfigured() {
+            return storyImportToken != null && !storyImportToken.isBlank();
+        }
+    }
+
+    public record Auth(String jwtSecret, long accessTokenTtlMinutes) {
+        public boolean configured() {
+            return jwtSecret != null && !jwtSecret.isBlank();
+        }
+    }
 
     public record Providers(Rtzr rtzr, OpenRouter openRouter) {}
 

@@ -21,7 +21,9 @@ public enum EdgeErrorCode {
     INVALID_CONSENT_TIME(400),
     CONSENT_INVALID(403),
     UNSUPPORTED_ACTION(400),
-    CLEANUP_UNAUTHORIZED(401);
+    CLEANUP_UNAUTHORIZED(401),
+    ADMIN_UNAUTHORIZED(401),
+    STORY_NOT_FOUND(404);
 
     private final int defaultStatus;
 

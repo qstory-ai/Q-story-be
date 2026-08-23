@@ -5,6 +5,10 @@ server:
 spring:
   application:
     name: q-story-speech-api
+  # No SPRING_PROFILES_ACTIVE set -> falls back to "dev" (see application-dev.yml/-staging.yml/-prod.yml
+  # for what differs per environment: allowed-origins, log level, SQL logging).
+  profiles:
+    default: dev
   servlet:
     multipart:
       max-file-size: 4MB
@@ -33,7 +37,7 @@ spring:
         format_sql: false
 
 qstory:
-  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006,https://q-story-f07-pilot.kaangaa.chatgpt.site}
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006,https://q-story-f07-pilot.kaangaa.chatgpt.site,http://localhost:5173,http://127.0.0.1:5173,https://qstory.ai.kr,https://www.qstory.ai.kr,https://start.qstory.ai.kr,https://play.qstory.ai.kr,https://dev.qstory.ai.kr}
   max-audio-bytes: ${MAX_AUDIO_BYTES:2621440}
   request-timeout-ms: ${REQUEST_TIMEOUT_MS:40000}
   ffmpeg-path: ${FFMPEG_PATH:ffmpeg}
@@ -53,6 +57,11 @@ qstory:
     voice-research-bucket: ${SUPABASE_VOICE_RESEARCH_BUCKET:qstory-voice-research}
     shadow-assets-bucket: ${SUPABASE_SHADOW_ASSETS_BUCKET:qstory-shadow-assets}
     voice-research-cleanup-token: ${QSTORY_RESEARCH_CLEANUP_TOKEN:}
+  admin:
+    story-import-token: ${QSTORY_STORY_IMPORT_TOKEN:}
+  auth:
+    jwt-secret: ${QSTORY_JWT_SECRET:}
+    access-token-ttl-minutes: ${QSTORY_ACCESS_TOKEN_TTL_MINUTES:20160}
 
 logging:
   level:

@@ -1,0 +1,8 @@
+# Set SPRING_PROFILES_ACTIVE=prod on the deployed instance (e.g. Railway) to activate this.
+qstory:
+  allowed-origins: ${ALLOWED_ORIGINS:https://qstory.ai.kr,https://www.qstory.ai.kr,https://start.qstory.ai.kr,https://play.qstory.ai.kr}
+
+logging:
+  level:
+    root: WARN
+    com.qstory.backend: INFO

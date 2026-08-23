@@ -10,8 +10,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Thin client for the Supabase Storage REST API, authenticated with the service role key.
- * This backend owns its own Postgres schema directly (see StoryContentSeeder), but still uses
- * Supabase Storage for the audio/image blobs voice-research and shadow-generation produce.
+ * This backend owns its own Postgres schema directly, but still uses Supabase Storage for the
+ * audio/image blobs voice-research and shadow-generation produce.
  */
 @Component
 public class SupabaseStorageClient {
