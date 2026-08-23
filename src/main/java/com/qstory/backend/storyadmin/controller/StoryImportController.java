@@ -59,7 +59,7 @@ public class StoryImportController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Import counts",
                     content = @Content(schema = @Schema(example = "{\"ok\":true,\"storyId\":\"HG\","
-                            + "\"scenesImported\":9,\"segmentsImported\":120,\"fallbacksImported\":14,"
+                            + "\"scenesImported\":9,\"segmentsImported\":120,\"fallbacksImported\":14,\"assetsImported\":256,"
                             + "\"fallbackSegmentsImported\":56}"))),
             @ApiResponse(responseCode = "400", description = "Malformed body, or an unknown story/family id referenced",
                     content = @Content(schema = @Schema(implementation = FailureBody.class))),
@@ -87,7 +87,8 @@ public class StoryImportController {
                 "scenesImported", result.scenesImported(),
                 "segmentsImported", result.segmentsImported(),
                 "fallbacksImported", result.fallbacksImported(),
-                "fallbackSegmentsImported", result.fallbackSegmentsImported()));
+                "fallbackSegmentsImported", result.fallbackSegmentsImported(),
+                "assetsImported", result.assetsImported()));
     }
 
     private void requireAdminToken(HttpServletRequest request) {

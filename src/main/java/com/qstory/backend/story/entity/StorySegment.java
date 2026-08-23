@@ -66,4 +66,13 @@ public class StorySegment {
     @Column(nullable = false, columnDefinition = "jsonb")
     @Builder.Default
     private Map<String, Object> payload = new LinkedHashMap<>();
+
+    /**
+     * What this utterance's pre-rendered narration actually says, set by the import that shipped
+     * the audio. Staleness is {@code !text.equals(narrationText)} rather than a stored flag, so
+     * editing a line and then putting it back leaves nothing falsely marked. Null for kinds that
+     * are never narrated.
+     */
+    @Column(name = "narration_text", columnDefinition = "text")
+    private String narrationText;
 }

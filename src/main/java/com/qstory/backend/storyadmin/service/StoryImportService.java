@@ -16,6 +16,14 @@ import com.qstory.backend.story.entity.StoryScene;
 import com.qstory.backend.story.entity.StorySegment;
 import com.qstory.backend.story.repository.StoryActionFamilyRepository;
 import com.qstory.backend.story.repository.StoryAnchorRepository;
+import com.qstory.backend.common.enums.AssetCategory;
+import com.qstory.backend.story.entity.StoryAsset;
+import com.qstory.backend.story.entity.RoutePrompt;
+import com.qstory.backend.story.repository.RoutePromptRepository;
+import com.qstory.backend.common.enums.RevisionOperation;
+import com.qstory.backend.common.enums.RevisionTarget;
+import com.qstory.backend.story.service.RoutePromptService;
+import com.qstory.backend.story.repository.StoryAssetRepository;
 import com.qstory.backend.story.repository.StoryCastRepository;
 import com.qstory.backend.story.repository.StoryFallbackSegmentRepository;
 import com.qstory.backend.story.repository.StoryRepository;
@@ -54,6 +62,10 @@ public class StoryImportService {
     private final StoryAnchorRepository anchorRepository;
     private final StoryActionFamilyRepository familyRepository;
     private final StoryCastRepository castRepository;
+    private final StoryAssetRepository assetRepository;
+    private final RoutePromptRepository routePromptRepository;
+    private final RoutePromptService routePromptService;
+    private final StoryRevisionService revisionService;
     private final StorySceneRepository sceneRepository;
     private final StorySegmentRepository segmentRepository;
     private final StoryFallbackSegmentRepository fallbackSegmentRepository;
@@ -64,7 +76,9 @@ public class StoryImportService {
     public StoryImportService(
             ObjectMapper objectMapper, StoryRepository storyRepository,
             StoryAnchorRepository anchorRepository, StoryActionFamilyRepository familyRepository,
-            StoryCastRepository castRepository,
+            StoryCastRepository castRepository, StoryAssetRepository assetRepository,
+            RoutePromptRepository routePromptRepository, RoutePromptService routePromptService,
+            StoryRevisionService revisionService,
             StorySceneRepository sceneRepository, StorySegmentRepository segmentRepository,
             StoryFallbackSegmentRepository fallbackSegmentRepository,
             StoryRegistry storyRegistry, ChoiceCopyRegistry choiceCopyRegistry,
@@ -74,6 +88,10 @@ public class StoryImportService {
         this.anchorRepository = anchorRepository;
         this.familyRepository = familyRepository;
         this.castRepository = castRepository;
+        this.assetRepository = assetRepository;
+        this.routePromptRepository = routePromptRepository;
+        this.routePromptService = routePromptService;
+        this.revisionService = revisionService;
         this.sceneRepository = sceneRepository;
         this.segmentRepository = segmentRepository;
         this.fallbackSegmentRepository = fallbackSegmentRepository;
@@ -84,7 +102,7 @@ public class StoryImportService {
 
     public record ImportResult(
             String storyId, int scenesImported, int segmentsImported, int fallbacksImported,
-            int fallbackSegmentsImported) {}
+            int fallbackSegmentsImported, int assetsImported) {}
 
     @Transactional
     public ImportResult importStory(JsonNode body) {
@@ -113,6 +131,10 @@ public class StoryImportService {
         extras.put("reportCopy", toMap(packageData.path("reportCopy")));
         extras.put("release", toMap(packageData.path("release")));
         extras.put("evaluation", toMap(packageData.path("evaluation")));
+        // Authoring metadata rather than runtime data, so it rides in extras alongside the three
+        // above instead of getting tables nothing queries - but it is in the DB now either way.
+        extras.put("qaContract", toMap(packageData.path("qaContract")));
+        extras.put("references", toMap(packageData.path("references")));
         story.setPackageExtras(extras);
         story = storyRepository.save(story);
 
@@ -123,7 +145,20 @@ public class StoryImportService {
         importAnchors(routeContext, story);
 
         castRepository.deleteAll(castRepository.findByStory_Id(storyId));
+        // flush() before reinserting: within one transaction Hibernate orders every INSERT ahead of
+        // every DELETE, and StoryCast is the one entity here with a generated UUID key plus a
+        // business unique key (story_id, cast_tag) - so the new rows hit that constraint against the
+        // old ones that have not been deleted yet. The others use assigned string ids, where a
+        // re-import merges instead of inserting. Without this, importing a story twice always failed.
+        castRepository.flush();
         importCast(cast, story);
+
+        // Same flush-before-reinsert reason as the cast above: identity key plus a business unique
+        // key (story_id, slug).
+        assetRepository.deleteAll(assetRepository.findByStory_IdOrderBySlugAsc(storyId));
+        assetRepository.flush();
+        int assetCount = importAssets(packageData.path("assets"), story);
+        importRoutePrompt(packageData.path("prompt"));
 
         // DB-level ON DELETE CASCADE (see StorySegment) removes scene segment rows
         // automatically - no need to load/delete them here. Fallback segments are handled
@@ -153,6 +188,13 @@ public class StoryImportService {
                             .kind(segments.kind())
                             .branchPoint(segments.isBranchPoint())
                             .payload(segments.payload())
+                            // An import ships the content files and the audio rendered from them,
+                            // so at this moment the recording says exactly this line. Everything
+                            // later compares against it to decide what needs re-recording.
+                            .narrationText(
+                                    "utterance".equals(segments.kind())
+                                            ? (String) segments.payload().get("text")
+                                            : null)
                             .build()));
         }
 
@@ -188,7 +230,17 @@ public class StoryImportService {
         storyRegistry.reload();
         choiceCopyRegistry.reload();
         assemblyService.reload();
-        return new ImportResult(storyId, sceneCount, segmentCount, fallbackCount, fallbackSegmentCount);
+        // A pipeline import replaces the whole story, so it lands in the history as one entry with
+        // no author - otherwise an import would look, from the history, like nothing happened.
+        revisionService.record(
+                storyId, RevisionTarget.SCENE, storyId, RevisionOperation.IMPORT,
+                null,
+                Map.of("scenes", sceneCount, "segments", segmentCount, "fallbacks", fallbackCount,
+                        "assets", assetCount, "contentVersion", story.getContentVersion()),
+                null,
+                "content:import");
+        return new ImportResult(
+                storyId, sceneCount, segmentCount, fallbackCount, fallbackSegmentCount, assetCount);
     }
 
     private void importAnchors(JsonNode routeContext, Story story) {
@@ -250,6 +302,48 @@ public class StoryImportService {
                     .samePersonKey(speakerNode.path("samePersonKey").isMissingNode() ? null : speakerNode.path("samePersonKey").asText(null))
                     .build());
         }
+    }
+
+    private int importAssets(JsonNode assets, Story story) {
+        if (!assets.isArray()) {
+            throw new EdgeException(EdgeErrorCode.INVALID_PAYLOAD);
+        }
+        for (JsonNode asset : assets) {
+            JsonNode panel = asset.path("panel");
+            assetRepository.save(StoryAsset.builder()
+                    .story(story)
+                    .slug(requireText(asset, "slug"))
+                    .category(AssetCategory.valueOf(requireText(asset, "category")))
+                    .file(requireText(asset, "file"))
+                    .integrity(requireText(asset, "integrity"))
+                    .familyId(asset.path("familyId").isMissingNode() ? null : asset.path("familyId").asText(null))
+                    .panel(panel.isMissingNode() || panel.isNull() ? null : panel.asInt())
+                    .build());
+        }
+        return assets.size();
+    }
+
+    /** Upserted by version, not per story: several stories can name the same policy. */
+    private void importRoutePrompt(JsonNode prompt) {
+        if (!prompt.isObject()) {
+            throw new EdgeException(EdgeErrorCode.INVALID_PAYLOAD);
+        }
+        String version = requireText(prompt, "version");
+        RoutePrompt row = routePromptRepository.findByVersion(version)
+                .orElseGet(() -> RoutePrompt.builder().version(version).build());
+        row.setSystemText(joinLines(prompt.path("system")));
+        row.setInstructionText(joinLines(prompt.path("instruction")));
+        routePromptRepository.save(row);
+        // Re-importing an existing version is how a policy is corrected in place; without this the
+        // old text would keep being served from the per-version cache until a restart.
+        routePromptService.invalidate(version);
+    }
+
+    private String joinLines(JsonNode arrayNode) {
+        if (!arrayNode.isArray() || arrayNode.isEmpty()) {
+            throw new EdgeException(EdgeErrorCode.INVALID_PAYLOAD);
+        }
+        return String.join(" ", toStringList(arrayNode));
     }
 
     private List<String> toStringList(JsonNode arrayNode) {

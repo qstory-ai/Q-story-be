@@ -38,6 +38,8 @@ public enum ErrorCode {
     INVALID_INVITE(410),
     ORGANIZATION_ALREADY_EXISTS(409),
     ORGANIZATION_NOT_CREATED(404),
+    /** An authoring write aimed at a story that has been edited since the editor loaded it. */
+    STALE_REVISION(409),
     ENTITLEMENT_REQUIRED(402);
 
     private final int defaultStatus;

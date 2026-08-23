@@ -16,6 +16,8 @@ import com.qstory.backend.story.repository.StoryActionFamilyRepository;
 import com.qstory.backend.story.repository.StoryRepository;
 import com.qstory.backend.story.repository.StoryFallbackSegmentRepository;
 import com.qstory.backend.story.repository.StorySceneRepository;
+import com.qstory.backend.story.entity.StoryAsset;
+import com.qstory.backend.story.repository.StoryAssetRepository;
 import com.qstory.backend.story.repository.StorySegmentRepository;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -49,19 +51,23 @@ public class StoryContentAssemblyService implements ApplicationRunner {
     private final StoryFallbackSegmentRepository fallbackSegmentRepository;
     private final StoryRegistry storyRegistry;
 
+    private final StoryAssetRepository assetRepository;
+
     private volatile Map<String, ObjectNode> assembledByStoryId = Map.of();
 
     public StoryContentAssemblyService(
             ObjectMapper objectMapper, StoryRepository storyRepository,
             StorySceneRepository sceneRepository, StorySegmentRepository segmentRepository,
             StoryActionFamilyRepository familyRepository,
-            StoryFallbackSegmentRepository fallbackSegmentRepository, StoryRegistry storyRegistry) {
+            StoryFallbackSegmentRepository fallbackSegmentRepository,
+            StoryAssetRepository assetRepository, StoryRegistry storyRegistry) {
         this.objectMapper = objectMapper;
         this.storyRepository = storyRepository;
         this.sceneRepository = sceneRepository;
         this.segmentRepository = segmentRepository;
         this.familyRepository = familyRepository;
         this.fallbackSegmentRepository = fallbackSegmentRepository;
+        this.assetRepository = assetRepository;
         this.storyRegistry = storyRegistry;
     }
 
@@ -86,6 +92,19 @@ public class StoryContentAssemblyService implements ApplicationRunner {
     /** Null if this story hasn't been imported yet. */
     public ObjectNode get(String storyId) {
         return assembledByStoryId.get(storyId);
+    }
+
+    /**
+     * Where the app should fetch this asset. A file re-rendered at runtime (see the narration
+     * re-render pipeline) is stored remotely and carries an absolute URL; everything else is still
+     * a path under the frontend's static root, served from the site root.
+     */
+    private String assetUrl(Story story, StoryAsset asset) {
+        String file = asset.getFile();
+        if (file.startsWith("http://") || file.startsWith("https://")) return file;
+        // The frontend serves its static story files from the site root, so an asset stored as
+        // "illustrations/x.jpg" is fetched from "/story/<slug>/illustrations/x.jpg".
+        return "/story/" + story.getSlug() + "/" + file;
     }
 
     private ObjectNode assemble(Story story, List<StoryScene> scenes) {
@@ -157,6 +176,20 @@ public class StoryContentAssemblyService implements ApplicationRunner {
             domainStory.cast().forEach((castTag, cast) -> speakersNode.set(castTag, castEntryToJson(cast)));
         }
 
+        // Assets travel with the content now. They used to reach the app only through
+        // story-assets.generated.ts, baked into the bundle at build time - so a re-recorded line or
+        // a swapped illustration could not reach a child without shipping a new frontend, which is
+        // what made editing content in this database a half-measure.
+        ArrayNode assetsArray = packageData.putArray("assets");
+        for (StoryAsset asset : assetRepository.findByStory_IdOrderBySlugAsc(story.getId())) {
+            ObjectNode node = assetsArray.addObject();
+            node.put("slug", asset.getSlug());
+            node.put("category", asset.getCategory().name());
+            node.put("url", assetUrl(story, asset));
+            node.put("integrity", asset.getIntegrity());
+            if (asset.getFamilyId() != null) node.put("familyId", asset.getFamilyId());
+            if (asset.getPanel() != null) node.put("panel", asset.getPanel());
+        }
         packageData.set("reportCopy", objectMapper.valueToTree(extras.get("reportCopy")));
         packageData.set("release", objectMapper.valueToTree(extras.get("release")));
         packageData.set("evaluation", objectMapper.valueToTree(extras.get("evaluation")));

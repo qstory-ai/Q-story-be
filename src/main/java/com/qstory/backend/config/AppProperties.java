@@ -59,6 +59,7 @@ public record AppProperties(
             String serviceRoleKey,
             String voiceResearchBucket,
             String shadowAssetsBucket,
+            String storyAudioBucket,
             String voiceResearchCleanupToken) {
         public boolean configured() {
             return url != null && !url.isBlank()

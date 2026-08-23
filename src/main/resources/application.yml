@@ -24,12 +24,21 @@ spring:
     password: ${SUPABASE_DB_PASSWORD:postgres}
     hikari:
       maximum-pool-size: ${SUPABASE_DB_POOL_SIZE:10}
+  sql:
+    init:
+      # Plain Spring Boot script init, no migration library. The files under db/schema are the
+      # reviewed description of this schema and run on every boot, so each one must stay
+      # idempotent - "create ... if not exists" and constraint adds guarded against duplicates.
+      mode: always
+      schema-locations: classpath:db/schema/001-baseline.sql,classpath:db/schema/002-story-revision.sql,classpath:db/schema/003-segment-narration-stale.sql,classpath:db/schema/004-segment-narration-text.sql,classpath:db/schema/005-story-asset-rerender.sql
+      continue-on-error: false
   jpa:
     open-in-view: false
     hibernate:
-      # This is a fresh Supabase Postgres project - JPA entities are the single source of
-      # truth for the schema. Hibernate creates/alters tables to match them on boot.
-      ddl-auto: update
+      # The SQL under db/schema owns the schema; Hibernate only checks that the entities still
+      # match it, so a mapping change without matching SQL fails at boot instead of silently
+      # altering a table the way ddl-auto=update used to.
+      ddl-auto: validate
     properties:
       hibernate:
         default_schema: public
@@ -56,6 +65,9 @@ qstory:
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
     voice-research-bucket: ${SUPABASE_VOICE_RESEARCH_BUCKET:qstory-voice-research}
     shadow-assets-bucket: ${SUPABASE_SHADOW_ASSETS_BUCKET:qstory-shadow-assets}
+    # Narration re-rendered from an edited line. Separate from the build's static audio, which is
+    # immutable once shipped - these files are written after release and replace clips in place.
+    story-audio-bucket: ${SUPABASE_STORY_AUDIO_BUCKET:qstory-story-audio}
     voice-research-cleanup-token: ${QSTORY_RESEARCH_CLEANUP_TOKEN:}
   admin:
     story-import-token: ${QSTORY_STORY_IMPORT_TOKEN:}
