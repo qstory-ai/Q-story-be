@@ -17,9 +17,9 @@ import lombok.Setter;
 import org.hibernate.annotations.UuidGenerator;
 
 /**
- * A kindergarten. No owning-director FK here - the director is the unique AppUser with
- * role=DIRECTOR and organization=this, enforced by OrganizationService.create() (409 if the
- * caller already owns one) rather than a redundant bidirectional pointer.
+ * 유치원. 여기에는 소유 원장(owning-director)을 가리키는 FK가 없다 - 원장은 role=DIRECTOR이고
+ * organization=this인 유일한 AppUser이며, 이는 중복되는 양방향 포인터 대신 OrganizationService.create()에서
+ * 강제된다(호출자가 이미 하나를 소유하고 있으면 409를 반환).
  */
 @Entity
 @Table(name = "organization")

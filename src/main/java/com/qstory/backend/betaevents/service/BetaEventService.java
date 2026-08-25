@@ -6,8 +6,8 @@ import com.qstory.backend.common.enums.EntrySource;
 import com.qstory.backend.common.enums.EventName;
 import com.qstory.backend.common.enums.EventSource;
 import com.qstory.backend.common.enums.TrafficType;
-import com.qstory.backend.common.error.EdgeErrorCode;
-import com.qstory.backend.common.error.EdgeException;
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.betaevents.entity.StoryEvent;
 import com.qstory.backend.betaevents.entity.StorySession;
 import com.qstory.backend.shadow.service.ShadowIntentCollectionService;
@@ -17,9 +17,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Java port of beta-events/index.ts's session upsert + event insert. Unlike the edge function
- * (two PostgREST round-trips through Supabase), this backend owns the database directly, so the
- * session upsert and event insert happen in one local transaction instead.
+ * beta-events/index.ts의 세션 upsert + 이벤트 insert 로직을 Java로 이식한 것. 엣지 함수(edge function)는
+ * Supabase를 거쳐 PostgREST 왕복이 두 번 발생하지만, 이 백엔드는 데이터베이스를 직접 소유하므로 세션 upsert와
+ * 이벤트 insert가 대신 하나의 로컬 트랜잭션 안에서 일어난다.
  */
 @Service
 public class BetaEventService {
@@ -42,24 +42,16 @@ public class BetaEventService {
             return;
         }
 
-        StorySession session = repository.findSession(event.sessionId());
         Instant now = Instant.now();
-        if (session == null) {
-            session = StorySession.builder()
-                    .id(event.sessionId())
-                    .storyId(STORY_ID)
-                    .entrySource(event.source() == EventSource.LANDING ? EntrySource.LANDING : EntrySource.PLAYER)
-                    .trafficType(TrafficType.UNKNOWN)
-                    .lastSeenAt(now)
-                    .createdAt(now)
-                    .build();
-        }
+        EntrySource entrySource = event.source() == EventSource.LANDING ? EntrySource.LANDING : EntrySource.PLAYER;
+        repository.insertSessionIfAbsent(event.sessionId(), STORY_ID, entrySource.name(), TrafficType.UNKNOWN, now);
+        StorySession session = repository.findSession(event.sessionId());
         applyEventToSession(session, event, now);
         repository.saveSession(session);
 
         long recentEvents = repository.countRecentEvents(event.sessionId(), now.minus(RATE_LIMIT_WINDOW));
         if (recentEvents >= RATE_LIMIT_MAX_EVENTS) {
-            throw new EdgeException(EdgeErrorCode.RATE_LIMITED);
+            throw ApiException.contractError(ErrorCode.RATE_LIMITED, "요청이 너무 잦아요.", 429);
         }
 
         StoryEvent savedEvent = repository.saveEvent(StoryEvent.builder()
@@ -86,7 +78,7 @@ public class BetaEventService {
             if (TrafficType.VALUES.contains(upper)) {
                 session.setTrafficType(upper);
             }
-            // unrecognized traffic_type values are dropped rather than rejecting the whole event
+            // 인식할 수 없는 traffic_type 값은 이벤트 전체를 거부하지 않고 그냥 버린다
         }
 
         if (event.source() == EventSource.LANDING) {
@@ -111,7 +103,7 @@ public class BetaEventService {
             case STORY_COMPLETED -> session.setCompletedAt(now);
             case SURVEY_OPENED -> session.setSurveyOpenedAt(now);
             default -> {
-                // no session-level timestamp for this event
+                // 이 이벤트에 대해서는 세션 수준의 타임스탬프가 없음
             }
         }
     }

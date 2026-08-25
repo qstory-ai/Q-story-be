@@ -1,6 +1,6 @@
 package com.qstory.backend.common.error;
 
-/** Mirrors the Node backend's {@code ProviderError} class in {@code provider-error.mjs}. */
+/** Node 백엔드의 {@code provider-error.mjs}에 있는 {@code ProviderError} 클래스를 그대로 옮긴 것이다. */
 public class ProviderException extends RuntimeException {
 
     private final ProviderErrorCode code;
@@ -20,7 +20,7 @@ public class ProviderException extends RuntimeException {
         this(code, code.stage(), safeDetail, retryable, cause);
     }
 
-    /** Escape hatch for the handful of call sites whose stage varies by context (e.g. a timeout during stt vs. response). */
+    /** stage가 상황에 따라 달라지는 소수의 호출부(예: stt 도중 타임아웃인지 response 도중 타임아웃인지)를 위한 탈출구다. */
     public ProviderException(ProviderErrorCode code, String stage, String safeDetail, boolean retryable) {
         this(code, stage, safeDetail, retryable, null);
     }

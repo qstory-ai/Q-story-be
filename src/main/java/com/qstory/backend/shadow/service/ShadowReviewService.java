@@ -10,7 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-/** A human review surface for shadow_intent_candidates - see ShadowReviewController and ShadowIntentCollectionService. */
+/** shadow_intent_candidates에 대한 사람이 검토하는 화면 - ShadowReviewController와 ShadowIntentCollectionService 참고. */
 @Service
 public class ShadowReviewService {
 

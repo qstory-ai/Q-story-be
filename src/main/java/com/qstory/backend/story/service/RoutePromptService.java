@@ -10,9 +10,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Reads the route policy a story names. Cached per version because the text is immutable under a
- * given version - a changed policy is a new version, which is the whole point of storing the two
- * together instead of leaving the text in Java.
+ * 스토리가 지정하는 route policy를 읽어온다. 버전별로 캐싱하는 이유는 주어진 버전 안에서는 텍스트가
+ * 불변이기 때문이다 - policy가 바뀌면 새 버전이 되며, 이것이 바로 텍스트를 Java 안에 두지 않고
+ * 두 값을 함께 저장하는 이유의 전부다.
  */
 @Service
 public class RoutePromptService {
@@ -24,7 +24,7 @@ public class RoutePromptService {
         this.repository = repository;
     }
 
-    public record Prompt(String systemText, String instructionText) {}
+    public record Prompt(String systemText, String instructionText, String companionSafetyFragment) {}
 
     @Transactional(readOnly = true)
     public Prompt requirePrompt(String version) {
@@ -36,12 +36,12 @@ public class RoutePromptService {
                         500)));
     }
 
-    /** Called by the import path so a re-imported policy is not served from a stale cache. */
+    /** 재임포트된 policy가 오래된 캐시에서 제공되지 않도록 임포트 경로에서 호출된다. */
     public void invalidate(String version) {
         cache.remove(version);
     }
 
     private Prompt toPrompt(RoutePrompt row) {
-        return new Prompt(row.getSystemText(), row.getInstructionText());
+        return new Prompt(row.getSystemText(), row.getInstructionText(), row.getCompanionSafetyFragment());
     }
 }

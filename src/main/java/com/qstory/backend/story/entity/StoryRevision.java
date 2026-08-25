@@ -22,12 +22,12 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * One appended authoring edit.
+ * 추가(append)된 하나의 저작(authoring) 편집 기록.
  *
- * <p>Story content is moving out of the git-tracked content files and into this database, which
- * would otherwise drop the three things git was quietly providing: who changed it, what it looked
- * like before, and how to get back. Every authoring write appends a row here carrying the target's
- * full prior state, so history is readable and a revert is replaying an older snapshot.
+ * <p>스토리 콘텐츠는 git으로 추적되던 콘텐츠 파일에서 이 데이터베이스로 옮겨가고 있는데, 그렇게 하지
+ * 않으면 git이 조용히 제공해 주던 세 가지 - 누가 바꿨는지, 이전에는 어떤 모습이었는지, 어떻게
+ * 되돌릴 수 있는지 - 를 잃게 된다. 모든 저작 write는 대상의 이전 상태 전체를 담은 행을 여기에
+ * 추가하므로, 이력을 읽을 수 있고 되돌리기(revert)는 예전 스냅샷을 재생하는 일이 된다.
  */
 @Entity
 @Table(name = "story_revision")
@@ -45,7 +45,7 @@ public class StoryRevision {
     @Column(name = "story_id", nullable = false)
     private String storyId;
 
-    /** Monotonic per story; also the optimistic-concurrency token an editor sends back. */
+    /** 스토리별로 단조 증가한다; 편집기가 다시 보내는 낙관적 동시성(optimistic-concurrency) 토큰이기도 하다. */
     @Column(nullable = false)
     private Integer revision;
 
@@ -68,7 +68,7 @@ public class StoryRevision {
     @Column(name = "after_state", columnDefinition = "jsonb")
     private Map<String, Object> afterState;
 
-    /** Null for the content:import pipeline, which acts as the system rather than a person. */
+    /** content:import 파이프라인의 경우 null이며, 이는 사람이 아니라 시스템으로서 동작하기 때문이다. */
     @Column(name = "author_id")
     private UUID authorId;
 

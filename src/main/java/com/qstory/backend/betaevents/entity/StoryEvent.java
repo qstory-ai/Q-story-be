@@ -26,7 +26,7 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.type.SqlTypes;
 
-/** One append-only funnel/telemetry event. The id is client-generated so retried uploads dedupe. */
+/** 추가 전용(append-only) 퍼널/텔레메트리 이벤트 하나. id는 클라이언트에서 생성하므로 재시도된 업로드도 중복 제거된다. */
 @Entity
 @Table(
         name = "story_events",

@@ -14,11 +14,12 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Appends the audit trail every authoring write goes through.
+ * 모든 저작(authoring) 쓰기 작업이 거쳐가는 감사 추적(audit trail)을 기록한다.
  *
- * <p>Story content is leaving the git-tracked content files for the database, so the reviewability
- * git provided has to be rebuilt here: who changed what, what it held before, and how to get back.
- * A write that skips this service is a write nobody can explain later.
+ * <p>스토리 콘텐츠가 git으로 추적되던 콘텐츠 파일에서 데이터베이스로 옮겨가고 있으므로, git이
+ * 제공하던 검토 가능성(reviewability)을 여기서 다시 구축해야 한다: 누가 무엇을 바꿨는지, 이전에는
+ * 무엇이 들어 있었는지, 어떻게 되돌릴 수 있는지. 이 서비스를 거치지 않은 쓰기는 나중에 아무도
+ * 설명할 수 없는 쓰기가 된다.
  */
 @Service
 public class StoryRevisionService {
@@ -32,9 +33,9 @@ public class StoryRevisionService {
     }
 
     /**
-     * The caller's view of how current the story was when they started editing. An editor sends it
-     * back with a write; a mismatch means someone else has since written, and the write is refused
-     * rather than silently overwriting them.
+     * 호출자가 편집을 시작했을 때 스토리가 얼마나 최신 상태였는지를 나타내는 값이다. 편집자는 쓰기
+     * 요청을 보낼 때 이 값을 함께 돌려보내며, 값이 일치하지 않으면 그 사이 다른 누군가가 이미 썼다는
+     * 뜻이므로, 조용히 덮어쓰는 대신 쓰기를 거부한다.
      */
     @Transactional(readOnly = true)
     public int currentRevision(String storyId) {
@@ -55,8 +56,8 @@ public class StoryRevisionService {
     }
 
     /**
-     * Records one edit. Runs in the caller's transaction on purpose: the revision and the change it
-     * describes commit together, so history can never claim an edit that rolled back.
+     * 수정 사항 하나를 기록한다. 의도적으로 호출자의 트랜잭션 안에서 실행된다: 리비전과 그것이
+     * 설명하는 변경 사항이 함께 커밋되므로, 롤백된 수정이 이력에 남아 있는 일은 절대 없다.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public StoryRevision record(
@@ -82,7 +83,7 @@ public class StoryRevisionService {
                 .build());
     }
 
-    /** Entities carry lazy associations that must not be walked into the snapshot, hence the DTOs. */
+    /** 엔티티는 스냅샷에 그대로 담기면 안 되는 지연 로딩(lazy) 연관관계를 갖고 있어서, DTO를 쓰는 이유가 여기에 있다. */
     @SuppressWarnings("unchecked")
     private Map<String, Object> snapshot(Object value) {
         return value == null ? null : objectMapper.convertValue(value, Map.class);

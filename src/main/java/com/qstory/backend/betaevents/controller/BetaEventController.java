@@ -4,8 +4,8 @@ import com.qstory.backend.betaevents.service.BetaEventService;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.qstory.backend.common.error.EdgeErrorCode;
-import com.qstory.backend.common.error.EdgeException;
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.FailureBody;
 import com.qstory.backend.common.util.HttpJsonWriter;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,7 +22,7 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Java port of supabase/functions/beta-events/index.ts. */
+/** supabase/functions/beta-events/index.ts를 Java로 이식한 것. */
 @Tag(name = "Beta events", description = "Pseudonymous, cookie-free funnel telemetry for the beta - session lifecycle and question-routing events")
 @RestController
 public class BetaEventController {
@@ -68,7 +68,7 @@ public class BetaEventController {
     private JsonNode readJson(HttpServletRequest request) throws IOException {
         long declaredLength = request.getContentLengthLong();
         if (declaredLength > MAX_PAYLOAD_BYTES) {
-            throw new EdgeException(EdgeErrorCode.PAYLOAD_TOO_LARGE);
+            throw ApiException.contractError(ErrorCode.PAYLOAD_TOO_LARGE, "요청이 너무 커요.", 413);
         }
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] chunk = new byte[2048];
@@ -77,14 +77,14 @@ public class BetaEventController {
         while ((read = request.getInputStream().read(chunk)) != -1) {
             total += read;
             if (total > MAX_PAYLOAD_BYTES) {
-                throw new EdgeException(EdgeErrorCode.PAYLOAD_TOO_LARGE);
+                throw ApiException.contractError(ErrorCode.PAYLOAD_TOO_LARGE, "요청이 너무 커요.", 413);
             }
             buffer.write(chunk, 0, read);
         }
         try {
             return objectMapper.readTree(buffer.toByteArray());
         } catch (IOException malformed) {
-            throw new EdgeException(EdgeErrorCode.INVALID_JSON);
+            throw ApiException.contractError(ErrorCode.INVALID_JSON, "요청 형식이 올바르지 않아요.");
         }
     }
 }

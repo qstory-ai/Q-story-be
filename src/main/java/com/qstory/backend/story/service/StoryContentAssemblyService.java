@@ -30,14 +30,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * An in-memory, request-hot cache of every story's full narrative content (scenes/segments/
- * fallbacks, imported by StoryImportService), reassembled into the same {@code {generatedContent,
- * packageData}} shape the frontend's build pipeline used to bundle statically - so
- * fe/q-story-web's buildStoryRuntimePackage() can consume this response with no reshaping.
+ * 모든 스토리의 전체 서사 콘텐츠(장면/세그먼트/fallback, StoryImportService가 임포트함)를 메모리에
+ * 올려두는, 요청마다 즉시 사용되는 캐시다. 프론트엔드의 빌드 파이프라인이 정적으로 번들링할 때 쓰던
+ * {@code {generatedContent, packageData}}와 동일한 형태로 재조립하므로, fe/q-story-web의
+ * buildStoryRuntimePackage()가 이 응답을 별도 가공 없이 그대로 소비할 수 있다.
  *
- * <p>Reloaded once on boot (after {@link StoryRegistry}, via {@code @Order}) and again whenever
- * StoryImportService writes new content, exactly like StoryRegistry's own cache-then-reload
- * philosophy - this data changes by an explicit import, not per request.
+ * <p>부팅 시 한 번({@code @Order}에 의해 {@link StoryRegistry} 이후) 로드되고, StoryImportService가
+ * 새 콘텐츠를 기록할 때마다 다시 로드된다 - StoryRegistry 자체의 캐시 후 재로드 방식과 정확히 동일하게,
+ * 이 데이터는 요청마다가 아니라 명시적인 임포트에 의해서만 바뀐다.
  */
 @Component
 @Order(2)
@@ -82,28 +82,28 @@ public class StoryContentAssemblyService implements ApplicationRunner {
         for (Story story : storyRepository.findAll()) {
             List<StoryScene> scenes = sceneRepository.findByStory_IdOrderBySequenceAsc(story.getId());
             if (scenes.isEmpty()) {
-                continue; // not yet imported - GET /v1/stories/{id}/content 404s until it is
+                continue; // 아직 임포트되지 않음 - 임포트되기 전까지는 GET /v1/stories/{id}/content가 404를 반환한다
             }
             assembled.put(story.getId(), assemble(story, scenes));
         }
         assembledByStoryId = Map.copyOf(assembled);
     }
 
-    /** Null if this story hasn't been imported yet. */
+    /** 이 스토리가 아직 임포트되지 않았다면 null. */
     public ObjectNode get(String storyId) {
         return assembledByStoryId.get(storyId);
     }
 
     /**
-     * Where the app should fetch this asset. A file re-rendered at runtime (see the narration
-     * re-render pipeline) is stored remotely and carries an absolute URL; everything else is still
-     * a path under the frontend's static root, served from the site root.
+     * 앱이 이 asset을 가져와야 할 위치. 런타임에 재렌더링된 파일(narration 재렌더링 파이프라인 참고)은
+     * 원격에 저장되어 절대 URL을 가지며, 그 외 나머지는 여전히 프론트엔드 정적 루트 아래의 경로로,
+     * 사이트 루트에서 서빙된다.
      */
     private String assetUrl(Story story, StoryAsset asset) {
         String file = asset.getFile();
         if (file.startsWith("http://") || file.startsWith("https://")) return file;
-        // The frontend serves its static story files from the site root, so an asset stored as
-        // "illustrations/x.jpg" is fetched from "/story/<slug>/illustrations/x.jpg".
+        // 프론트엔드는 정적 스토리 파일을 사이트 루트에서 서빙하므로, "illustrations/x.jpg"로 저장된
+        // asset은 "/story/<slug>/illustrations/x.jpg"에서 가져오게 된다.
         return "/story/" + story.getSlug() + "/" + file;
     }
 
@@ -143,9 +143,9 @@ public class StoryContentAssemblyService implements ApplicationRunner {
         ObjectNode packageData = root.putObject("packageData");
         packageData.put("schemaVersion", 1);
         ObjectNode packageStory = packageData.putObject("story");
-        // story.yaml carries a few fields (targetAge/immutableEvents/forbiddenElements) with no
-        // dedicated table yet - start from the cached raw copy, then overwrite every field that
-        // has a live DB source of truth so an edit to those rows is never masked by a stale cache.
+        // story.yaml은 아직 전용 테이블이 없는 몇몇 필드(targetAge/immutableEvents/forbiddenElements)를
+        // 가지고 있다 - 캐시된 원본 복사본에서 시작한 다음, 실제 DB가 source of truth인 필드들을 모두
+        // 덮어써서, 그 row들에 대한 수정이 오래된 캐시에 의해 가려지는 일이 없도록 한다.
         setAll(packageStory, extras.get("story"));
         packageStory.put("schemaVersion", 1);
         packageStory.put("storyId", story.getId());
@@ -176,10 +176,10 @@ public class StoryContentAssemblyService implements ApplicationRunner {
             domainStory.cast().forEach((castTag, cast) -> speakersNode.set(castTag, castEntryToJson(cast)));
         }
 
-        // Assets travel with the content now. They used to reach the app only through
-        // story-assets.generated.ts, baked into the bundle at build time - so a re-recorded line or
-        // a swapped illustration could not reach a child without shipping a new frontend, which is
-        // what made editing content in this database a half-measure.
+        // 이제 asset은 콘텐츠와 함께 전달된다. 예전에는 story-assets.generated.ts를 통해서만 앱에 도달했고,
+        // 이는 빌드 시점에 번들에 구워 넣는 방식이었다 - 그래서 다시 녹음한 대사나 교체된 삽화가 새 프론트엔드를
+        // 배포하지 않고서는 아이에게 도달할 수 없었고, 이것이 바로 이 데이터베이스에서 콘텐츠를 수정하는 것을
+        // 반쪽짜리 조치로 만드는 이유였다.
         ArrayNode assetsArray = packageData.putArray("assets");
         for (StoryAsset asset : assetRepository.findByStory_IdOrderBySlugAsc(story.getId())) {
             ObjectNode node = assetsArray.addObject();
@@ -215,7 +215,7 @@ public class StoryContentAssemblyService implements ApplicationRunner {
                 case "interaction" -> questionSlots.add(payload.path("slot").asText(""));
                 case "anchor" -> anchors.add(payload.path("id").asText(""));
                 case "rejoin" -> rejoins.add(payload.deepCopy());
-                default -> { /* utterance/checkpoint/trace/sfx don't feed a scene-level derived list */ }
+                default -> { /* utterance/checkpoint/trace/sfx는 장면 단위로 파생된 목록에 포함되지 않는다 */ }
             }
         }
         node.put("checkpointId", scene.getCheckpointId());
@@ -286,7 +286,7 @@ public class StoryContentAssemblyService implements ApplicationRunner {
         return node;
     }
 
-    /** Merges a cached raw JSON object (may be null, e.g. before the first import) into an ObjectNode. */
+    /** 캐시된 원본 JSON 객체(예: 첫 임포트 이전이라 null일 수 있음)를 ObjectNode에 병합한다. */
     private void setAll(ObjectNode target, Object rawMap) {
         if (rawMap instanceof Map<?, ?> map) {
             target.setAll((ObjectNode) objectMapper.valueToTree(map));

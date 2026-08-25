@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
-/** Wraps StoryActionFamilyRepository: entity->domain assembly for ChoiceCopyRegistry. */
+/** StoryActionFamilyRepository를 감싸는 래퍼: ChoiceCopyRegistry를 위한 entity->domain 조립. */
 @Component
 public class ChoiceCopyRepository {
 

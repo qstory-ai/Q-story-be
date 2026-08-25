@@ -18,7 +18,7 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
-/** One voice-cast entry (e.g. cast tag "GRETEL" -> speakerId "HG-SPK-GRETEL") for a story. */
+/** 스토리를 위한 하나의 voice-cast 항목 (예: cast tag "GRETEL" -> speakerId "HG-SPK-GRETEL"). */
 @Entity
 @Table(name = "story_cast", uniqueConstraints = @UniqueConstraint(columnNames = {"story_id", "cast_tag"}))
 @Getter
@@ -37,14 +37,14 @@ public class StoryCast {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private Story story;
 
-    /** Authoring-time key, e.g. "GRETEL", "OLD_WOMAN" - distinct from speakerId, which is the runtime-facing id. */
+    /** 저작 시점의 키, 예: "GRETEL", "OLD_WOMAN" - 런타임에 노출되는 id인 speakerId와는 별개다. */
     @Column(name = "cast_tag", nullable = false)
     private String castTag;
 
     @Column(nullable = false, unique = true)
     private String speakerId;
 
-    /** One of CastRole.VALUES - plain string, see that class's doc for why. */
+    /** CastRole.VALUES 중 하나 - 순수 문자열이며, 그 이유는 해당 클래스의 문서를 참고. */
     @Column(nullable = false)
     private String role;
 
@@ -60,6 +60,5 @@ public class StoryCast {
     @Column(nullable = false, length = 500)
     private String direction;
 
-    /** Links two cast entries that are the same underlying character (e.g. OLD_WOMAN and WITCH). */
     private String samePersonKey;
 }

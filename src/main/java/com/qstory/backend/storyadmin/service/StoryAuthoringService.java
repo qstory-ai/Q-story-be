@@ -22,12 +22,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Edits one piece of a story at a time.
+ * 스토리를 한 번에 한 조각씩 수정한다.
  *
- * <p>Until now the only way to change anything was POST /v1/admin/stories/import, which replaces
- * the entire story - fine while the content files were the source and the DB was a copy, useless
- * once someone wants to fix a single line of narration. Every write here goes through
- * {@link StoryRevisionService} so the change is attributable and reversible.
+ * <p>지금까지 무언가를 바꾸는 유일한 방법은 스토리 전체를 교체하는 POST /v1/admin/stories/import뿐
+ * 이었다 - 콘텐츠 파일이 원본이고 DB는 그 사본에 불과했던 동안에는 괜찮았지만, 내레이션 한 줄만
+ * 고치고 싶어지는 순간부터는 쓸모가 없어진다. 여기서 이루어지는 모든 쓰기는
+ * {@link StoryRevisionService}를 거치므로 변경 사항의 책임 소재를 알 수 있고 되돌릴 수도 있다.
  */
 @Service
 public class StoryAuthoringService {
@@ -91,8 +91,8 @@ public class StoryAuthoringService {
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "그 문장을 찾지 못했어요.", 404));
 
         SegmentView before = SegmentView.of(segment);
-        // narrationText is deliberately untouched: it records what the audio says, which an edit
-        // to the script does not change. SegmentView compares the two.
+        // narrationText는 의도적으로 건드리지 않는다: 이 필드는 오디오가 실제로 말하는 내용을
+        // 기록하는 것이며, 대본을 수정한다고 해서 바뀌지 않는다. SegmentView가 이 둘을 비교한다.
         segment.setPayload(request.payload());
         SegmentView after = SegmentView.of(segmentRepository.save(segment));
 
@@ -103,10 +103,10 @@ public class StoryAuthoringService {
     }
 
     /**
-     * Puts back whatever the named revision changed, as it stood before that edit.
+     * 지정한 리비전이 변경한 내용을, 그 수정이 있기 전 상태로 되돌린다.
      *
-     * <p>Recorded as a new revision rather than by deleting the one being undone: an undo is
-     * something that happened, and a history you can rewrite is not an audit trail.
+     * <p>되돌리려는 리비전을 삭제하는 대신 새 리비전으로 기록한다: undo(되돌리기) 역시 실제로
+     * 일어난 일이며, 다시 쓸 수 있는 이력은 감사 추적(audit trail)이 아니다.
      */
     @Transactional
     public Map<String, Object> revert(String storyId, RevertRequest request, UUID authorId) {
@@ -170,9 +170,9 @@ public class StoryAuthoringService {
     }
 
     /**
-     * Refuses a write aimed at a story that has moved on since the editor loaded it. Compared here
-     * rather than per row because a story is edited as a whole - a scene retitled against a stale
-     * view of its neighbours is just as wrong as one written over.
+     * 편집자가 스토리를 불러온 이후 그 스토리가 이미 앞서 나간 상태라면 쓰기 요청을 거부한다. 행(row)
+     * 단위가 아니라 여기서 비교하는 이유는 스토리가 하나의 전체로서 편집되기 때문이다 - 이웃 요소들의
+     * 오래된 상태를 기준으로 제목이 바뀐 scene은, 그냥 덮어써진 것만큼이나 잘못된 것이다.
      */
     private void requireCurrent(String storyId, Integer baseRevision) {
         if (baseRevision == null) {

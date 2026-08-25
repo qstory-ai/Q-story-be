@@ -21,7 +21,7 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
-/** Links one story_events row (a routed question) to the shadow intent candidate it fed. */
+/** story_events의 한 행(라우팅된 질문)을 그것이 반영된 shadow intent candidate와 연결한다. */
 @Entity
 @Table(name = "shadow_question_observations")
 @Getter

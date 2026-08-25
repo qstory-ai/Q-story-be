@@ -4,7 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
-/** Wraps raw 16-bit PCM in a minimal 44-byte WAV header, matching openrouter.mjs's wrapPcmAsWav(). */
+/** raw 16비트 PCM 데이터를 최소 44바이트짜리 WAV 헤더로 감싼다. openrouter.mjs의 wrapPcmAsWav()와 동일하게 동작한다. */
 public final class WavPcmUtil {
 
     private WavPcmUtil() {}

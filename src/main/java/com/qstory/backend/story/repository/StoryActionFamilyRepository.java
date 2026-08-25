@@ -8,7 +8,7 @@ public interface StoryActionFamilyRepository extends JpaRepository<StoryActionFa
 
     List<StoryActionFamily> findByAnchor_IdOrderByDisplayOrderAsc(String anchorId);
 
-    /** Families whose fallback response has been imported (rejoinSlot set) - see StoryContentAssemblyService. */
+    /** fallback 응답이 임포트되어 rejoinSlot이 설정된 family들 - StoryContentAssemblyService 참고. */
     List<StoryActionFamily> findByAnchor_Story_IdAndRejoinSlotIsNotNullOrderByAnchor_IdAscDisplayOrderAsc(
             String storyId);
 }

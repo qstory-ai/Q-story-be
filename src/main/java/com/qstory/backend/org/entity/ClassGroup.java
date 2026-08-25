@@ -18,7 +18,7 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
-/** One classroom within an Organization. joinCode is durable/reusable - printable on a flyer for self-signup. */
+/** Organization 내부의 한 반(classroom). joinCode는 영구적/재사용 가능하며 - 자율 가입용으로 전단지에 인쇄할 수 있다. */
 @Entity
 @Table(name = "class_group")
 @Getter

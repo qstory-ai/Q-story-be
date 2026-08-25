@@ -18,9 +18,9 @@ import lombok.Setter;
 import org.hibernate.annotations.UuidGenerator;
 
 /**
- * A normalized, repeated child intent that the current story content does not cover exactly.
- * Never shown to a child directly - {@code reviewStatus} only advances to READY_FOR_REVIEW
- * automatically; APPROVED/REJECTED/PROMOTED always require a human reviewer.
+ * 현재 스토리 콘텐츠가 정확히 다루지 못하는, 정규화되고 반복되는 아이의 의도(intent).
+ * 아이에게 직접 노출되는 일은 없다 - {@code reviewStatus}는 READY_FOR_REVIEW까지만 자동으로 진행되며,
+ * APPROVED/REJECTED/PROMOTED로의 전환은 항상 사람 검토자를 필요로 한다.
  */
 @Entity
 @Table(

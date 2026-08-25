@@ -3,9 +3,9 @@ package com.qstory.backend.story;
 import java.util.List;
 
 /**
- * The runtime-resolved view of an Anchor: prerequisite-gated action families/concern choice,
- * plus the identifiers and version stamps the LLM prompt and response validator need. Mirrors
- * story-registry.mjs's normalizeStoryContext() output.
+ * Anchor의 런타임에 해석된 뷰: 선행 조건으로 게이팅된 action families/concern choice와, 그리고
+ * LLM 프롬프트 및 응답 검증기가 필요로 하는 식별자와 버전 스탬프들. story-registry.mjs의
+ * normalizeStoryContext() 출력을 그대로 반영한다.
  */
 public record StoryContext(
         String slot,

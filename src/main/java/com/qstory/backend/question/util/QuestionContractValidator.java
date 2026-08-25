@@ -11,7 +11,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
-/** Java port of question-contract.mjs. */
+/** question-contract.mjs를 Java로 이식한 것. */
 @Component
 public class QuestionContractValidator {
 
@@ -22,6 +22,9 @@ public class QuestionContractValidator {
 
     public record HeaderContext(String storyId, String sceneId, String anchorId, int questionRound, String sourceMimeType) {}
 
+    /** 컴패니언 챗 음성 인식용 - anchor/questionRound 없이 storyId/sceneId만 필요하다. */
+    public record CompanionAudioContext(String storyId, String sceneId, String sourceMimeType) {}
+
     public record TextQuestion(
             String storyId, String sceneId, String anchorId, int questionRound, boolean guaranteeAgencyChoice,
             List<String> priorActionFamilyIds, String transcript) {}
@@ -31,9 +34,37 @@ public class QuestionContractValidator {
         return resolveHeaderContext(request, contentType == null ? "" : contentType);
     }
 
-    /** Used for the base64 upload route: the mimeType comes from the decoded JSON body, not the request's own content-type (application/json). */
+    /** base64 업로드 라우트에서 사용된다: mimeType은 요청 자체의 content-type(application/json)이 아니라 디코딩된 JSON 본문에서 가져온다. */
     public HeaderContext parseQuestionContextForMimeType(HttpServletRequest request, String mimeType) {
         return resolveHeaderContext(request, mimeType);
+    }
+
+    /**
+     * /v1/transcriptions/base64 전용 - storyId/sceneId/anchorId/questionRound를 헤더가 아니라
+     * (오디오와 같이 이미 파싱된) JSON body에서 읽는다. 리소스 컨텍스트가 URL이나 body에 있어야
+     * 한다는 원칙에 맞추면서, 같은 정보를 body로 받는 형제 엔드포인트 POST /v1/questions/route와
+     * 일관되게 맞춘다.
+     */
+    public HeaderContext parseQuestionContextFromBody(JsonNode body, String mimeType) {
+        String storyId = checkedIdentifier(requiredBodyField(body, "storyId"), "storyId");
+        String sceneId = checkedIdentifier(requiredBodyField(body, "sceneId"), "sceneId");
+        String anchorId = checkedIdentifier(requiredBodyField(body, "anchorId"), "anchorId");
+        int questionRound = parseQuestionRound(requiredBodyField(body, "questionRound"));
+        return new HeaderContext(storyId, sceneId, anchorId, questionRound, checkedAudioMimeType(mimeType));
+    }
+
+    /** 컴패니언 챗의 base64 음성 인식 라우트에서 사용된다 - anchor/questionRound 헤더는 요구하지 않는다. */
+    public CompanionAudioContext parseCompanionAudioContext(HttpServletRequest request, String mimeType) {
+        String storyId = checkedIdentifier(requiredHeader(request, "x-qstory-story-id"), "storyId");
+        String sceneId = checkedIdentifier(requiredHeader(request, "x-qstory-scene-id"), "sceneId");
+        return new CompanionAudioContext(storyId, sceneId, checkedAudioMimeType(mimeType));
+    }
+
+    /** parseCompanionAudioContext의 body 버전 - storyId/sceneId를 헤더가 아니라 JSON body에서 읽는다. */
+    public CompanionAudioContext parseCompanionAudioContextFromBody(JsonNode body, String mimeType) {
+        String storyId = checkedIdentifier(requiredBodyField(body, "storyId"), "storyId");
+        String sceneId = checkedIdentifier(requiredBodyField(body, "sceneId"), "sceneId");
+        return new CompanionAudioContext(storyId, sceneId, checkedAudioMimeType(mimeType));
     }
 
     private HeaderContext resolveHeaderContext(HttpServletRequest request, String rawContentType) {
@@ -41,12 +72,15 @@ public class QuestionContractValidator {
         String sceneId = checkedIdentifier(requiredHeader(request, "x-qstory-scene-id"), "sceneId");
         String anchorId = checkedIdentifier(requiredHeader(request, "x-qstory-anchor-id"), "anchorId");
         int questionRound = parseQuestionRound(requiredHeader(request, "x-qstory-question-round"));
+        return new HeaderContext(storyId, sceneId, anchorId, questionRound, checkedAudioMimeType(rawContentType));
+    }
 
+    private String checkedAudioMimeType(String rawContentType) {
         String base = rawContentType.split(";", 2)[0].trim().toLowerCase();
         if (!SUPPORTED_AUDIO_TYPES.contains(base)) {
             throw ApiException.contractError(ErrorCode.UNSUPPORTED_AUDIO_TYPE, "The uploaded recording type is not supported");
         }
-        return new HeaderContext(storyId, sceneId, anchorId, questionRound, base);
+        return base;
     }
 
     public TextQuestion parseTextQuestionRequest(JsonNode value) {
@@ -86,6 +120,14 @@ public class QuestionContractValidator {
             throw ApiException.contractError(ErrorCode.MISSING_REQUEST_CONTEXT, name + " is required");
         }
         return value.trim();
+    }
+
+    private String requiredBodyField(JsonNode body, String name) {
+        String value = body == null ? "" : body.path(name).asText("").trim();
+        if (value.isEmpty()) {
+            throw ApiException.contractError(ErrorCode.MISSING_REQUEST_CONTEXT, name + " is required");
+        }
+        return value;
     }
 
     private String checkedIdentifier(String value, String field) {

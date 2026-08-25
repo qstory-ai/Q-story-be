@@ -9,6 +9,6 @@ public interface StorySegmentRepository extends JpaRepository<StorySegment, UUID
 
     List<StorySegment> findByScene_IdOrderByDisplayOrderAsc(String sceneId);
 
-    /** Bulk hydration path for StoryContentAssemblyService - one query for every segment of every scene in a story. */
+    /** StoryContentAssemblyService를 위한 벌크 로딩 경로 - 한 스토리의 모든 장면에 속한 모든 세그먼트를 쿼리 한 번으로 가져온다. */
     List<StorySegment> findByScene_Story_IdOrderByScene_SequenceAscDisplayOrderAsc(String storyId);
 }

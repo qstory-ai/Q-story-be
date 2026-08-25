@@ -15,10 +15,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Java port of the collect_shadow_intent_from_event / refresh_shadow_intent_candidate Postgres
- * trigger pair (dropped along with the rest of the old schema - this backend owns the behavior
- * in application code instead of DB triggers). Runs synchronously right after a question_result
- * event is persisted; never touches the child-facing runtime path.
+ * collect_shadow_intent_from_event / refresh_shadow_intent_candidate Postgres 트리거 쌍을
+ * Java로 이식한 것이다 (예전 스키마의 나머지 부분과 함께 폐기되었고, 이 백엔드는 DB 트리거 대신
+ * 애플리케이션 코드에서 그 동작을 직접 소유한다). question_result 이벤트가 저장된 직후에 동기적으로
+ * 실행되며, 아이가 마주하는 런타임 경로는 절대 건드리지 않는다.
  */
 @Service
 public class ShadowIntentCollectionService {
@@ -33,7 +33,7 @@ public class ShadowIntentCollectionService {
         this.repository = repository;
     }
 
-    /** Must run inside the same transaction as the StoryEvent insert - see BetaEventService.record(). */
+    /** StoryEvent를 insert하는 트랜잭션과 반드시 같은 트랜잭션 안에서 실행되어야 한다 - BetaEventService.record() 참고. */
     @Transactional
     public void collectFromQuestionResultEvent(StoryEvent event, StorySession session) {
         var metadata = event.getMetadata();

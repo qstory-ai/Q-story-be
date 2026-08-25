@@ -22,12 +22,12 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
 /**
- * One illustration or narration clip belonging to a story.
+ * 스토리에 속한 하나의 삽화 또는 내레이션 클립.
  *
- * <p>The surrogate key is a plain identity long: this is the one story table whose rows are joined
- * and referenced by volume (256 for a single story), and nothing outside the DB needs to guess it.
- * What content authors write is {@link #slug}, which stays human-readable so a story script can say
- * {@code asset=home-table} instead of a number nobody can review in a diff.
+ * <p>대체 키(surrogate key)는 단순한 identity long이다: 이 테이블은 대량으로(단일 스토리당 256개)
+ * join되고 참조되는 유일한 스토리 테이블이며, DB 외부에서 이 값을 추측해야 할 필요가 전혀 없다.
+ * 콘텐츠 작성자가 실제로 쓰는 것은 {@link #slug}이며, 사람이 읽을 수 있게 유지되므로 스토리 스크립트는
+ * diff에서 아무도 알아볼 수 없는 숫자 대신 {@code asset=home-table}처럼 쓸 수 있다.
  */
 @Entity
 @Table(
@@ -49,7 +49,7 @@ public class StoryAsset {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private Story story;
 
-    /** Authoring-time name, unique within a story, e.g. "home-table" or "a-observe-bird-01". */
+    /** 저작 시점의 이름으로, 스토리 안에서 고유하다, 예: "home-table" 또는 "a-observe-bird-01". */
     @Column(nullable = false)
     private String slug;
 
@@ -57,26 +57,26 @@ public class StoryAsset {
     @Column(nullable = false, length = 32)
     private AssetCategory category;
 
-    /** Path under the story's asset root, e.g. "illustrations/hg-art-01-home-table.jpg". */
+    /** 스토리의 에셋 루트 아래의 경로, 예: "illustrations/hg-art-01-home-table.jpg". */
     @Column(nullable = false)
     private String file;
 
-    /** Subresource-integrity hash of the file, recomputed by `npm run content:fix`. */
+    /** 파일의 서브리소스 무결성(Subresource-integrity) 해시로, `npm run content:fix`에 의해 재계산된다. */
     @Column(nullable = false)
     private String integrity;
 
-    /** Set for BRANCH_ART and BRIDGE only - the action family the asset belongs to. */
+    /** BRANCH_ART와 BRIDGE에 대해서만 설정된다 - 에셋이 속한 action family. */
     @Column(name = "family_id")
     private String familyId;
 
-    /** 1-based panel index within a family's branch art; null outside BRANCH_ART. */
+    /** family의 branch art 안에서 1부터 시작하는 panel 인덱스; BRANCH_ART가 아니면 null. */
     private Integer panel;
 
-    /** When this file was re-rendered at runtime; null for a file shipped with the build. */
+    /** 이 파일이 런타임에 다시 렌더링된 시점; 빌드에 포함되어 배포된 파일이라면 null. */
     @Column(name = "rendered_at")
     private java.time.Instant renderedAt;
 
-    /** The cast voice the re-render used, so a later cast change is detectable by comparison. */
+    /** 재렌더링에 사용된 cast voice로, 이후 cast가 바뀌었는지를 비교를 통해 감지할 수 있게 해준다. */
     @Column(name = "rendered_voice", length = 64)
     private String renderedVoice;
 }

@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Service;
 
-/** Java port of audio-normalizer.mjs. audio/webm goes through a spawned ffmpeg process; everything else is a pass-through. */
+/** audio-normalizer.mjs를 Java로 포팅한 것. audio/webm은 별도로 실행한 ffmpeg 프로세스를 거치고, 그 외에는 그대로 통과시킨다. */
 @Service
 public class AudioNormalizer {
 
@@ -81,7 +81,7 @@ public class AudioNormalizer {
             try (var errorStream = process.getErrorStream()) {
                 errorStream.transferTo(stderrBuffer);
             } catch (IOException ignored) {
-                // the process may have been destroyed mid-read; whatever was captured is enough for a log line
+                // 읽는 도중에 프로세스가 강제 종료되었을 수 있다; 그때까지 캡처된 내용만으로도 로그 한 줄로는 충분하다
             }
         }, "ffmpeg-stderr-drain");
         stderrDrain.setDaemon(true);
@@ -110,11 +110,11 @@ public class AudioNormalizer {
                 try {
                     Files.deleteIfExists(path);
                 } catch (IOException ignored) {
-                    // best-effort cleanup, matches the Node implementation's rm(..., { force: true })
+                    // 최선을 다한 정리(best-effort cleanup)로, Node 구현의 rm(..., { force: true })와 동일하다
                 }
             });
         } catch (IOException ignored) {
-            // directory may already be gone
+            // 디렉터리가 이미 사라졌을 수 있다
         }
     }
 }

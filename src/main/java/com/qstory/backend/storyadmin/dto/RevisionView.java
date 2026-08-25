@@ -4,7 +4,7 @@ import com.qstory.backend.story.entity.StoryRevision;
 import java.time.Instant;
 import java.util.Map;
 
-/** One entry of a story's edit history. */
+/** 스토리 편집 이력의 항목 하나. */
 public record RevisionView(
         int revision,
         String targetType,

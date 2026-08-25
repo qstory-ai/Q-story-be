@@ -4,8 +4,8 @@ import com.qstory.backend.voiceresearch.service.VoiceResearchService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.common.enums.CoverageStatus;
-import com.qstory.backend.common.error.EdgeErrorCode;
-import com.qstory.backend.common.error.EdgeException;
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.FailureBody;
 import com.qstory.backend.common.util.HttpJsonWriter;
 import com.qstory.backend.voiceresearch.dto.UploadRequest;
@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** Java port of supabase/functions/voice-research/index.ts's upload/withdraw actions. */
+/** supabase/functions/voice-research/index.ts의 upload/withdraw 액션을 Java로 이식한 버전. */
 @Tag(name = "Voice research", description = "Opt-in recording upload/withdrawal for the parent-consented voice research program - separate from the child-facing question pipeline")
 @RestController
 public class VoiceResearchController {
@@ -83,34 +83,6 @@ public class VoiceResearchController {
         HttpJsonWriter.writeJson(response, objectMapper, 202, Map.of("ok", true));
     }
 
-    /**
-     * The FE (voice-research.ts) sends both upload (multipart) and withdraw (JSON, {@code {action:'withdraw',...}})
-     * requests to a single base URL, mirroring the original Supabase edge function's action-based dispatch
-     * (supabase/functions/voice-research/index.ts). Keep accepting that shape here so a client pointed at this
-     * base URL for both operations keeps working, in addition to the dedicated /withdraw route below.
-     */
-    @Operation(
-            summary = "Legacy action-dispatch alias for withdraw",
-            description = "JSON body {action:\"withdraw\", consent_id, deletion_token} posted to the same base "
-                    + "URL as the multipart upload route - only action=\"withdraw\" is supported. Prefer POST "
-                    + "/v1/voice-research/withdraw directly for new callers.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Withdrawn",
-                    content = @Content(schema = @Schema(example = "{\"ok\":true}"))),
-            @ApiResponse(responseCode = "400", description = "action is not \"withdraw\", or a required field is missing",
-                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
-            @ApiResponse(responseCode = "403", description = "consent_id unknown or deletion_token mismatch",
-                    content = @Content(schema = @Schema(implementation = FailureBody.class)))
-    })
-    @PostMapping(value = "/v1/voice-research", consumes = "application/json")
-    public void dispatchJson(@RequestBody JsonNode body, HttpServletResponse response) throws IOException {
-        String action = body == null ? "" : body.path("action").asText("");
-        if (!"withdraw".equals(action)) {
-            throw new EdgeException(EdgeErrorCode.UNSUPPORTED_ACTION);
-        }
-        withdraw(body, response);
-    }
-
     @Operation(
             summary = "Withdraw consent and delete all of its recordings",
             description = "JSON body {consent_id, deletion_token} - deletion_token must match the token given "
@@ -128,7 +100,7 @@ public class VoiceResearchController {
     @PostMapping("/v1/voice-research/withdraw")
     public void withdraw(@RequestBody JsonNode body, HttpServletResponse response) throws IOException {
         if (body == null || !body.hasNonNull("consent_id") || !body.hasNonNull("deletion_token")) {
-            throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
         service.withdraw(parseUuid(body.get("consent_id").asText()), body.get("deletion_token").asText());
         HttpJsonWriter.writeJson(response, objectMapper, 200, Map.of("ok", true));
@@ -138,7 +110,7 @@ public class VoiceResearchController {
         try {
             return UUID.fromString(value);
         } catch (Exception malformed) {
-            throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
     }
 
@@ -146,7 +118,7 @@ public class VoiceResearchController {
         try {
             return Instant.parse(value);
         } catch (Exception malformed) {
-            throw new EdgeException(EdgeErrorCode.INVALID_CONSENT_TIME);
+            throw ApiException.contractError(ErrorCode.INVALID_CONSENT_TIME, "동의 시각이 올바르지 않아요.");
         }
     }
 
@@ -157,7 +129,7 @@ public class VoiceResearchController {
         try {
             return CoverageStatus.valueOf(value.toUpperCase());
         } catch (IllegalArgumentException unknown) {
-            throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
     }
 }

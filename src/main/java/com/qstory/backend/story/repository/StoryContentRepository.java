@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
-/** Wraps the four story-content JPA repositories, assembling their rows into the StoryManifest domain shape StoryRegistry caches. */
+/** 네 개의 story-content JPA 리포지토리를 감싸서, 그 row들을 StoryRegistry가 캐싱하는 StoryManifest 도메인 형태로 조립한다. */
 @Component
 public class StoryContentRepository {
 
@@ -58,7 +58,8 @@ public class StoryContentRepository {
                 storyEntity.getId(), storyEntity.getSlug(), storyEntity.getTitle(), storyEntity.getContentVersion(),
                 storyEntity.getAvailability(), storyEntity.getRoutePromptVersion(),
                 storyEntity.getRoutePolicyVersion(), storyEntity.getResponseTextNormalizationVersion(),
-                anchors, storyEntity.getCastVersion(), cast, storyEntity.isRequiresEntitlement());
+                anchors, storyEntity.getCastVersion(), cast, storyEntity.isRequiresEntitlement(),
+                storyEntity.getCoverImageUrl(), storyEntity.getDescription(), storyEntity.getCategory());
     }
 
     private Anchor toDomain(StoryAnchor anchorEntity) {

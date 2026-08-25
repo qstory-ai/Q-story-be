@@ -10,9 +10,9 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /**
- * In-memory cache of the reviewer-approved THREE_PATHS copy bank, loaded from Postgres once on
- * boot and again after every POST /v1/admin/stories/import (see StoryImportService) - this is
- * read on every routed question, so it is never queried per-request.
+ * 검수자가 승인한 THREE_PATHS 카피 뱅크(copy bank)의 인메모리 캐시. 부팅 시 한 번, 그리고 매 POST
+ * /v1/admin/stories/import 이후에 다시 Postgres로부터 로드된다(StoryImportService 참조) - 이는 라우팅된
+ * 질문마다 읽히므로, 요청마다 쿼리되는 일은 결코 없다.
  */
 @Component
 @Order(1)

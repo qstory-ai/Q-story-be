@@ -15,10 +15,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Parses "Authorization: Bearer <token>" and populates SecurityContext when present and valid.
- * Deliberately never rejects a request itself - most of this API (story catalog, the anonymous
- * demo's question/narration pipeline, signup/login/join-by-code) must keep working with zero
- * token, so denial is always an endpoint-level decision via CurrentUserResolver, never made here.
+ * "Authorization: Bearer <token>"을 파싱하여, 존재하고 유효할 경우 SecurityContext를 채운다.
+ * 이 필터 자체는 요청을 거부하지 않도록 의도적으로 만들어졌다 - 이 API의 대부분(story catalog,
+ * 익명 데모의 question/narration 파이프라인, signup/login/join-by-code)은 토큰이 전혀 없어도
+ * 계속 동작해야 하므로, 거부 여부는 항상 CurrentUserResolver를 통한 엔드포인트 단위의 결정이며
+ * 여기서는 절대 이루어지지 않는다.
  */
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {

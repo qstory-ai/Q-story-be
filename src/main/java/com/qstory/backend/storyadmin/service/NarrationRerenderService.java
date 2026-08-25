@@ -26,20 +26,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Re-records narration whose script has been edited.
+ * 대본이 수정된 내레이션을 다시 녹음한다.
  *
- * <p>Fixed narration ships as audio rendered from the content files, so editing a line in the
- * database changed the caption a child reads while the voice kept saying the old words. Marking
- * that mismatch (StorySegment.narrationText) only made it visible; this closes it.
+ * <p>고정 내레이션은 콘텐츠 파일로부터 렌더링된 오디오로 배포되므로, 데이터베이스에서 한 줄을
+ * 수정하면 아이가 읽는 자막은 바뀌지만 음성은 여전히 예전 단어를 말하고 있게 된다. 이 불일치를
+ * 표시(StorySegment.narrationText)하는 것만으로는 눈에 보이게 만들었을 뿐이고, 이 서비스가 그것을
+ * 실제로 해소한다.
  *
- * <p>Runs one segment at a time and commits each independently: a TTS call can fail halfway through
- * a story, and a partial re-render where every finished clip is correct is a far better place to
- * resume from than a rollback that discards them.
+ * <p>한 번에 세그먼트 하나씩 실행하고 각각을 독립적으로 커밋한다: TTS 호출은 스토리를 처리하는
+ * 도중에도 실패할 수 있는데, 완료된 클립은 모두 정상인 부분 재녹음 상태가, 그것들을 전부 버리는
+ * 롤백보다 재개하기에 훨씬 나은 지점이기 때문이다.
  */
 @Service
 public class NarrationRerenderService {
 
-    /** The narration clip that plays for an utterance is the audio asset sharing its slug. */
+    /** 어떤 대사(utterance)에서 재생되는 내레이션 클립은, 그 대사와 slug를 공유하는 오디오 asset이다. */
     private static final String NARRATION_CATEGORY = "NARRATION";
 
     private final StorySegmentRepository segmentRepository;
@@ -69,7 +70,7 @@ public class NarrationRerenderService {
 
     public record StaleLine(String segmentId, String sceneId, String spoken, String written) {}
 
-    /** What a re-render would cover: every utterance whose script no longer matches its recording. */
+    /** 재녹음이 커버하는 대상: 대본이 더 이상 녹음과 일치하지 않는 모든 대사. */
     @Transactional(readOnly = true)
     public List<StaleLine> staleLines(String storyId) {
         List<StaleLine> stale = new ArrayList<>();
@@ -86,14 +87,16 @@ public class NarrationRerenderService {
     }
 
     /**
-     * Re-records one line. Not batched over a whole story on purpose: each call is a paid provider
-     * request against a live story, so the caller decides how many to spend, and a failure names
-     * exactly one line rather than leaving a run half-applied with nothing saying where it stopped.
+     * 대사 한 줄을 다시 녹음한다. 스토리 전체를 대상으로 배치 처리하지 않는 것은 의도적이다: 호출
+     * 한 번마다 운영 중인 스토리에 대해 비용이 발생하는 프로바이더 요청이 나가므로, 몇 번을 쓸지는
+     * 호출자가 결정하게 하고, 실패했을 때도 정확히 어느 한 줄에서 실패했는지 알 수 있게 하기 위함이다
+     * - 어디서 멈췄는지 알 수 없는 채로 절반만 적용된 상태로 남기지 않는다.
      */
     @Transactional
     public Map<String, Object> rerender(String storyId, UUID segmentId, UUID authorId) {
-        // Checked before the work starts rather than left to surface as a provider failure two
-        // calls later, where it reads as "the recording broke" instead of "TTS was never set up".
+        // 작업이 시작되기 전에 미리 확인한다. 그렇지 않으면 몇 단계 뒤에 프로바이더 오류로
+        // 나타나게 되는데, 그러면 "TTS가 아예 설정된 적이 없다"가 아니라 "녹음이 고장났다"처럼
+        // 읽히게 된다.
         if (!ProviderReadiness.of(config).tts()) {
             throw ApiException.contractError(
                     ErrorCode.INTERNAL_ERROR, "음성 합성이 아직 설정되지 않았어요.", 500);
@@ -118,9 +121,9 @@ public class NarrationRerenderService {
         SynthesizedAudio audio = openRouterClient.synthesize(
                 ttsInput, cast.voice(), 1.0, RequestDeadline.startingNow(config.requestTimeoutMs()));
 
-        // Rendered clips are addressed by segment id, not by the slug of the file they replace: the
-        // original ships with the frontend build and stays where it is, so a re-render that is later
-        // reverted can fall back to it instead of having overwritten it.
+        // 렌더링된 클립은 자신이 대체하는 파일의 slug가 아니라 segment id로 주소가 지정된다:
+        // 원본은 프론트엔드 빌드와 함께 배포되어 그 자리에 그대로 남아 있으므로, 이후 재녹음이
+        // 되돌려지더라도 원본을 덮어쓰지 않은 덕분에 그 원본으로 폴백할 수 있다.
         String objectName = "%s/%s.mp3".formatted(storyId, segmentId);
         String bucket = config.supabase().storyAudioBucket();
         if (!storageClient.upload(bucket, objectName, audio.audio(), "audio/mpeg")) {
@@ -136,7 +139,7 @@ public class NarrationRerenderService {
         asset.setRenderedAt(Instant.now());
         asset.setRenderedVoice(cast.voice());
         assetRepository.save(asset);
-        // The recording now says the written line, which is what clears the mismatch.
+        // 이제 녹음이 대본에 적힌 대사와 일치하게 되었으므로, 이것으로 불일치가 해소된다.
         segment.setNarrationText(written);
         segmentRepository.save(segment);
 
@@ -148,8 +151,9 @@ public class NarrationRerenderService {
     }
 
     /**
-     * The clip slug is derived from the segment's position the same way the content pipeline derives
-     * it, which is the only link between a line and its recording - segments carry no asset id.
+     * 클립의 slug는, 콘텐츠 파이프라인이 이를 도출하는 방식과 동일하게, segment의 위치로부터
+     * 도출된다. 이것이 대사 한 줄과 그 녹음을 연결하는 유일한 고리다 - segment는 asset id를
+     * 별도로 가지고 있지 않다.
      */
     private StoryAsset narrationAssetFor(String storyId, StorySegment segment) {
         String sceneLocalId = segment.getScene().getId().startsWith(storyId + "-")

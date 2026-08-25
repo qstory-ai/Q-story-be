@@ -4,8 +4,8 @@ import com.qstory.backend.provider.openrouter.RouteDecision;
 import com.qstory.backend.provider.openrouter.RouteOption;
 import java.util.List;
 
-/** Wire shape for a resolved question answer. Field names are renamed from RouteDecision to match
- * src/core/contracts/speech.ts's RoutePlan exactly (rejoinAnchorId -> rejoinAt, responseText -> text). */
+/** 확정된 질문 답변의 전송 형태(wire shape). 필드명은 src/core/contracts/speech.ts의 RoutePlan과
+ * 정확히 일치하도록 RouteDecision에서 이름을 바꾼 것이다 (rejoinAnchorId -> rejoinAt, responseText -> text). */
 public record RoutePlan(
         String kind,
         String route,

@@ -10,8 +10,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 /**
- * Reusable generalization of the inline pattern StoryImportController.requireAdminToken() already
- * uses - controllers call this explicitly at the top of a protected method, no annotation/AOP.
+ * StoryImportController.requireAdminToken()이 이미 사용하고 있던 인라인 패턴을 재사용 가능하게
+ * 일반화한 것 - 컨트롤러가 보호된 메서드 맨 위에서 이것을 명시적으로 호출하며, 애너테이션이나
+ * AOP는 쓰지 않는다.
  */
 @Component
 public class CurrentUserResolver {

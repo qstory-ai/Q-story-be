@@ -3,7 +3,7 @@ package com.qstory.backend.storyadmin.dto;
 import com.qstory.backend.story.entity.StorySegment;
 import java.util.Map;
 
-/** A segment as an editor sees it - no lazy associations, so it doubles as a revision snapshot. */
+/** 편집자가 보는 그대로의 segment - 지연 로딩 연관관계가 없어서 리비전 스냅샷으로도 그대로 쓸 수 있다. */
 public record SegmentView(
         String id,
         String sceneId,
@@ -20,8 +20,8 @@ public record SegmentView(
                 segment.getDisplayOrder(),
                 segment.getKind(),
                 segment.isBranchPoint(),
-                // Derived, not stored: the audio is stale exactly when the line no longer matches
-                // what was recorded.
+                // 저장된 값이 아니라 계산된 값이다: 대사가 녹음된 내용과 더 이상 일치하지 않을 때
+                // 정확히 오디오가 stale 상태가 된다.
                 segment.getNarrationText() != null
                         && !segment.getNarrationText().equals(segment.getPayload().get("text")),
                 segment.getPayload());

@@ -5,7 +5,7 @@ import com.qstory.backend.story.StoryManifest;
 import com.qstory.backend.story.service.StoryRegistry;
 import org.springframework.stereotype.Service;
 
-/** Java port of voice-cast.mjs. */
+/** voice-cast.mjs를 Java로 이식한 버전. */
 @Service
 public class VoiceCastService {
 

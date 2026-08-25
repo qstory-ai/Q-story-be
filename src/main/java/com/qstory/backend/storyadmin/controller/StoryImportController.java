@@ -3,8 +3,8 @@ import com.qstory.backend.storyadmin.service.StoryImportService;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.qstory.backend.common.error.EdgeErrorCode;
-import com.qstory.backend.common.error.EdgeException;
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.FailureBody;
 import com.qstory.backend.common.util.DigestUtil;
 import com.qstory.backend.common.util.HttpBodyReader;
@@ -26,10 +26,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Internal admin surface: pushes the compiled output of fe/q-story-web's
- * generate-story-package.mjs into this backend's DB (see StoryImportService). Not part of the
- * child-facing API - guarded by a shared-secret header, the same posture as
- * qstory.supabase.voice-research-cleanup-token.
+ * 내부 관리자용 엔드포인트: fe/q-story-web의 generate-story-package.mjs가 생성한 컴파일 결과물을
+ * 이 백엔드의 DB에 반영한다(StoryImportService 참고). 어린이 대상 API의 일부가 아니며,
+ * qstory.supabase.voice-research-cleanup-token과 동일한 방식으로 공유 비밀(shared-secret) 헤더로
+ * 보호된다.
  */
 @Tag(name = "Story admin", description = "Internal content-authoring surface, guarded by a shared-secret header - not part of the child-facing API")
 @RestController
@@ -93,11 +93,11 @@ public class StoryImportController {
 
     private void requireAdminToken(HttpServletRequest request) {
         if (!config.admin().storyImportTokenConfigured()) {
-            throw new EdgeException(EdgeErrorCode.SERVER_NOT_CONFIGURED);
+            throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "이 기능은 아직 준비되지 않았어요.", 500);
         }
         String provided = request.getHeader("X-Admin-Token");
-        if (provided == null || !DigestUtil.constantTimeEquals(config.admin().storyImportToken(), provided)) {
-            throw new EdgeException(EdgeErrorCode.ADMIN_UNAUTHORIZED);
+        if (!DigestUtil.matchesAdminToken(provided, config.admin().storyImportToken())) {
+            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 작업을 수행할 권한이 없어요.", 403);
         }
     }
 }

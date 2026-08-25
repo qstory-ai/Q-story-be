@@ -10,7 +10,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
-/** Wraps the shadow-intent JPA repositories for ShadowIntentCollectionService and ShadowReviewService. */
+/** ShadowIntentCollectionService와 ShadowReviewService를 위해 shadow-intent JPA 리포지토리들을 감싼다. */
 @Component
 public class ShadowIntentRepository {
 

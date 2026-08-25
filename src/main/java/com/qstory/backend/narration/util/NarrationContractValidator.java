@@ -5,7 +5,7 @@ import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import org.springframework.stereotype.Component;
 
-/** Java port of narration-contract.mjs's parseNarrationRequest (validation only - context resolution is StoryRegistryService's job). */
+/** narration-contract.mjs의 parseNarrationRequest를 Java로 포팅한 것(검증만 수행 - 컨텍스트 해석은 StoryRegistryService의 역할). */
 @Component
 public class NarrationContractValidator {
 

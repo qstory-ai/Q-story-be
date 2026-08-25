@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
-/** Java port of choice-copy.mjs. */
+/** choice-copy.mjs를 Java로 이식한 것. */
 @Service
 public class ChoiceCopyService {
 
@@ -21,7 +21,7 @@ public class ChoiceCopyService {
         public record Example(String label, String meaning) {}
     }
 
-    /** Same 31-multiplier string hash as stableIndex() in choice-copy.mjs, over UTF-8 code points. */
+    /** choice-copy.mjs의 stableIndex()와 동일한, UTF-8 코드 포인트에 대한 31배수 문자열 해시. */
     private static int stableIndex(String seed, int length) {
         long hash = 0;
         for (int codePoint : seed.codePoints().toArray()) {

@@ -14,4 +14,7 @@ public record StoryManifest(
         Map<String, Anchor> anchors,
         String castVersion,
         Map<String, CastEntry> cast,
-        boolean requiresEntitlement) {}
+        boolean requiresEntitlement,
+        String coverImageUrl,
+        String description,
+        String category) {}

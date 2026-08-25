@@ -13,18 +13,18 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
 /**
- * Uniform failure envelope for every request-shape violation caught before a pipeline runs.
- * Mirrors the catch-all block at the bottom of the Node backend's server.mjs request handler:
- * status >= 500 forces stage=routing/retryable=true and withholds the safeDetail (it describes a
- * server-side defect, so it goes to the log instead of to whoever called); anything below 500
- * passes the thrown safeDetail through as-is.
+ * 파이프라인이 실행되기 전에 걸러지는 모든 요청 형식 위반에 대한 통일된 실패 봉투(envelope)다.
+ * Node 백엔드 server.mjs 요청 핸들러 하단의 catch-all 블록을 그대로 옮긴 것이다: status가 500
+ * 이상이면 stage=routing/retryable=true로 강제하고 safeDetail을 숨긴다(서버 측 결함을 설명하는
+ * 내용이므로, 호출한 쪽이 아니라 로그로 보낸다); 500 미만이면 던져진 safeDetail을 그대로
+ * 전달한다.
  *
- * Withheld rather than replaced with fixed copy: this advice covers every endpoint, and each
- * caller already has its own fallback wording for a detail-less failure - the story runtime picks
- * child-safe copy per stage (fe runtime-view.ts) and auth-api.ts falls back to a plain
- * "요청을 처리하지 못했어요". A message written here would override both with copy chosen without
- * knowing which endpoint failed, which is how a signup error came to say
- * "준비된 이야기로 계속할게요".
+ * 고정된 문구로 대체하지 않고 그냥 숨기는 이유: 이 advice는 모든 엔드포인트를 포괄하는데,
+ * 각 호출자는 이미 detail이 없는 실패에 대한 자신만의 폴백 문구를 갖고 있다 - 스토리 런타임은
+ * 단계별로 아동에게 안전한 문구를 고르고(fe runtime-view.ts), auth-api.ts는 단순히
+ * "요청을 처리하지 못했어요"로 폴백한다. 여기서 메시지를 작성해버리면, 어느 엔드포인트가
+ * 실패했는지 모르는 채로 고른 문구가 이 둘을 모두 덮어써 버리는데, 실제로 이런 식으로 회원가입
+ * 에러가 "준비된 이야기로 계속할게요"라고 말하게 된 적이 있었다.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -33,9 +33,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<FailureBody> handleApiException(ApiException error) {
-        // A 5xx ApiException is a server-side defect (misconfiguration, dependency down), not a
-        // caller mistake, and respond() withholds its safeDetail - so without this the one sentence
-        // describing what actually broke would reach nobody, on either side.
+        // 5xx ApiException은 호출자의 실수가 아니라 서버 측 결함(설정 오류, 의존 서비스 장애
+        // 등)이며, respond()는 그 safeDetail을 숨긴다 - 그러므로 이 로그가 없으면 실제로 무엇이
+        // 고장났는지 설명하는 그 한 문장이 양쪽 어디에도 도달하지 못한다.
         if (error.statusCode() >= 500) {
             log.error("request.failed requestId={} code={} safeDetail={}",
                     currentRequestId(), error.code(), error.safeDetail(), error);
@@ -61,8 +61,9 @@ public class GlobalExceptionHandler {
                 serverError ? "routing" : "upload",
                 serverError,
                 serverError ? null : safeDetail);
-        // No x-qstory-request-id here: RequestIdFilter already setHeader()s it on the way in, so
-        // adding it again emitted the same id twice on every error response.
+        // 여기서는 x-qstory-request-id를 넣지 않는다: RequestIdFilter가 들어오는 길에 이미
+        // setHeader()로 설정해두므로, 여기서 또 추가하면 모든 에러 응답에 같은 id가 두 번씩
+        // 찍히게 된다.
         return ResponseEntity.status(HttpStatus.valueOf(statusCode)).body(FailureBody.of(failure));
     }
 

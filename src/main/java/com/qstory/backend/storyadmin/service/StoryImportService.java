@@ -5,8 +5,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.choicecopy.ChoiceCopyVariant;
 import com.qstory.backend.choicecopy.service.ChoiceCopyRegistry;
-import com.qstory.backend.common.error.EdgeErrorCode;
-import com.qstory.backend.common.error.EdgeException;
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.story.entity.Story;
 import com.qstory.backend.story.entity.StoryActionFamily;
 import com.qstory.backend.story.entity.StoryAnchor;
@@ -39,20 +39,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Imports the already-compiled, already-QA-validated output of fe/q-story-web's
- * generate-story-package.mjs (generated-story-content.json + story-package.generated.json,
- * posted together as one body by the FE's import-story-to-backend.mjs script) into this backend's
- * Postgres schema. This backend has no filesystem access to the frontend repo's build output -
- * this HTTP import is the one hop that moves the compiled content across the two separate repos.
- * This is the single write path for a story's content - there is no seeder; the very first import
- * for a story id both creates and populates its row.
+ * fe/q-story-web의 generate-story-package.mjs가 만들어낸, 이미 컴파일되고 이미 QA 검증까지 끝난
+ * 결과물(generated-story-content.json + story-package.generated.json을 FE의
+ * import-story-to-backend.mjs 스크립트가 하나의 본문으로 함께 전송한 것)을 이 백엔드의 Postgres
+ * 스키마에 임포트한다. 이 백엔드는 프론트엔드 레포의 빌드 출력물에 파일시스템으로 접근할 수 없으므로,
+ * 이 HTTP 임포트가 컴파일된 콘텐츠를 서로 분리된 두 레포 사이에서 옮기는 유일한 경로다. 이것이 스토리
+ * 콘텐츠의 유일한 쓰기 경로다 - 별도의 시더(seeder)는 없으며, 어떤 스토리 id에 대한 최초 임포트가
+ * 해당 행을 생성함과 동시에 채워 넣는다.
  *
- * <p>Every import is a full delete-and-reinsert of the target story's anchors/action-families
- * (and their choice-copy variants)/cast/scenes/segments (not a diff/upsert) - simple and safe at
- * the current single-story scale. Each fallback response's own fields
- * (requiresFamilyId/rejoinSlot/rejoinTarget) are set on the just-recreated StoryActionFamily row
- * in a second pass, since fallback content (generatedContent.fallbacks) ships in the same payload
- * as, but keyed independently from, the route-context-authored family rows above.
+ * <p>모든 임포트는 대상 스토리의 anchor/action-family(그리고 그 choice-copy variant들)/cast/
+ * scene/segment 전체를 삭제 후 재삽입하는 방식이다(diff/upsert 방식이 아니다) - 현재의
+ * 단일 스토리 규모에서는 이 방식이 단순하고 안전하다. 각 fallback 응답 자체의 필드
+ * (requiresFamilyId/rejoinSlot/rejoinTarget)는, 방금 새로 재생성된 StoryActionFamily 행에
+ * 대해 2차 패스에서 설정된다. fallback 콘텐츠(generatedContent.fallbacks)는 위쪽의
+ * route-context 기반으로 작성된 family 행들과 같은 payload로 전송되지만, 서로 독립적인 키로
+ * 구분되기 때문이다.
  */
 @Service
 public class StoryImportService {
@@ -125,44 +126,46 @@ public class StoryImportService {
 
         Map<String, Object> extras = new LinkedHashMap<>();
         extras.put("source", toMap(generatedContent.path("source")));
-        // story.yaml fields with no dedicated table yet (targetAge/immutableEvents/forbiddenElements) -
-        // StoryContentAssemblyService overlays this with the live DB fields it does own.
+        // 아직 전용 테이블이 없는 story.yaml 필드들(targetAge/immutableEvents/forbiddenElements) -
+        // StoryContentAssemblyService가 자신이 소유한 DB의 실시간 필드들로 이 위에 덧씌운다.
         extras.put("story", toMap(storyNode));
         extras.put("reportCopy", toMap(packageData.path("reportCopy")));
         extras.put("release", toMap(packageData.path("release")));
         extras.put("evaluation", toMap(packageData.path("evaluation")));
-        // Authoring metadata rather than runtime data, so it rides in extras alongside the three
-        // above instead of getting tables nothing queries - but it is in the DB now either way.
+        // 런타임 데이터가 아니라 저작(authoring) 메타데이터이므로, 아무도 조회하지 않을 전용
+        // 테이블을 만드는 대신 위의 세 항목과 함께 extras에 실어 보낸다 - 그래도 어쨌든 지금은
+        // DB 안에 있다.
         extras.put("qaContract", toMap(packageData.path("qaContract")));
         extras.put("references", toMap(packageData.path("references")));
         story.setPackageExtras(extras);
         story = storyRepository.save(story);
 
-        // DB-level ON DELETE CASCADE (StoryActionFamily -> StoryAnchor, StoryFallbackSegment ->
-        // StoryActionFamily) removes every downstream row for this story's old anchors/families
-        // automatically - no need to load/delete those separately.
+        // DB 레벨의 ON DELETE CASCADE(StoryActionFamily -> StoryAnchor, StoryFallbackSegment ->
+        // StoryActionFamily)가 이 스토리의 기존 anchor/family에 딸린 하위 행들을 모두 자동으로
+        // 삭제하므로, 별도로 로드해서 삭제할 필요가 없다.
         anchorRepository.deleteAll(anchorRepository.findByStory_Id(storyId));
         importAnchors(routeContext, story);
 
         castRepository.deleteAll(castRepository.findByStory_Id(storyId));
-        // flush() before reinserting: within one transaction Hibernate orders every INSERT ahead of
-        // every DELETE, and StoryCast is the one entity here with a generated UUID key plus a
-        // business unique key (story_id, cast_tag) - so the new rows hit that constraint against the
-        // old ones that have not been deleted yet. The others use assigned string ids, where a
-        // re-import merges instead of inserting. Without this, importing a story twice always failed.
+        // 재삽입 전에 flush(): 하나의 트랜잭션 안에서 Hibernate는 모든 INSERT를 모든 DELETE보다
+        // 앞에 실행하는데, StoryCast는 여기서 유일하게 생성된 UUID 키에 더해 비즈니스 유니크 키
+        // (story_id, cast_tag)까지 가진 엔티티다 - 그래서 새 행이, 아직 삭제되지 않은 기존 행과
+        // 그 제약 조건에서 충돌한다. 나머지 엔티티들은 할당된 문자열 id를 사용하며, 이 경우 재임포트는
+        // 삽입이 아니라 병합(merge)된다. 이 flush가 없으면 스토리를 두 번 임포트할 때마다 항상
+        // 실패했다.
         castRepository.flush();
         importCast(cast, story);
 
-        // Same flush-before-reinsert reason as the cast above: identity key plus a business unique
-        // key (story_id, slug).
+        // 위의 cast와 동일한 이유로 재삽입 전에 flush한다: identity 키에 더해 비즈니스 유니크 키
+        // (story_id, slug)를 갖기 때문이다.
         assetRepository.deleteAll(assetRepository.findByStory_IdOrderBySlugAsc(storyId));
         assetRepository.flush();
         int assetCount = importAssets(packageData.path("assets"), story);
         importRoutePrompt(packageData.path("prompt"));
 
-        // DB-level ON DELETE CASCADE (see StorySegment) removes scene segment rows
-        // automatically - no need to load/delete them here. Fallback segments are handled
-        // per-family below since their StoryActionFamily owner isn't deleted on import.
+        // DB 레벨의 ON DELETE CASCADE(StorySegment 참고)가 scene segment 행들을 자동으로
+        // 삭제하므로, 여기서 따로 로드해서 삭제할 필요가 없다. fallback segment는 그 소유자인
+        // StoryActionFamily가 임포트 시 삭제되지 않으므로, 아래에서 family 단위로 별도 처리한다.
         sceneRepository.deleteAll(sceneRepository.findByStory_IdOrderBySequenceAsc(storyId));
 
         int sceneCount = 0;
@@ -176,9 +179,10 @@ public class StoryImportService {
                     .sequence(sequence++)
                     .checkpointId(sceneNode.path("checkpointId").asText(""))
                     .build();
-            // save() merges (rather than persists) entities with a manually-assigned @Id, returning a
-            // different managed instance - segments below must reference that returned instance, not
-            // the draft one, or Hibernate sees the FK pointing at a transient object.
+            // save()는 수동으로 할당된 @Id를 가진 엔티티에 대해서는 persist가 아니라 merge를
+            // 수행하며, 이때 (원본과는) 다른 관리 인스턴스를 반환한다 - 아래의 segment들은 draft
+            // 인스턴스가 아니라 이 반환된 인스턴스를 참조해야 한다. 그렇지 않으면 Hibernate가
+            // FK가 transient 객체를 가리키는 것으로 인식한다.
             StoryScene scene = sceneRepository.save(draftScene);
             sceneCount++;
             segmentCount += importSegments(sceneNode.path("segments"), segments ->
@@ -188,9 +192,9 @@ public class StoryImportService {
                             .kind(segments.kind())
                             .branchPoint(segments.isBranchPoint())
                             .payload(segments.payload())
-                            // An import ships the content files and the audio rendered from them,
-                            // so at this moment the recording says exactly this line. Everything
-                            // later compares against it to decide what needs re-recording.
+                            // 임포트는 콘텐츠 파일과 그로부터 렌더링된 오디오를 함께 전송하므로,
+                            // 이 시점의 녹음은 정확히 이 대사와 일치한다. 이후 모든 비교는 이 값을
+                            // 기준으로 어떤 것을 다시 녹음해야 하는지 판단한다.
                             .narrationText(
                                     "utterance".equals(segments.kind())
                                             ? (String) segments.payload().get("text")
@@ -205,15 +209,16 @@ public class StoryImportService {
             JsonNode requires = fallbackNode.path("requires");
             String familyId = requireText(fallbackNode, "id");
             StoryActionFamily family = familyRepository.findById(familyId)
-                    .orElseThrow(() -> new EdgeException(EdgeErrorCode.INVALID_PAYLOAD));
+                    .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요."));
             family.setRequiresFamilyId(requires.isTextual() ? requires.asText() : null);
             family.setRejoinSlot(rejoin.path("slot").asText(""));
             family.setRejoinTarget(rejoin.path("target").asText(""));
             familyRepository.save(family);
             fallbackCount++;
-            // The family row itself was just freshly recreated above (importAnchors), so it never
-            // has pre-existing fallback segments - this is a no-op on every import, kept only so a
-            // future move away from full anchor replacement doesn't silently leave stale segments.
+            // family 행 자체는 바로 위(importAnchors)에서 방금 새로 재생성되었으므로, 기존에
+            // 존재하던 fallback segment가 있을 수 없다 - 즉 매 임포트마다 아무 일도 하지 않는
+            // no-op이지만, 나중에 anchor 전체 교체 방식을 벗어나게 되더라도 오래된 segment가
+            // 조용히 남지 않도록 하기 위해 남겨둔다.
             fallbackSegmentRepository.deleteAll(fallbackSegmentRepository.findByFamily_IdOrderByDisplayOrderAsc(familyId));
             fallbackSegmentCount += importSegments(fallbackNode.path("segments"), segments ->
                     fallbackSegmentRepository.save(StoryFallbackSegment.builder()
@@ -225,13 +230,14 @@ public class StoryImportService {
                             .build()));
         }
 
-        // storyRegistry/choiceCopyRegistry must reload before assemblyService, which reads through
-        // storyRegistry.get() to build each scene's routeContext/cast JSON.
+        // storyRegistry/choiceCopyRegistry는 assemblyService보다 먼저 reload되어야 한다.
+        // assemblyService는 storyRegistry.get()을 통해 각 scene의 routeContext/cast JSON을
+        // 구성하기 때문이다.
         storyRegistry.reload();
         choiceCopyRegistry.reload();
         assemblyService.reload();
-        // A pipeline import replaces the whole story, so it lands in the history as one entry with
-        // no author - otherwise an import would look, from the history, like nothing happened.
+        // 파이프라인 임포트는 스토리 전체를 교체하므로, 이력에는 작성자 없이 하나의 항목으로
+        // 남는다 - 그렇지 않으면 이력만 봐서는 임포트가 마치 아무 일도 없었던 것처럼 보이게 된다.
         revisionService.record(
                 storyId, RevisionTarget.SCENE, storyId, RevisionOperation.IMPORT,
                 null,
@@ -306,7 +312,7 @@ public class StoryImportService {
 
     private int importAssets(JsonNode assets, Story story) {
         if (!assets.isArray()) {
-            throw new EdgeException(EdgeErrorCode.INVALID_PAYLOAD);
+            throw ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요.");
         }
         for (JsonNode asset : assets) {
             JsonNode panel = asset.path("panel");
@@ -323,10 +329,10 @@ public class StoryImportService {
         return assets.size();
     }
 
-    /** Upserted by version, not per story: several stories can name the same policy. */
+    /** 스토리 단위가 아니라 버전 단위로 upsert된다: 여러 스토리가 동일한 정책을 참조할 수 있기 때문이다. */
     private void importRoutePrompt(JsonNode prompt) {
         if (!prompt.isObject()) {
-            throw new EdgeException(EdgeErrorCode.INVALID_PAYLOAD);
+            throw ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요.");
         }
         String version = requireText(prompt, "version");
         RoutePrompt row = routePromptRepository.findByVersion(version)
@@ -334,14 +340,14 @@ public class StoryImportService {
         row.setSystemText(joinLines(prompt.path("system")));
         row.setInstructionText(joinLines(prompt.path("instruction")));
         routePromptRepository.save(row);
-        // Re-importing an existing version is how a policy is corrected in place; without this the
-        // old text would keep being served from the per-version cache until a restart.
+        // 기존 버전을 다시 임포트하는 것이 정책을 그 자리에서 수정하는 방법이다 - 이 호출이 없으면
+        // 재시작 전까지는 버전별 캐시에서 계속 이전 텍스트가 서빙된다.
         routePromptService.invalidate(version);
     }
 
     private String joinLines(JsonNode arrayNode) {
         if (!arrayNode.isArray() || arrayNode.isEmpty()) {
-            throw new EdgeException(EdgeErrorCode.INVALID_PAYLOAD);
+            throw ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요.");
         }
         return String.join(" ", toStringList(arrayNode));
     }
@@ -363,7 +369,7 @@ public class StoryImportService {
 
     private record SegmentToSave(int order, String kind, boolean isBranchPoint, Map<String, Object> payload) {}
 
-    /** Shared per-segment loop for both scene.segments[] and fallback.segments[] - identical shape, different owner. */
+    /** scene.segments[]와 fallback.segments[] 양쪽에서 공유하는 세그먼트 단위 루프 - 형태는 동일하고 소유자만 다르다. */
     private int importSegments(JsonNode segmentsNode, java.util.function.Consumer<SegmentToSave> save) {
         int order = 0;
         int count = 0;
@@ -391,7 +397,7 @@ public class StoryImportService {
     private JsonNode requireObject(JsonNode body, String field) {
         JsonNode value = body == null ? null : body.get(field);
         if (value == null || !value.isObject()) {
-            throw new EdgeException(EdgeErrorCode.INVALID_PAYLOAD);
+            throw ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요.");
         }
         return value;
     }
@@ -399,7 +405,7 @@ public class StoryImportService {
     private String requireText(JsonNode node, String field) {
         String value = node.path(field).asText("").trim();
         if (value.isEmpty()) {
-            throw new EdgeException(EdgeErrorCode.INVALID_PAYLOAD);
+            throw ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요.");
         }
         return value;
     }

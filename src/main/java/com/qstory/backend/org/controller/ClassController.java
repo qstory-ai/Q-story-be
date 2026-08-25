@@ -12,10 +12,12 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "Classes", description = "Classrooms within an organization - the class account, join codes, invites, and parent self-signup")
@@ -32,6 +34,7 @@ public class ClassController {
 
     @Operation(summary = "Create a class", description = "DIRECTOR of the organization only. Also creates the class's own CLASS_ACCOUNT login.")
     @PostMapping("/v1/organizations/{orgId}/classes")
+    @ResponseStatus(HttpStatus.CREATED)
     public ClassResponse create(@PathVariable UUID orgId, @RequestBody CreateClassRequest request) {
         return service.create(currentUserResolver.requireRole(Role.DIRECTOR), orgId, request);
     }
@@ -51,6 +54,7 @@ public class ClassController {
     @Operation(summary = "Create a single-use invite for this class",
             description = "DIRECTOR only. The returned token is shown once - only its hash is stored.")
     @PostMapping("/v1/classes/{classId}/invites")
+    @ResponseStatus(HttpStatus.CREATED)
     public ClassInviteResponse createInvite(@PathVariable UUID classId) {
         return service.createInvite(currentUserResolver.require(), classId);
     }
@@ -60,6 +64,7 @@ public class ClassController {
                     + "reusable, printable on a flyer) or inviteToken (single-use, from POST "
                     + "/v1/classes/{classId}/invites) plus email/password/displayName.")
     @PostMapping("/v1/classes/join")
+    @ResponseStatus(HttpStatus.CREATED)
     public AuthResponse join(@RequestBody JoinClassRequest request) {
         return service.join(request);
     }

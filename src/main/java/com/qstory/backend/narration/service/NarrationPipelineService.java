@@ -17,7 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 
-/** Java port of narration-pipeline.mjs. */
+/** narration-pipeline.mjs를 Java로 포팅한 것. */
 @Service
 public class NarrationPipelineService {
 
@@ -33,7 +33,7 @@ public class NarrationPipelineService {
 
     public Map<String, Object> process(ResolvedNarrationContext context, String storyId, String speakerId, String text, RequestDeadline deadline) {
         if (!ProviderReadiness.of(config).tts()) {
-            return failure(ProviderErrorCode.NARRATION_PROVIDER_NOT_CONFIGURED, "캐릭터 질문 음성을 준비하지 못했어요.");
+            return failure(ProviderErrorCode.NARRATION_PROVIDER_NOT_CONFIGURED, "캐릭터 음성을 준비하지 못했어요.");
         }
         CastEntry cast = context.cast();
         try {
@@ -46,9 +46,9 @@ public class NarrationPipelineService {
             result.put("audio", AudioPayload.of(generated.mimeType(), generated.audio()));
             return result;
         } catch (AbortException abort) {
-            return failure(ProviderErrorCode.NARRATION_TIMEOUT, "캐릭터 질문 음성을 기다리는 시간이 길어졌어요.");
+            return failure(ProviderErrorCode.NARRATION_TIMEOUT, "캐릭터 음성을 기다리는 시간이 길어졌어요.");
         } catch (ProviderException error) {
-            return failureFrom(error, "캐릭터 질문 음성을 준비하지 못했어요.");
+            return failureFrom(error, "캐릭터 음성을 준비하지 못했어요.");
         }
     }
 

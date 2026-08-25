@@ -3,8 +3,8 @@ package com.qstory.backend.betaevents.util;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.qstory.backend.common.enums.EventName;
 import com.qstory.backend.common.enums.EventSource;
-import com.qstory.backend.common.error.EdgeErrorCode;
-import com.qstory.backend.common.error.EdgeException;
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
 import java.text.Normalizer;
 import java.time.Duration;
 import java.time.Instant;
@@ -17,7 +17,7 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
-/** Java port of beta-events/index.ts's request validation and metadata allow-listing. */
+/** beta-events/index.ts의 요청 검증 및 메타데이터 허용 목록(allow-list) 로직을 Java로 이식한 것. */
 @Component
 public class BetaEventValidator {
 
@@ -44,12 +44,12 @@ public class BetaEventValidator {
 
     public ParsedEvent parse(JsonNode body) {
         if (body == null || !body.isObject()) {
-            throw new EdgeException(EdgeErrorCode.INVALID_PAYLOAD);
+            throw ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요.");
         }
         Iterator<String> keys = body.fieldNames();
         while (keys.hasNext()) {
             if (!TOP_LEVEL_KEYS.contains(keys.next())) {
-                throw new EdgeException(EdgeErrorCode.UNSUPPORTED_FIELD);
+                throw ApiException.contractError(ErrorCode.UNSUPPORTED_FIELD, "지원하지 않는 필드예요.");
             }
         }
 
@@ -58,10 +58,10 @@ public class BetaEventValidator {
         EventName eventName = parseEnum(body.path("event_name").asText(""), EventName.class);
         EventSource source = parseEnum(body.path("source").asText(""), EventSource.class);
         if (eventName == null || source == null || source != eventName.requiredSource()) {
-            throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
         if (body.path("schema_version").asInt(-1) != 1) {
-            throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
         Instant occurredAt = parseOccurredAt(body.path("occurred_at").asText(""));
         Map<String, Object> metadata = parseMetadata(body.path("metadata"), eventName);
@@ -74,7 +74,7 @@ public class BetaEventValidator {
             return Map.of();
         }
         if (!node.isObject()) {
-            throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
         Set<String> allowedKeys = new LinkedHashSet<>(COMMON_METADATA_KEYS);
         allowedKeys.addAll(METADATA_KEYS.getOrDefault(eventName, Set.of()));
@@ -84,7 +84,7 @@ public class BetaEventValidator {
         while (keys.hasNext()) {
             String key = keys.next();
             if (!allowedKeys.contains(key)) {
-                throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+                throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
             }
             JsonNode value = node.get(key);
             boolean isLongText = LONG_TEXT_KEYS.contains(key);
@@ -100,7 +100,7 @@ public class BetaEventValidator {
         if (value.isNumber()) {
             double number = value.asDouble();
             if (!Double.isFinite(number) || number < 0) {
-                throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+                throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
             }
             return value.isIntegralNumber() ? (Object) value.asLong() : (Object) number;
         }
@@ -108,11 +108,11 @@ public class BetaEventValidator {
             String text = value.asText();
             int max = isLongText ? 240 : 80;
             if (text.isEmpty() || text.length() > max) {
-                throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+                throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
             }
             return isLongText ? sanitizeQuestionText(text) : text;
         }
-        throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+        throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
     }
 
     public String sanitizeQuestionText(String value) {
@@ -130,7 +130,7 @@ public class BetaEventValidator {
         try {
             return UUID.fromString(node.asText(""));
         } catch (IllegalArgumentException malformed) {
-            throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
     }
 
@@ -147,11 +147,11 @@ public class BetaEventValidator {
         try {
             occurredAt = Instant.parse(value);
         } catch (Exception malformed) {
-            throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
         Instant now = Instant.now();
         if (occurredAt.isBefore(now.minus(Duration.ofDays(7))) || occurredAt.isAfter(now.plus(Duration.ofMinutes(5)))) {
-            throw new EdgeException(EdgeErrorCode.VALIDATION_FAILED);
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
         return occurredAt;
     }

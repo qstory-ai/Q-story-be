@@ -17,7 +17,7 @@ import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.stereotype.Component;
 
-/** Issues and verifies this app's own access tokens - HMAC-signed, single long-lived token, no refresh flow (see auth plan doc). */
+/** 이 앱 자체의 액세스 토큰을 발급하고 검증한다 - HMAC 서명 방식의 단일한 장기 유효 토큰이며, 리프레시(refresh) 흐름은 없다(auth plan 문서 참고). */
 @Component
 public class JwtService {
 
@@ -47,7 +47,7 @@ public class JwtService {
         return builder.signWith(key()).compact();
     }
 
-    /** Empty for a missing/malformed/expired token - never throws, since most callers must tolerate anonymous requests. */
+    /** 토큰이 없거나 형식이 잘못되었거나 만료된 경우 Optional.empty()를 반환 - 대부분의 호출자가 익명 요청을 허용해야 하므로 절대 예외를 던지지 않는다. */
     public Optional<CurrentUser> verify(String token) {
         if (!config.auth().configured()) {
             return Optional.empty();

@@ -25,7 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 
-/** Java port of question-pipeline.mjs. */
+/** question-pipeline.mjs를 Java로 이식한 것. */
 @Service
 public class QuestionPipelineService {
 

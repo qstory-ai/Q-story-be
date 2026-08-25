@@ -8,7 +8,7 @@ import java.time.Instant;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
-/** Wraps StorySessionRepository/StoryEventRepository for BetaEventService. */
+/** BetaEventService를 위해 StorySessionRepository/StoryEventRepository를 감싸는 래퍼. */
 @Component
 public class BetaEventRepository {
 
@@ -26,6 +26,11 @@ public class BetaEventRepository {
 
     public StorySession findSession(UUID sessionId) {
         return sessionRepository.findById(sessionId).orElse(null);
+    }
+
+    public void insertSessionIfAbsent(
+            UUID sessionId, String storyId, String entrySource, String trafficType, Instant now) {
+        sessionRepository.insertIfAbsent(sessionId, storyId, entrySource, trafficType, now, now);
     }
 
     public StorySession saveSession(StorySession session) {

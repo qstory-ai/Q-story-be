@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
-/** Java port of rtzr-stt.mjs: token-cached authenticate, submit multipart, poll for a result. */
+/** rtzr-stt.mjs를 Java로 포팅한 것: 토큰을 캐싱하는 인증, 멀티파트 제출, 결과 폴링. */
 @Component
 public class RtzrSttClient {
 
@@ -135,9 +135,9 @@ public class RtzrSttClient {
             }
             String status = result != null && result.hasNonNull("status") ? result.get("status").asText() : null;
             if ("failed".equals(status)) {
-                // Node's ProviderError defaults retryable to true when the call site omits it - this
-                // throw omits retryable, so it inherits ProviderErrorCode.RTZR_TRANSCRIPTION_FAILED's
-                // default (true) via the 2-arg factory below, matching the original exactly.
+                // 호출부가 retryable을 생략하면 Node의 ProviderError는 기본값을 true로 둔다 - 아래의
+                // throw도 retryable을 생략하므로, 아래 2-인자 팩토리를 통해 ProviderErrorCode.RTZR_TRANSCRIPTION_FAILED의
+                // 기본값(true)을 그대로 물려받아 원본과 정확히 동일하게 동작한다.
                 throw new ProviderException(
                         ProviderErrorCode.RTZR_TRANSCRIPTION_FAILED, "이번 목소리를 문장으로 바꾸지 못했어요.");
             }

@@ -20,7 +20,7 @@ import lombok.Setter;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
-/** A single opted-in question recording plus, once routed, its (redacted) coverage outcome. */
+/** 옵트인한 질문 녹음 하나와, 라우팅이 완료된 이후에는 그 (편집된) 커버리지 결과. */
 @Entity
 @Table(name = "voice_research_samples")
 @Getter

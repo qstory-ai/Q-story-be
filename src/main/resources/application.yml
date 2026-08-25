@@ -30,7 +30,7 @@ spring:
       # reviewed description of this schema and run on every boot, so each one must stay
       # idempotent - "create ... if not exists" and constraint adds guarded against duplicates.
       mode: always
-      schema-locations: classpath:db/schema/001-baseline.sql,classpath:db/schema/002-story-revision.sql,classpath:db/schema/003-segment-narration-stale.sql,classpath:db/schema/004-segment-narration-text.sql,classpath:db/schema/005-story-asset-rerender.sql
+      schema-locations: classpath:db/schema/001-baseline.sql,classpath:db/schema/002-story-revision.sql,classpath:db/schema/003-segment-narration-stale.sql,classpath:db/schema/004-segment-narration-text.sql,classpath:db/schema/005-story-asset-rerender.sql,classpath:db/schema/006-story-catalog-metadata.sql,classpath:db/schema/007-companion-chat.sql,classpath:db/schema/008-staff-role.sql,classpath:db/schema/009-password-reset.sql,classpath:db/schema/010-story-completions.sql,classpath:db/schema/011-shadow-family-drafts.sql,classpath:db/schema/012-launch-notifications.sql,classpath:db/schema/013-launch-notification-email-optional.sql,classpath:db/schema/014-launch-notification-wants-contact.sql,classpath:db/schema/015-launch-notification-child-age-text.sql,classpath:db/schema/016-completion-surveys.sql,classpath:db/schema/017-parent-subscription.sql
       continue-on-error: false
   jpa:
     open-in-view: false

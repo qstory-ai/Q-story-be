@@ -1,4 +1,4 @@
 package com.qstory.backend.storyadmin.dto;
 
-/** Restores whatever the named revision changed, back to the state it held before that edit. */
+/** 지정한 리비전이 변경한 내용을, 그 수정이 있기 전 상태로 복원한다. */
 public record RevertRequest(Integer baseRevision, Integer revision, String summary) {}

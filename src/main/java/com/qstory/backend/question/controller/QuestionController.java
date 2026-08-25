@@ -5,8 +5,6 @@ import com.qstory.backend.question.util.QuestionContractValidator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.config.AppProperties;
-import com.qstory.backend.common.error.ApiException;
-import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.FailureBody;
 import com.qstory.backend.story.service.StoryRegistryService;
 import com.qstory.backend.story.service.StoryRegistryService.ResolvedQuestionContext;
@@ -25,7 +23,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -33,13 +30,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** HTTP wiring for the four question/transcription endpoints, mirroring server.mjs's handlers. */
+/** 네 개의 질문/전사 엔드포인트에 대한 HTTP 배선으로, server.mjs의 핸들러를 그대로 따른다. */
 @Tag(name = "Questions", description = "The child's spoken/typed question pipeline: transcribe, route to a story branch, and (for the JSON routes) that in one call")
 @RestController
 public class QuestionController {
 
     private static final Logger log = LoggerFactory.getLogger(QuestionController.class);
-    private static final java.util.regex.Pattern BASE64_PATTERN = java.util.regex.Pattern.compile("^[A-Za-z0-9+/]*={0,2}$");
 
     private final AppProperties config;
     private final ObjectMapper objectMapper;
@@ -86,25 +82,27 @@ public class QuestionController {
 
     @Operation(
             summary = "Transcribe a base64-encoded audio recording",
-            description = "JSON body {audioBase64, mimeType} - the base64 alternative to POST "
-                    + "/v1/transcriptions for clients that can't send raw multipart/binary bodies. Context headers "
-                    + "same as /v1/transcriptions, except mimeType is read from the body instead of Content-Type.")
+            description = "JSON body {audioBase64, mimeType, storyId, sceneId, anchorId, questionRound} - the "
+                    + "base64 alternative to POST /v1/transcriptions for clients that can't send raw "
+                    + "multipart/binary bodies. Unlike /v1/transcriptions, all context lives in the body (a raw "
+                    + "audio byte stream can't carry a JSON context alongside it, but this route already has a "
+                    + "JSON body, so it carries context the same way POST /v1/questions/route does).")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Transcript"),
-            @ApiResponse(responseCode = "400", description = "Malformed base64, empty audio, or invalid context headers",
+            @ApiResponse(responseCode = "400", description = "Malformed base64, empty audio, or invalid/missing context fields",
                     content = @Content(schema = @Schema(implementation = FailureBody.class))),
             @ApiResponse(responseCode = "413", description = "Decoded audio exceeds qstory.max-audio-bytes",
                     content = @Content(schema = @Schema(implementation = FailureBody.class)))
     })
-    @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "{audioBase64, mimeType}", required = true)
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            description = "{audioBase64, mimeType, storyId, sceneId, anchorId, questionRound}", required = true)
     @PostMapping("/v1/transcriptions/base64")
     public void transcribeBase64(
             @Parameter(hidden = true) HttpServletRequest request, HttpServletResponse response) throws IOException {
-        long maxBase64RequestBytes = ((config.maxAudioBytes() + 2) / 3) * 4 + 2_048;
-        JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper, maxBase64RequestBytes);
-        DecodedAudio decoded = decodeBase64Audio(body);
+        HttpBodyReader.DecodedAudio decoded =
+                HttpBodyReader.readBase64AudioBody(request, objectMapper, config.maxAudioBytes());
         QuestionContractValidator.HeaderContext header =
-                contractValidator.parseQuestionContextForMimeType(request, decoded.mimeType());
+                contractValidator.parseQuestionContextFromBody(decoded.body(), decoded.mimeType());
         ResolvedQuestionContext context = resolveContext(header, List.of(), false, currentUserResolver.current().orElse(null));
         Map<String, Object> result = pipeline.transcribe(context, decoded.audio(), deadline());
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
@@ -204,33 +202,5 @@ public class QuestionController {
 
     private RequestDeadline deadline() {
         return RequestDeadline.startingNow(config.requestTimeoutMs());
-    }
-
-    private record DecodedAudio(byte[] audio, String mimeType) {}
-
-    private DecodedAudio decodeBase64Audio(JsonNode value) {
-        if (value == null || !value.isObject()) {
-            throw ApiException.contractError(ErrorCode.INVALID_BASE64_AUDIO_UPLOAD, "녹음 요청 형식을 읽지 못했어요.");
-        }
-        String audioBase64 = value.path("audioBase64").asText("").trim();
-        String mimeType = value.path("mimeType").asText("").trim().toLowerCase();
-        if (audioBase64.isEmpty() || mimeType.isEmpty()
-                || audioBase64.length() % 4 == 1
-                || !BASE64_PATTERN.matcher(audioBase64).matches()) {
-            throw ApiException.contractError(ErrorCode.INVALID_BASE64_AUDIO_UPLOAD, "녹음 데이터가 비어 있거나 손상됐어요.");
-        }
-        byte[] audio;
-        try {
-            audio = Base64.getDecoder().decode(audioBase64);
-        } catch (IllegalArgumentException malformed) {
-            throw ApiException.contractError(ErrorCode.INVALID_BASE64_AUDIO_UPLOAD, "녹음 데이터가 비어 있거나 손상됐어요.");
-        }
-        if (audio.length == 0) {
-            throw ApiException.contractError(ErrorCode.EMPTY_AUDIO, "녹음 데이터가 비어 있어요.");
-        }
-        if (audio.length > config.maxAudioBytes()) {
-            throw ApiException.contractError(ErrorCode.AUDIO_TOO_LARGE, "The recording exceeds the upload limit", 413);
-        }
-        return new DecodedAudio(audio, mimeType);
     }
 }

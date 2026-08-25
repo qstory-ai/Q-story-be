@@ -2,8 +2,8 @@ package com.qstory.backend.voiceresearch.service;
 import com.qstory.backend.voiceresearch.util.VoiceResearchValidator;
 import com.qstory.backend.voiceresearch.repository.VoiceResearchRepository;
 
-import com.qstory.backend.common.error.EdgeErrorCode;
-import com.qstory.backend.common.error.EdgeException;
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
 import com.qstory.backend.common.util.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
@@ -17,7 +17,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Java port of supabase/functions/voice-research/index.ts. */
+/** supabase/functions/voice-research/index.ts를 Java로 이식한 버전. */
 @Service
 public class VoiceResearchService {
 
@@ -50,10 +50,10 @@ public class VoiceResearchService {
         try {
             audioBytes = request.audio().getBytes();
         } catch (Exception readError) {
-            throw new EdgeException(EdgeErrorCode.INVALID_FORM_DATA);
+            throw ApiException.contractError(ErrorCode.INVALID_FORM_DATA, "요청 형식이 올바르지 않아요.");
         }
         if (!storageClient.upload(bucket, objectName, audioBytes, request.audio().getContentType())) {
-            throw new EdgeException(EdgeErrorCode.STORAGE_FAILED, 500, "audio_upload");
+            throw ApiException.contractError(ErrorCode.STORAGE_FAILED, "녹음을 저장하지 못했어요.", 500);
         }
 
         try {
@@ -78,7 +78,7 @@ public class VoiceResearchService {
                     .build());
         } catch (RuntimeException persistError) {
             storageClient.delete(bucket, objectName);
-            throw new EdgeException(EdgeErrorCode.STORAGE_FAILED, 500, "sample_create");
+            throw ApiException.contractError(ErrorCode.STORAGE_FAILED, "녹음을 저장하지 못했어요.", 500);
         }
     }
 
@@ -98,7 +98,7 @@ public class VoiceResearchService {
         if (!CONSENT_VERSION.equals(consent.getConsentVersion())
                 || !DigestUtil.constantTimeEquals(consent.getDeletionTokenHash(), deletionTokenHash)
                 || consent.getExpiresAt().isBefore(Instant.now())) {
-            throw new EdgeException(EdgeErrorCode.CONSENT_INVALID);
+            throw ApiException.contractError(ErrorCode.CONSENT_INVALID, "동의 정보가 올바르지 않아요.", 403);
         }
         return consent;
     }
@@ -107,12 +107,12 @@ public class VoiceResearchService {
     public void withdraw(UUID consentId, String deletionToken) {
         VoiceResearchConsent consent = repository.findConsent(consentId);
         if (consent == null || !DigestUtil.constantTimeEquals(consent.getDeletionTokenHash(), DigestUtil.sha256Hex(deletionToken))) {
-            throw new EdgeException(EdgeErrorCode.CONSENT_INVALID);
+            throw ApiException.contractError(ErrorCode.CONSENT_INVALID, "동의 정보가 올바르지 않아요.", 403);
         }
         deleteConsentAndSamples(consent);
     }
 
-    /** Called by a scheduled retention sweep instead of the original pg_cron -> edge-function hop. */
+    /** 원래의 pg_cron -> 엣지 함수 호출 경로 대신, 예약된 보존 기간 정리 작업(retention sweep)에 의해 호출된다. */
     @Transactional
     public int cleanupExpired() {
         List<VoiceResearchConsent> expired = repository.expiredConsents(Instant.now());

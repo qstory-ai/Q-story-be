@@ -5,7 +5,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
-/** Mirrors server.mjs's sendJson(): fixed content-type/cache-control, no framework negotiation. */
+/** server.mjs의 sendJson()을 그대로 옮긴 것이다: content-type/cache-control을 고정 값으로 주고, 프레임워크의 협상(negotiation) 과정을 거치지 않는다. */
 public final class HttpJsonWriter {
 
     private HttpJsonWriter() {}

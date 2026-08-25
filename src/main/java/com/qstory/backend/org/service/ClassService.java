@@ -87,7 +87,7 @@ public class ClassService {
                 .createdAt(Instant.now())
                 .build();
         try {
-            // saveAndFlush - see AuthService.signupDirector()'s comment for why plain save() can't be caught here.
+            // saveAndFlush - 왜 여기서 일반 save()로는 예외를 잡을 수 없는지는 AuthService.signupOrganizationOwner()의 주석 참고.
             userRepository.saveAndFlush(classAccount);
         } catch (DataIntegrityViolationException collision) {
             throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "반 계정 아이디가 이미 사용 중이에요.");
@@ -111,7 +111,7 @@ public class ClassService {
     public ClassInviteResponse createInvite(CurrentUser caller, UUID classId) {
         ClassGroup classGroup = requireVisible(caller, classId);
         if (caller.role() != Role.DIRECTOR) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "원장만 초대를 만들 수 있어요.", 403);
+            throw ApiException.contractError(ErrorCode.FORBIDDEN, "기관 및 단체 계정만 초대를 만들 수 있어요.", 403);
         }
         String rawToken = randomToken();
         Instant expiresAt = Instant.now().plus(INVITE_TTL);
@@ -127,7 +127,7 @@ public class ClassService {
     @Transactional
     public AuthResponse join(JoinClassRequest request) {
         ClassGroup classGroup = resolveClassGroup(request);
-        authValidator.validateSignup(new com.qstory.backend.identity.dto.SignupDirectorRequest(
+        authValidator.validateSignup(new com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest(
                 request.email(), request.password(), request.displayName()));
 
         AppUser parent = AppUser.builder()
@@ -140,7 +140,7 @@ public class ClassService {
                 .createdAt(Instant.now())
                 .build();
         try {
-            // saveAndFlush - see AuthService.signupDirector()'s comment for why plain save() can't be caught here.
+            // saveAndFlush - 왜 여기서 일반 save()로는 예외를 잡을 수 없는지는 AuthService.signupOrganizationOwner()의 주석 참고.
             parent = userRepository.saveAndFlush(parent);
         } catch (DataIntegrityViolationException alreadyRegistered) {
             throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 등록된 이메일이에요.");
@@ -175,14 +175,14 @@ public class ClassService {
         return invite.getClassGroup();
     }
 
-    /** A DIRECTOR sees any class in their own org; a CLASS_ACCOUNT sees only itself. */
+    /** DIRECTOR는 자신의 소속 기관에 있는 어떤 반이든 볼 수 있고, CLASS_ACCOUNT는 자기 자신만 볼 수 있다. */
     private ClassGroup requireVisible(CurrentUser caller, UUID classId) {
         ClassGroup classGroup = classGroupRepository.findById(classId)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
-        boolean isOwningDirector = caller.role() == Role.DIRECTOR
+        boolean isOwningOrganizationOwner = caller.role() == Role.DIRECTOR
                 && classGroup.getOrganization().getId().equals(caller.orgId());
         boolean isThisClassAccount = caller.role() == Role.CLASS_ACCOUNT && classId.equals(caller.classId());
-        if (!isOwningDirector && !isThisClassAccount) {
+        if (!isOwningOrganizationOwner && !isThisClassAccount) {
             throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 반에 접근할 권한이 없어요.", 403);
         }
         return classGroup;

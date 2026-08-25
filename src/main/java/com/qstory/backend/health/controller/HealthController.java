@@ -12,7 +12,7 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Mirrors server.mjs's GET /health. */
+/** server.mjs의 GET /health를 그대로 반영(mirror)한다. */
 @Tag(name = "Health", description = "Liveness/readiness probe for load balancers and Docker HEALTHCHECK")
 @RestController
 public class HealthController {

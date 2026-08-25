@@ -16,7 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** A pseudonymous, cookie-free funnel session. The id is client-generated (idempotent upsert), never DB-generated. */
+/** 가명화(pseudonymous)되고 쿠키를 사용하지 않는 퍼널 세션. id는 클라이언트에서 생성되며(멱등성 있는 upsert), DB에서 생성되는 경우는 없다. */
 @Entity
 @Table(name = "story_sessions")
 @Getter
@@ -36,7 +36,7 @@ public class StorySession {
     @Column(nullable = false)
     private EntrySource entrySource;
 
-    /** One of TrafficType.VALUES - plain string, see that class's doc for why. */
+    /** TrafficType.VALUES 중 하나 - 일반 문자열이며, 그 이유는 해당 클래스의 문서 참조. */
     @Column(nullable = false)
     @Builder.Default
     private String trafficType = TrafficType.UNKNOWN;

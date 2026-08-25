@@ -9,6 +9,6 @@ public interface StoryFallbackSegmentRepository extends JpaRepository<StoryFallb
 
     List<StoryFallbackSegment> findByFamily_IdOrderByDisplayOrderAsc(String familyId);
 
-    /** Bulk hydration path for StoryContentAssemblyService - one query for every segment of every fallback in a story. */
+    /** StoryContentAssemblyService를 위한 벌크 로딩 경로 - 한 스토리의 모든 fallback에 속한 모든 세그먼트를 쿼리 한 번으로 가져온다. */
     List<StoryFallbackSegment> findByFamily_Anchor_Story_IdOrderByFamily_IdAscDisplayOrderAsc(String storyId);
 }

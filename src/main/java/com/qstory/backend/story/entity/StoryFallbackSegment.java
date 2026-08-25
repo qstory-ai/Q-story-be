@@ -22,9 +22,9 @@ import org.hibernate.annotations.UuidGenerator;
 import org.hibernate.type.SqlTypes;
 
 /**
- * Same shape as {@link StorySegment}, scoped to the {@link StoryActionFamily} whose
- * branch-response script (its {@code requiresFamilyId}/{@code rejoinSlot}/{@code rejoinTarget}
- * fields) these segments belong to, instead of a scene.
+ * {@link StorySegment}와 동일한 형태이지만, 씬(scene)이 아니라 이 세그먼트들이 속한 branch-response
+ * 스크립트({@code requiresFamilyId}/{@code rejoinSlot}/{@code rejoinTarget} 필드)를 가진
+ * {@link StoryActionFamily}를 기준으로 범위가 정해진다.
  */
 @Entity
 @Table(name = "story_fallback_segment")
@@ -44,15 +44,15 @@ public class StoryFallbackSegment {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private StoryActionFamily family;
 
-    /** Position within the fallback's segments - lower plays first. */
+    /** fallback 세그먼트들 내에서의 위치 - 낮은 값이 먼저 재생된다. */
     @Column(nullable = false)
     private int displayOrder;
 
-    /** "visual" | "utterance" | "trace" | ... - see StorySegment.kind. */
+    /** "visual" | "utterance" | "trace" | ... - StorySegment.kind 참고. */
     @Column(nullable = false)
     private String kind;
 
-    /** Kept for symmetry with StorySegment; always false for fallback segments in current content. */
+    /** StorySegment와의 대칭성을 위해 유지된다; 현재 콘텐츠에서 fallback 세그먼트는 항상 false다. */
     @Column(name = "is_branch_point", nullable = false)
     @Builder.Default
     private boolean branchPoint = false;

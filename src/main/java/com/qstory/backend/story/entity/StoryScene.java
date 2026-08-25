@@ -16,8 +16,8 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
 /**
- * One scene in a story's linear narration script, e.g. "HG-F04". Its actual narrative content
- * (dialogue, visuals, the question/branch point) lives in ordered {@link StorySegment} rows.
+ * 스토리의 선형 내레이션 스크립트 안의 하나의 씬(scene), 예: "HG-F04". 실제 서사 콘텐츠
+ * (대사, 비주얼, 질문/분기 지점)는 순서가 있는 {@link StorySegment} 행들에 들어 있다.
  */
 @Entity
 @Table(name = "story_scene")
@@ -28,7 +28,7 @@ import org.hibernate.annotations.OnDeleteAction;
 @Builder
 public class StoryScene {
 
-    /** Stable content id (e.g. "HG-F04"). */
+    /** 안정적인 콘텐츠 id (예: "HG-F04"). */
     @Id
     private String id;
 
@@ -40,7 +40,7 @@ public class StoryScene {
     @Column(nullable = false)
     private String title;
 
-    /** Position in the story's linear script - lower plays first. */
+    /** 스토리의 선형 스크립트 안에서의 위치 - 낮은 값이 먼저 재생된다. */
     @Column(nullable = false)
     private int sequence;
 

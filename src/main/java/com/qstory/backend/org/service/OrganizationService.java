@@ -34,11 +34,10 @@ public class OrganizationService {
     }
 
     /**
-     * Returns a fresh AuthResponse, not just the created OrganizationResponse - the caller's
-     * existing JWT was issued before this organization existed, so its orgId claim is still null.
-     * Every org/class endpoint after this one authorizes off that claim (see
-     * OrganizationService.requireOwned()), so the client must swap to this new token immediately
-     * or every follow-up call 403s.
+     * 새로 생성된 OrganizationResponse뿐 아니라 갱신된 AuthResponse를 반환한다 - 호출자가 가진 기존 JWT는
+     * 이 기관이 생성되기 전에 발급된 것이므로, 그 안의 orgId 클레임은 여전히 null이다. 이 이후의 모든
+     * org/class 엔드포인트는 그 클레임을 기반으로 권한을 검사하므로(OrganizationService.requireOwned() 참고),
+     * 클라이언트는 즉시 이 새 토큰으로 교체해야 하며, 그렇지 않으면 이후의 모든 호출이 403을 반환한다.
      */
     @Transactional
     public AuthResponse create(CurrentUser caller, CreateOrganizationRequest request) {
@@ -70,7 +69,7 @@ public class OrganizationService {
                 organization.getSubscriptionStatus().name(), organization.getSubscriptionStatus().grantsAccess());
     }
 
-    /** Package-visible so ClassService can reuse the same ownership check when creating/listing classes. */
+    /** ClassService가 반을 생성/조회할 때 동일한 소유권 검사를 재사용할 수 있도록 패키지 가시성으로 둔다. */
     Organization requireOwned(CurrentUser caller, UUID organizationId) {
         if (!organizationId.equals(caller.orgId())) {
             throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 유치원에 접근할 권한이 없어요.", 403);

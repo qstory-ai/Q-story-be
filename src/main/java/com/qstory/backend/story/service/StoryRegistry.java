@@ -11,10 +11,9 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /**
- * An in-memory, request-hot cache of every registered story's content, loaded from Postgres.
- * Reloaded once on boot and again after every POST /v1/admin/stories/import (see
- * StoryImportService) rather than per-request - this data changes by an explicit import or by
- * calling {@link #reload()}, not every request.
+ * Postgres에서 로드한, 등록된 모든 스토리의 콘텐츠를 메모리에 올려두는, 요청마다 즉시 사용되는 캐시다.
+ * 요청마다가 아니라 부팅 시 한 번, 그리고 POST /v1/admin/stories/import(StoryImportService 참고)가
+ * 있을 때마다 다시 로드된다 - 이 데이터는 명시적인 임포트나 {@link #reload()} 호출에 의해서만 바뀐다.
  */
 @Component
 @Order(1)
@@ -55,7 +54,7 @@ public class StoryRegistry implements ApplicationRunner {
         return registry.values();
     }
 
-    /** Public request payloads (e.g. voice-research uploads) address stories by slug, not the internal id. */
+    /** 공개 요청 페이로드(예: voice-research 업로드)는 내부 id가 아니라 slug로 스토리를 지정한다. */
     public StoryManifest getBySlug(String slug) {
         return registryBySlug.get(slug);
     }

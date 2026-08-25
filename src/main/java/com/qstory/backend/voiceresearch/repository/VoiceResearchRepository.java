@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
-/** Wraps VoiceResearchConsentRepository/VoiceResearchSampleRepository for VoiceResearchService. */
+/** VoiceResearchService를 위해 VoiceResearchConsentRepository/VoiceResearchSampleRepository를 감싼다. */
 @Component
 public class VoiceResearchRepository {
 

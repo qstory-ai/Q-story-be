@@ -3,18 +3,18 @@ package com.qstory.backend.identity.util;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.dto.LoginRequest;
-import com.qstory.backend.identity.dto.SignupDirectorRequest;
+import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
-/** Request-shape validation for the auth routes, split out of AuthService (matches VoiceResearchValidator's split). */
+/** auth 라우트를 위한 요청 형태(request-shape) 검증. AuthService에서 분리되어 나왔다(VoiceResearchValidator의 분리 방식과 동일). */
 @Component
 public class AuthValidator {
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final int MIN_PASSWORD_LENGTH = 8;
 
-    public void validateSignup(SignupDirectorRequest request) {
+    public void validateSignup(SignupOrganizationOwnerRequest request) {
         if (isBlank(request.email()) || !EMAIL_PATTERN.matcher(request.email().trim()).matches()) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "올바른 이메일 주소를 입력해 주세요.");
         }

@@ -29,7 +29,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** HTTP wiring for /v1/narrations and /v1/narrations/stream, mirroring server.mjs's handlers. */
+/** /v1/narrations 및 /v1/narrations/stream에 대한 HTTP 연결로, server.mjs의 핸들러를 그대로 반영한다. */
 @Tag(name = "Narration", description = "On-demand TTS narration for a fixed (non-question) line of story text, spoken by an allowed cast voice")
 @RestController
 public class NarrationController {
@@ -57,9 +57,11 @@ public class NarrationController {
 
     @Operation(
             summary = "Synthesize narration audio for a fixed line of text (buffered)",
-            description = "JSON body {storyId, anchorId, speakerId, text} - speakerId must be one of the "
-                    + "anchor's allowedSpeakerIds. Returns the full audio in one response; see POST "
-                    + "/v1/narrations/stream for a chunked PCM alternative.")
+            description = "JSON body {storyId, anchorId, speakerId, text}. If anchorId is set (question-response "
+                    + "flow), speakerId must be one of that anchor's allowedSpeakerIds. If anchorId is blank "
+                    + "(general script narration), speakerId just needs to be a registered cast voice for the "
+                    + "story. Returns the full audio in one response; see POST /v1/narrations/stream for a "
+                    + "chunked PCM alternative.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Synthesized audio result"),
             @ApiResponse(responseCode = "400", description = "Malformed body",
@@ -84,7 +86,7 @@ public class NarrationController {
 
     @Operation(
             summary = "Synthesize narration audio for a fixed line of text (streamed)",
-            description = "Same body as POST /v1/narrations, but streams raw PCM as it's generated instead of "
+            description = "Same body/anchorId rule as POST /v1/narrations, but streams raw PCM as it's generated instead of "
                     + "buffering the whole clip. Success is a 200 with Content-Type audio/pcm and "
                     + "x-qstory-audio-* headers describing the stream (sample rate/channels/bit depth) - a "
                     + "failure is still a normal JSON error body (502/503), never a mid-stream cutoff.")

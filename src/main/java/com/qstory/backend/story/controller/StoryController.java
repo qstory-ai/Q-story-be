@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Public story catalog - metadata only, not in-play content (see StoryCatalogEntry). */
+/** 공개 작품 카탈로그 - 메타데이터만 제공하며, 실제 진행 콘텐츠는 포함하지 않는다 (StoryCatalogEntry 참고). */
 @Tag(name = "Stories", description = "Story catalog metadata and content")
 @RestController
 @RequestMapping("/v1/stories")
@@ -84,7 +84,7 @@ public class StoryController {
     @GetMapping("/{storyId}/content")
     public ObjectNode content(
             @Parameter(description = "Stable content id, e.g. \"HG\"", example = "HG") @PathVariable String storyId) {
-        // 404s/402s (and enforces retired/unregistered/entitlement rules) before touching content
+        // content에 손대기 전에 404/402를 발생시킨다 (retired/미등록/entitlement 규칙도 여기서 강제된다)
         catalogService.get(storyId, currentUserResolver.current().orElse(null));
         ObjectNode content = contentAssemblyService.get(storyId);
         if (content == null) {

@@ -2,7 +2,7 @@ package com.qstory.backend.common.enums;
 
 import java.util.Map;
 
-/** The 13 beta funnel/telemetry events, each pinned to the source that is allowed to emit it. */
+/** 13개의 베타 퍼널/텔레메트리 이벤트로, 각각이 발생시킬 수 있는 소스에 고정되어 있다. */
 public enum EventName {
     LANDING_VIEW(EventSource.LANDING),
     LANDING_CTA_CLICK(EventSource.LANDING),

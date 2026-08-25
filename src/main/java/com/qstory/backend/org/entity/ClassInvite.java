@@ -19,9 +19,9 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 /**
- * A single-use, expiring invite for one ClassGroup - same hashed-secret posture as
- * VoiceResearchConsent's deletionTokenHash: the raw token is returned once at creation and
- * never stored, only its SHA-256 hash (see DigestUtil.sha256Hex).
+ * 하나의 ClassGroup에 대한 1회용, 만료 가능한 초대 - VoiceResearchConsent의 deletionTokenHash와 동일한
+ * 해시 시크릿 방식을 따른다: 원본 토큰은 생성 시 한 번만 반환되며 절대 저장되지 않고, 오직 그 SHA-256
+ * 해시값만 저장된다(DigestUtil.sha256Hex 참고).
  */
 @Entity
 @Table(name = "class_invite")
@@ -47,7 +47,7 @@ public class ClassInvite {
     @Column(nullable = false)
     private Instant expiresAt;
 
-    /** Null until redeemed; a used invite is never usable again. */
+    /** 사용되기 전까지는 null이며, 이미 사용된 초대는 다시 사용할 수 없다. */
     private Instant usedAt;
 
     @Column(nullable = false, updatable = false)

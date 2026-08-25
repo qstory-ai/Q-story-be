@@ -12,7 +12,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** Parent consent for an opt-in voice research recording. The id is client-generated. */
+/** 옵트인 음성 연구 녹음에 대한 보호자 동의. id는 클라이언트에서 생성된다. */
 @Entity
 @Table(name = "voice_research_consents")
 @Getter
