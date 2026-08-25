@@ -27,7 +27,10 @@ import org.hibernate.annotations.UuidGenerator;
  * @Inheritance 대신 role 구분자를 둔 단일 테이블로 구성했는데, 로그인은 언제나 역할과 무관한
  * 단일 loginId 조회이고 세 역할의 필드가 상당 부분 겹치기 때문이다(auth plan 문서 참고).
  * organization/classGroup은 역할에 따라 null일 수 있다: DIRECTOR는 classGroup이 없고(조직을
- * 만들기 전까지는 organization도 없다); CLASS_ACCOUNT/PARENT는 항상 둘 다 가진다.
+ * 만들기 전까지는 organization도 없다); CLASS_ACCOUNT는 항상 둘 다 가진다. PARENT는 반 코드로
+ * 가입했으면(ClassService.join) 둘 다 갖지만, 반 코드 없이 가입한 "독립" 학부모(AuthService.
+ * signupParent)는 둘 다 null이다 - 이 경우 entitlement 판단은 이 계정 자신의 subscriptionStatus
+ * 하나로만 이뤄진다(EntitlementService 참고).
  *
  * <p>Organization/ClassGroup으로부터 의도적으로 cascade 삭제되지 않는다 - 조직/학급을 삭제해도
  * 누군가의 로그인이 조용히 함께 사라지는 일은 절대 없어야 한다(현재는 둘 다 삭제 엔드포인트가

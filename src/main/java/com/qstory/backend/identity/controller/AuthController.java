@@ -24,7 +24,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 회원가입/로그인/whoami. 학부모(Parent) 회원가입은 참여 코드(join-code) 기반이라 ClassController(POST /v1/classes/join)에 있다. */
+/**
+ * 회원가입/로그인/whoami. 반 코드로 가입하는 학부모 회원가입은 ClassController(POST
+ * /v1/classes/join)에 있다 - 이 컨트롤러의 signup/parent는 반 코드 없이 가입하는 "독립" 학부모용이다.
+ */
 @Tag(name = "Auth", description = "Organization-owner/staff signup, role-agnostic login, and current-user lookup")
 @RestController
 public class AuthController {
@@ -45,6 +48,16 @@ public class AuthController {
     @ResponseStatus(HttpStatus.CREATED)
     public AuthResponse signupOrganizationOwner(@RequestBody SignupOrganizationOwnerRequest request) {
         return authService.signupOrganizationOwner(request);
+    }
+
+    @Operation(summary = "Sign up as an independent parent",
+            description = "Creates a PARENT account with no organization/class - for a parent whose child isn't "
+                    + "enrolled in a partnered kindergarten. Access to entitlement-gated stories then depends only "
+                    + "on this account's own subscription (see EntitlementService), never an organization's.")
+    @PostMapping("/v1/auth/signup/parent")
+    @ResponseStatus(HttpStatus.CREATED)
+    public AuthResponse signupParent(@RequestBody SignupOrganizationOwnerRequest request) {
+        return authService.signupParent(request);
     }
 
     @Operation(summary = "Sign up an internal content-authoring account",

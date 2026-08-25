@@ -59,6 +59,17 @@ public class AuthService {
     }
 
     /**
+     * 반 코드 없이 가입하는 "독립" 학부모 - 아이가 제휴 유치원에 다니지 않는 경우다. organization/
+     * classGroup 둘 다 null이며(AppUser.java 참고), 접근은 EntitlementService의 개인 구독 경로로만
+     * 판단된다(기관 구독 경로는 orgId가 없으니 자동으로 매치되지 않는다). 반 코드로 가입하는
+     * 학부모는 여전히 ClassService.join()을 통해서만 만들어진다.
+     */
+    @Transactional
+    public AuthResponse signupParent(SignupOrganizationOwnerRequest request) {
+        return createAccount(Role.PARENT, request);
+    }
+
+    /**
      * STAFF 계정을 발급한다 - 내부 콘텐츠 제작 역할이다. AuthController의 X-Admin-Token으로
      * 게이트된 경로를 통해서만 도달할 수 있으며, 고객 대상 회원가입 폼으로는 절대 도달할 수
      * 없다; 이 분리가 왜 중요한지는 Role.java를 참고.
