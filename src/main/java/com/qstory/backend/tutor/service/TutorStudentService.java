@@ -1,0 +1,273 @@
+package com.qstory.backend.tutor.service;
+
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.common.util.DigestUtil;
+import com.qstory.backend.identity.dto.AuthResponse;
+import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
+import com.qstory.backend.identity.dto.UserSummary;
+import com.qstory.backend.identity.entity.AppUser;
+import com.qstory.backend.identity.repository.AppUserRepository;
+import com.qstory.backend.identity.Role;
+import com.qstory.backend.identity.security.CurrentUser;
+import com.qstory.backend.identity.security.JwtService;
+import com.qstory.backend.identity.util.AuthValidator;
+import com.qstory.backend.tutor.TutorStudentStatus;
+import com.qstory.backend.tutor.Weekday;
+import com.qstory.backend.tutor.dto.AcceptTutorInviteRequest;
+import com.qstory.backend.tutor.dto.CreateTutorInviteRequest;
+import com.qstory.backend.tutor.dto.CreateTutorScheduleRequest;
+import com.qstory.backend.tutor.dto.CreateTutorStudentRequest;
+import com.qstory.backend.tutor.dto.TutorInvitePreviewResponse;
+import com.qstory.backend.tutor.dto.TutorInviteResponse;
+import com.qstory.backend.tutor.dto.TutorScheduleResponse;
+import com.qstory.backend.tutor.dto.TutorStudentResponse;
+import com.qstory.backend.tutor.entity.TutorInvite;
+import com.qstory.backend.tutor.entity.TutorSchedule;
+import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.tutor.repository.TutorInviteRepository;
+import com.qstory.backend.tutor.repository.TutorScheduleRepository;
+import com.qstory.backend.tutor.repository.TutorStudentRepository;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeParseException;
+import java.util.Base64;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 방문 선생님의 학생 등록/일정/부모 초대 - org.service.ClassService의 초대 메커니즘(랜덤 토큰 생성,
+ * SHA-256 해시 저장, 14일 TTL, 1회용 소진)을 그대로 재사용한다. ClassService.join()과 다른 점 하나:
+ * 초대 수락자는 새로 가입하는 경우도, 이미 로그인된 기존 PARENT 계정인 경우도 있을 수 있다(자녀가
+ * 이미 다른 경로로 부모 계정을 갖고 있는 흔한 케이스) - acceptInvite()가 둘 다 받는다.
+ */
+@Service
+public class TutorStudentService {
+
+    private static final Duration INVITE_TTL = Duration.ofDays(14);
+
+    private final TutorStudentRepository tutorStudentRepository;
+    private final TutorScheduleRepository tutorScheduleRepository;
+    private final TutorInviteRepository tutorInviteRepository;
+    private final AppUserRepository userRepository;
+    private final AuthValidator authValidator;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
+    private final SecureRandom random = new SecureRandom();
+
+    public TutorStudentService(
+            TutorStudentRepository tutorStudentRepository, TutorScheduleRepository tutorScheduleRepository,
+            TutorInviteRepository tutorInviteRepository, AppUserRepository userRepository,
+            AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService) {
+        this.tutorStudentRepository = tutorStudentRepository;
+        this.tutorScheduleRepository = tutorScheduleRepository;
+        this.tutorInviteRepository = tutorInviteRepository;
+        this.userRepository = userRepository;
+        this.authValidator = authValidator;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
+    }
+
+    @Transactional
+    public TutorStudentResponse createStudent(CurrentUser caller, CreateTutorStudentRequest request) {
+        if (isBlank(request.name())) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "아이 이름 또는 별명을 입력해 주세요.");
+        }
+        if (isBlank(request.ageBand())) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "연령대를 선택해 주세요.");
+        }
+        AppUser tutor = userRepository.getReferenceById(caller.userId());
+        TutorStudent student = tutorStudentRepository.save(TutorStudent.builder()
+                .tutor(tutor)
+                .name(request.name().trim())
+                .ageBand(request.ageBand().trim())
+                .classType(request.classType())
+                .prepNote(request.prepNote())
+                .createdAt(Instant.now())
+                .build());
+        return TutorStudentResponse.of(student);
+    }
+
+    public List<TutorStudentResponse> listStudents(CurrentUser caller) {
+        return tutorStudentRepository.findByTutor_IdOrderByCreatedAtAsc(caller.userId()).stream()
+                .map(TutorStudentResponse::of)
+                .toList();
+    }
+
+    /**
+     * 이 선생님이 등록한 모든 학생의 일정을 통틀어 - "주간 일정" 화면이 학생별로 다시 조회할 필요
+     * 없게. @Transactional(readOnly=true) 필수 - TutorScheduleResponse.of()가 지연 로딩된
+     * tutorStudent.getName()을 읽는데, 세션이 이미 닫힌 뒤(트랜잭션 밖)라면
+     * LazyInitializationException이 난다(id만 읽으면 프록시가 안 깨어나 괜찮지만, name처럼
+     * 실제 컬럼을 읽으려면 DB를 다시 쳐야 해서 열린 세션이 필요하다).
+     */
+    @Transactional(readOnly = true)
+    public List<TutorScheduleResponse> listSchedules(CurrentUser caller) {
+        return tutorScheduleRepository.findByTutorStudent_Tutor_IdOrderByCreatedAtAsc(caller.userId()).stream()
+                .map(TutorScheduleResponse::of)
+                .toList();
+    }
+
+    @Transactional
+    public TutorScheduleResponse createSchedule(CurrentUser caller, UUID studentId, CreateTutorScheduleRequest request) {
+        TutorStudent student = requireOwnedStudent(caller, studentId);
+        Weekday weekday = parseWeekday(request.weekday());
+        LocalTime startTime = parseTime(request.startTime(), "시작 시간");
+        LocalTime endTime = parseTime(request.endTime(), "종료 시간");
+        if (!startTime.isBefore(endTime)) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "종료 시간은 시작 시간보다 늦어야 해요.");
+        }
+        LocalDate startDate = parseDate(request.startDate());
+        if (isBlank(request.location())) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "수업 장소를 입력해 주세요.");
+        }
+        TutorSchedule schedule = tutorScheduleRepository.save(TutorSchedule.builder()
+                .tutorStudent(student)
+                .weekday(weekday)
+                .startTime(startTime)
+                .endTime(endTime)
+                .startDate(startDate)
+                .location(request.location().trim())
+                .reminderEnabled(request.reminderEnabled() == null || request.reminderEnabled())
+                .createdAt(Instant.now())
+                .build());
+        return TutorScheduleResponse.of(schedule);
+    }
+
+    @Transactional
+    public TutorInviteResponse createInvite(CurrentUser caller, UUID studentId, CreateTutorInviteRequest request) {
+        TutorStudent student = requireOwnedStudent(caller, studentId);
+        if (!"SMS".equals(request.method()) && !"LINK".equals(request.method())) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "초대 방법은 SMS 또는 LINK여야 해요.");
+        }
+        if ("SMS".equals(request.method()) && isBlank(request.phoneNumber())) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "휴대폰 번호를 입력해 주세요.");
+        }
+        String rawToken = randomToken();
+        Instant expiresAt = Instant.now().plus(INVITE_TTL);
+        tutorInviteRepository.save(TutorInvite.builder()
+                .tutorStudent(student)
+                .tokenHash(DigestUtil.sha256Hex(rawToken))
+                .method(request.method())
+                .phoneNumber(request.phoneNumber())
+                .expiresAt(expiresAt)
+                .createdAt(Instant.now())
+                .build());
+        return new TutorInviteResponse(rawToken, expiresAt);
+    }
+
+    /**
+     * 소비하지 않고 미리보기만 - 만료/사용된 토큰이면 초대 수락과 동일한 에러를 던진다.
+     * @Transactional(readOnly=true) 필수 - invite.getTutorStudent()와 student.getTutor()가
+     * 둘 다 지연 로딩이라, 세션이 열려 있어야 name/displayName을 읽을 수 있다.
+     */
+    @Transactional(readOnly = true)
+    public TutorInvitePreviewResponse previewInvite(String rawToken) {
+        TutorInvite invite = tutorInviteRepository.findByTokenHash(DigestUtil.sha256Hex(rawToken))
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_INVITE, "초대 링크가 올바르지 않아요.", 410));
+        if (invite.getUsedAt() != null || invite.getExpiresAt().isBefore(Instant.now())) {
+            throw ApiException.contractError(ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
+        }
+        TutorStudent student = invite.getTutorStudent();
+        return new TutorInvitePreviewResponse(student.getName(), student.getAgeBand(), student.getTutor().getDisplayName());
+    }
+
+    /**
+     * callerOrNull이 있으면(로그인된 PARENT) 그 계정에 바로 연결한다. 없으면 request의 email/
+     * password/displayName으로 새 PARENT 계정을 만들며 연결한다 - ClassService.join()과 동일한
+     * "초대 수락이 곧 회원가입"인 경우다.
+     */
+    @Transactional
+    public AuthResponse acceptInvite(Optional<CurrentUser> callerOrNull, String rawToken, AcceptTutorInviteRequest request) {
+        TutorInvite invite = tutorInviteRepository.findByTokenHash(DigestUtil.sha256Hex(rawToken))
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_INVITE, "초대 링크가 올바르지 않아요.", 410));
+        if (invite.getUsedAt() != null || invite.getExpiresAt().isBefore(Instant.now())) {
+            throw ApiException.contractError(ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
+        }
+
+        AppUser parent = callerOrNull.isPresent() ? existingParent(callerOrNull.get()) : newParent(request);
+
+        invite.setUsedAt(Instant.now());
+        tutorInviteRepository.save(invite);
+
+        TutorStudent student = invite.getTutorStudent();
+        student.setLinkedParentUser(parent);
+        student.setStatus(TutorStudentStatus.CONFIRMED);
+        tutorStudentRepository.save(student);
+
+        CurrentUser currentUser = new CurrentUser(parent.getId(), Role.PARENT, null, null);
+        return new AuthResponse(jwtService.issue(currentUser), UserSummary.of(parent));
+    }
+
+    private AppUser existingParent(CurrentUser caller) {
+        if (caller.role() != Role.PARENT) {
+            throw ApiException.contractError(ErrorCode.FORBIDDEN, "학부모 계정만 연결을 수락할 수 있어요.", 403);
+        }
+        return userRepository.findById(caller.userId())
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
+    }
+
+    private AppUser newParent(AcceptTutorInviteRequest request) {
+        authValidator.validateSignup(new SignupOrganizationOwnerRequest(request.email(), request.password(), request.displayName()));
+        AppUser parent = AppUser.builder()
+                .role(Role.PARENT)
+                .loginId(request.email().trim().toLowerCase())
+                .passwordHash(passwordEncoder.encode(request.password()))
+                .displayName(request.displayName().trim())
+                .createdAt(Instant.now())
+                .build();
+        try {
+            // saveAndFlush - AuthService.signupOrganizationOwner()의 주석과 동일한 이유.
+            return userRepository.saveAndFlush(parent);
+        } catch (DataIntegrityViolationException alreadyRegistered) {
+            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 등록된 이메일이에요.");
+        }
+    }
+
+    private TutorStudent requireOwnedStudent(CurrentUser caller, UUID studentId) {
+        return tutorStudentRepository.findByIdAndTutor_Id(studentId, caller.userId())
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
+    }
+
+    private static Weekday parseWeekday(String value) {
+        try {
+            return Weekday.valueOf(value == null ? "" : value.trim().toUpperCase());
+        } catch (IllegalArgumentException invalid) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "수업 요일을 다시 확인해 주세요.");
+        }
+    }
+
+    private static LocalTime parseTime(String value, String label) {
+        try {
+            return LocalTime.parse(value);
+        } catch (DateTimeParseException | NullPointerException invalid) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, label + "을 다시 확인해 주세요.");
+        }
+    }
+
+    private static LocalDate parseDate(String value) {
+        try {
+            return LocalDate.parse(value);
+        } catch (DateTimeParseException | NullPointerException invalid) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "시작일을 다시 확인해 주세요.");
+        }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private String randomToken() {
+        byte[] bytes = new byte[24];
+        random.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+}

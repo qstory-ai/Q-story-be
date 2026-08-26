@@ -17,5 +17,6 @@ public enum Role {
     DIRECTOR,
     CLASS_ACCOUNT,
     PARENT,
+    TUTOR,
     STAFF
 }

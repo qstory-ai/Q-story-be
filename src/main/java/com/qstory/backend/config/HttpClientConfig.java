@@ -1,39 +1,30 @@
 package com.qstory.backend.config;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.net.http.HttpClient;
-import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
+import org.springframework.web.client.RestClient;
 
+/**
+ * 범용 아웃바운드 HTTP 클라이언트 빈들. restClient()는 지금 GoogleOAuthVerifier/
+ * KakaoOAuthVerifier만 쓴다.
+ *
+ * <p>httpClient()는 이 커밋 이전부터 OpenRouterClient가 생성자로 요구하고 있었지만
+ * (java.net.http.HttpClient httpClient 파라미터) 그 타입의 빈이 어디에도 정의되어 있지
+ * 않아서, 이 클래스를 추가하며 백엔드를 재빌드해보기 전까지는 앱이 아예 기동조차 못 하는
+ * 상태였다(UnsatisfiedDependencyException) - OAuth 작업과는 무관하지만 부팅 자체를 막고
+ * 있어서 여기서 함께 채웠다.
+ */
 @Configuration
 public class HttpClientConfig {
 
     @Bean
-    public HttpClient providerHttpClient() {
-        return HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .version(HttpClient.Version.HTTP_1_1)
-                .build();
+    public RestClient restClient() {
+        return RestClient.create();
     }
 
-    /**
-     * Spring Boot가 자동 구성한 ObjectMapper 빈(Spring MVC의 JSON 메시지 컨버터가 여전히 사용함)을
-     * 오버라이드하여, java.time 타입이 예외를 던지는 대신 ISO-8601로 직렬화되도록 한다. 여기 있는
-     * 모든 컨트롤러는 바로 이 인스턴스를 통해 HttpJsonWriter로 JSON을 수동으로 작성하므로, 두
-     * 경로(수동 작성과, 바디를 직접 반환하는 소수의 @RestController 메서드) 사이의 출력이
-     * 바이트 단위로 일치하게 유지된다.
-     */
     @Bean
-    @Primary
-    public ObjectMapper objectMapper() {
-        return new ObjectMapper()
-                .registerModule(new JavaTimeModule())
-                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    public HttpClient httpClient() {
+        return HttpClient.newHttpClient();
     }
 }

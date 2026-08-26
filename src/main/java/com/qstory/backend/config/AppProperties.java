@@ -26,12 +26,26 @@ public record AppProperties(
         }
     }
 
-    public record Providers(Rtzr rtzr, OpenRouter openRouter) {}
+    public record Providers(Rtzr rtzr, OpenRouter openRouter, Oauth oauth) {}
 
     public record Rtzr(String clientId, String clientSecret) {
         public boolean configured() {
             return clientId != null && !clientId.isBlank()
                     && clientSecret != null && !clientSecret.isBlank();
+        }
+    }
+
+    public record Oauth(Google google, Kakao kakao) {}
+
+    public record Google(String clientId) {
+        public boolean configured() {
+            return clientId != null && !clientId.isBlank();
+        }
+    }
+
+    public record Kakao(String appId) {
+        public boolean configured() {
+            return appId != null && !appId.isBlank();
         }
     }
 

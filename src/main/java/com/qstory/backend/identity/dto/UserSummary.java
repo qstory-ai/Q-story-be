@@ -11,7 +11,8 @@ public record UserSummary(
         UUID organizationId,
         UUID classId,
         String subscriptionStatus,
-        boolean grantsAccess) {
+        boolean grantsAccess,
+        String childName) {
 
     public static UserSummary of(AppUser user) {
         return new UserSummary(
@@ -19,6 +20,7 @@ public record UserSummary(
                 user.getOrganization() == null ? null : user.getOrganization().getId(),
                 user.getClassGroup() == null ? null : user.getClassGroup().getId(),
                 user.getSubscriptionStatus().name(),
-                user.getSubscriptionStatus().grantsAccess());
+                user.getSubscriptionStatus().grantsAccess(),
+                user.getChildName());
     }
 }

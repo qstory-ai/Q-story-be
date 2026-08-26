@@ -6,10 +6,13 @@ import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.dto.AuthResponse;
+import com.qstory.backend.identity.dto.ChangePasswordRequest;
 import com.qstory.backend.identity.dto.ConfirmPasswordResetRequest;
+import com.qstory.backend.identity.dto.DeleteAccountRequest;
 import com.qstory.backend.identity.dto.LoginRequest;
 import com.qstory.backend.identity.dto.RequestPasswordResetRequest;
 import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
+import com.qstory.backend.identity.dto.UpdateProfileRequest;
 import com.qstory.backend.identity.dto.UserSummary;
 import com.qstory.backend.identity.security.CurrentUserResolver;
 import io.swagger.v3.oas.annotations.Operation;
@@ -60,6 +63,15 @@ public class AuthController {
         return authService.signupParent(request);
     }
 
+    @Operation(summary = "Sign up as a tutor",
+            description = "Creates a TUTOR account - a self-service role for a home-visit/1:1 tutor. No "
+                    + "organization/class; the tutor manages their own student roster (see TutorController).")
+    @PostMapping("/v1/auth/signup/tutor")
+    @ResponseStatus(HttpStatus.CREATED)
+    public AuthResponse signupTutor(@RequestBody SignupOrganizationOwnerRequest request) {
+        return authService.signupTutor(request);
+    }
+
     @Operation(summary = "Sign up an internal content-authoring account",
             description = "Creates a STAFF account - the role StoryAuthoringController/NarrationRerenderController "
                     + "require. Not reachable from the app; gated by the same X-Admin-Token shared secret as "
@@ -84,6 +96,33 @@ public class AuthController {
     @GetMapping("/v1/auth/me")
     public UserSummary me() {
         return authService.me(currentUserResolver.require());
+    }
+
+    @Operation(summary = "Update the current user's profile",
+            description = "displayName is required for every role. childName is only stored for PARENT accounts "
+                    + "and silently ignored for any other role.")
+    @PostMapping("/v1/auth/me/profile")
+    public UserSummary updateProfile(@RequestBody UpdateProfileRequest request) {
+        return authService.updateProfile(currentUserResolver.require(), request);
+    }
+
+    @Operation(summary = "Change the current user's password",
+            description = "Requires the current password, unlike password-reset/confirm which is for a forgotten "
+                    + "password via email token.")
+    @PostMapping("/v1/auth/me/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changePassword(@RequestBody ChangePasswordRequest request) {
+        authService.changePassword(currentUserResolver.require(), request);
+    }
+
+    @Operation(summary = "Delete (soft-delete) the current user's account",
+            description = "Records an exit-survey reason, then blocks the account from logging in again. Not a "
+                    + "hard delete - other tables (password reset tokens, tutor students, story completions) still "
+                    + "reference this row.")
+    @PostMapping("/v1/auth/me/delete")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAccount(@RequestBody DeleteAccountRequest request) {
+        authService.deleteAccount(currentUserResolver.require(), request);
     }
 
     @Operation(summary = "Request a password reset",

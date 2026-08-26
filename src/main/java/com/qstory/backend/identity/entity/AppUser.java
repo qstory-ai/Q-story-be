@@ -1,5 +1,6 @@
 package com.qstory.backend.identity.entity;
 
+import com.qstory.backend.identity.OAuthProvider;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.org.SubscriptionStatus;
 import com.qstory.backend.org.entity.ClassGroup;
@@ -57,8 +58,16 @@ public class AppUser {
     @Column(nullable = false, unique = true)
     private String loginId;
 
-    /** BCrypt 해시. 나중에 추가될 OAuth 전용 계정(예: 카카오 로그인)에 대비해 nullable로 둔다. */
+    /** BCrypt 해시. OAuth 전용 계정(oauthProvider가 채워진 행)에서는 null이다. */
     private String passwordHash;
+
+    /** 소셜 로그인으로 만들어진 계정에서만 채워진다 - 둘 다 null이면 비밀번호 계정이다. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "oauth_provider")
+    private OAuthProvider oauthProvider;
+
+    @Column(name = "oauth_subject")
+    private String oauthSubject;
 
     @Column(nullable = false)
     private String displayName;
@@ -84,6 +93,17 @@ public class AppUser {
     private SubscriptionStatus subscriptionStatus = SubscriptionStatus.NONE;
 
     private Instant subscriptionUpdatedAt;
+
+    /** PARENT 역할에서만 의미가 있다 - 마이페이지 "내 정보 관리"에서 학부모가 직접 입력한다. */
+    @Column(name = "child_name")
+    private String childName;
+
+    /**
+     * 회원 탈퇴 시각 - null이 아니면 로그인/현재 사용자 조회 대상에서 제외된다(AppUserRepository.
+     * findByIdAndDeletedAtIsNull 참고). 하드 삭제 대신 소프트 삭제로 처리하는 이유는 비밀번호
+     * 재설정 토큰/튜터 학생/스토리 완료 기록 등 다른 테이블이 이 행을 FK로 참조하고 있어서다.
+     */
+    private Instant deletedAt;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;

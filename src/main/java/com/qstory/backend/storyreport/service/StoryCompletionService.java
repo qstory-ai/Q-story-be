@@ -10,6 +10,8 @@ import com.qstory.backend.storyreport.dto.StoryCompletionDetail;
 import com.qstory.backend.storyreport.dto.StoryCompletionSummary;
 import com.qstory.backend.storyreport.entity.StoryCompletion;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
+import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -21,10 +23,14 @@ public class StoryCompletionService {
 
     private final StoryCompletionRepository repository;
     private final AppUserRepository userRepository;
+    private final TutorStudentRepository tutorStudentRepository;
 
-    public StoryCompletionService(StoryCompletionRepository repository, AppUserRepository userRepository) {
+    public StoryCompletionService(
+            StoryCompletionRepository repository, AppUserRepository userRepository,
+            TutorStudentRepository tutorStudentRepository) {
         this.repository = repository;
         this.userRepository = userRepository;
+        this.tutorStudentRepository = tutorStudentRepository;
     }
 
     @Transactional
@@ -34,8 +40,15 @@ public class StoryCompletionService {
         }
         AppUser user = userRepository.findById(caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
+        // tutorStudentId는 caller(=선생님) 소유의 학생일 때만 세션 출처로 인정한다 - 남의 학생 id를
+        // 끼워 넣어 부모 쪽 공유 리스트에 끼어드는 걸 막는다.
+        TutorStudent tutorStudent = request.tutorStudentId() == null
+                ? null
+                : tutorStudentRepository.findByIdAndTutor_Id(request.tutorStudentId(), caller.userId())
+                        .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
         StoryCompletion completion = repository.save(StoryCompletion.builder()
                 .user(user)
+                .tutorStudent(tutorStudent)
                 .storyId(request.storyId())
                 .completedAt(Instant.now())
                 .durationSeconds(request.durationSeconds())

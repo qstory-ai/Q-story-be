@@ -30,7 +30,7 @@ spring:
       # reviewed description of this schema and run on every boot, so each one must stay
       # idempotent - "create ... if not exists" and constraint adds guarded against duplicates.
       mode: always
-      schema-locations: classpath:db/schema/001-baseline.sql,classpath:db/schema/002-story-revision.sql,classpath:db/schema/003-segment-narration-stale.sql,classpath:db/schema/004-segment-narration-text.sql,classpath:db/schema/005-story-asset-rerender.sql,classpath:db/schema/006-story-catalog-metadata.sql,classpath:db/schema/007-companion-chat.sql,classpath:db/schema/008-staff-role.sql,classpath:db/schema/009-password-reset.sql,classpath:db/schema/010-story-completions.sql,classpath:db/schema/011-shadow-family-drafts.sql,classpath:db/schema/012-launch-notifications.sql,classpath:db/schema/013-launch-notification-email-optional.sql,classpath:db/schema/014-launch-notification-wants-contact.sql,classpath:db/schema/015-launch-notification-child-age-text.sql,classpath:db/schema/016-completion-surveys.sql,classpath:db/schema/017-parent-subscription.sql
+      schema-locations: classpath:db/schema/001-baseline.sql,classpath:db/schema/002-story-revision.sql,classpath:db/schema/003-segment-narration-stale.sql,classpath:db/schema/004-segment-narration-text.sql,classpath:db/schema/005-story-asset-rerender.sql,classpath:db/schema/006-story-catalog-metadata.sql,classpath:db/schema/007-companion-chat.sql,classpath:db/schema/008-staff-role.sql,classpath:db/schema/009-password-reset.sql,classpath:db/schema/010-story-completions.sql,classpath:db/schema/011-shadow-family-drafts.sql,classpath:db/schema/012-launch-notifications.sql,classpath:db/schema/013-launch-notification-email-optional.sql,classpath:db/schema/014-launch-notification-wants-contact.sql,classpath:db/schema/015-launch-notification-child-age-text.sql,classpath:db/schema/016-completion-surveys.sql,classpath:db/schema/017-parent-subscription.sql,classpath:db/schema/018-tutor-role.sql,classpath:db/schema/019-tutor-students.sql,classpath:db/schema/020-story-completion-tutor-student.sql,classpath:db/schema/021-app-user-profile-and-deletion.sql,classpath:db/schema/022-improvement-feedback.sql,classpath:db/schema/023-account-deletion-feedback.sql,classpath:db/schema/024-oauth-accounts.sql
       continue-on-error: false
   jpa:
     open-in-view: false
@@ -60,6 +60,14 @@ qstory:
       tts-model: ${OPENROUTER_TTS_MODEL:google/gemini-3.1-flash-tts-preview}
       tts-voice: ${OPENROUTER_TTS_VOICE:Sulafat}
       image-model: ${OPENROUTER_IMAGE_MODEL:google/gemini-3.1-flash-image}
+    oauth:
+      # 둘 다 "비밀값"이 아니다 - client-id/app-id는 프론트 SDK 초기화에도 그대로 노출되는
+      # 공개 식별자다(실제 시크릿은 아래 verifier들이 provider의 토큰 검증 엔드포인트만 호출해서
+      # 서버가 별도로 들고 있을 필요가 없다 - GoogleOAuthVerifier/KakaoOAuthVerifier 참고).
+      google:
+        client-id: ${GOOGLE_OAUTH_CLIENT_ID:}
+      kakao:
+        app-id: ${KAKAO_APP_ID:}
   supabase:
     url: ${SUPABASE_URL:}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
