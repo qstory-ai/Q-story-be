@@ -119,10 +119,12 @@ public class AuthService {
 
     private AuthResponse createAccount(Role role, SignupOrganizationOwnerRequest request) {
         validator.validateSignup(request);
-        String loginId = request.email().trim().toLowerCase();
+        String loginId = request.loginId().trim().toLowerCase();
+        String email = request.email().trim().toLowerCase();
         AppUser user = AppUser.builder()
                 .role(role)
                 .loginId(loginId)
+                .email(email)
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .displayName(request.displayName().trim())
                 .createdAt(Instant.now())
@@ -134,7 +136,7 @@ public class AuthService {
             // 위반이 동기적으로 드러나서 실제로 catch할 수 있게 된다.
             user = userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException alreadyRegistered) {
-            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 등록된 이메일이에요.");
+            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 사용 중인 아이디예요.");
         }
         return issueResponse(user);
     }
@@ -186,6 +188,7 @@ public class AuthService {
         AppUser user = AppUser.builder()
                 .role(request.role())
                 .loginId(loginId)
+                .email(identity.email() != null && !identity.email().isBlank() ? identity.email().trim().toLowerCase() : null)
                 .oauthProvider(provider)
                 .oauthSubject(identity.subject())
                 .displayName(displayName)

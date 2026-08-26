@@ -128,11 +128,12 @@ public class ClassService {
     public AuthResponse join(JoinClassRequest request) {
         ClassGroup classGroup = resolveClassGroup(request);
         authValidator.validateSignup(new com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest(
-                request.email(), request.password(), request.displayName()));
+                request.loginId(), request.email(), request.password(), request.displayName()));
 
         AppUser parent = AppUser.builder()
                 .role(Role.PARENT)
-                .loginId(request.email().trim().toLowerCase())
+                .loginId(request.loginId().trim().toLowerCase())
+                .email(request.email().trim().toLowerCase())
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .displayName(request.displayName().trim())
                 .organization(classGroup.getOrganization())
@@ -143,7 +144,7 @@ public class ClassService {
             // saveAndFlush - 왜 여기서 일반 save()로는 예외를 잡을 수 없는지는 AuthService.signupOrganizationOwner()의 주석 참고.
             parent = userRepository.saveAndFlush(parent);
         } catch (DataIntegrityViolationException alreadyRegistered) {
-            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 등록된 이메일이에요.");
+            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 사용 중인 아이디예요.");
         }
 
         CurrentUser currentUser = new CurrentUser(

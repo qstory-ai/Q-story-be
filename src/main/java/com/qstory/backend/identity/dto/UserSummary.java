@@ -7,6 +7,7 @@ public record UserSummary(
         UUID id,
         String role,
         String loginId,
+        String email,
         String displayName,
         UUID organizationId,
         UUID classId,
@@ -16,7 +17,7 @@ public record UserSummary(
 
     public static UserSummary of(AppUser user) {
         return new UserSummary(
-                user.getId(), user.getRole().name(), user.getLoginId(), user.getDisplayName(),
+                user.getId(), user.getRole().name(), user.getLoginId(), user.getEmail(), user.getDisplayName(),
                 user.getOrganization() == null ? null : user.getOrganization().getId(),
                 user.getClassGroup() == null ? null : user.getClassGroup().getId(),
                 user.getSubscriptionStatus().name(),

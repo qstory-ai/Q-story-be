@@ -12,9 +12,15 @@ import org.springframework.stereotype.Component;
 public class AuthValidator {
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+    /** 아이디 - 이메일과 분리되면서 새로 생긴 자유 형식 식별자. 영문/숫자/일부 특수문자, 4~30자. */
+    private static final Pattern LOGIN_ID_PATTERN = Pattern.compile("^[a-zA-Z0-9._-]{4,30}$");
     private static final int MIN_PASSWORD_LENGTH = 8;
 
     public void validateSignup(SignupOrganizationOwnerRequest request) {
+        if (isBlank(request.loginId()) || !LOGIN_ID_PATTERN.matcher(request.loginId().trim()).matches()) {
+            throw ApiException.contractError(
+                    ErrorCode.VALIDATION_FAILED, "아이디는 4~30자의 영문, 숫자, 특수문자(.,_,-)만 사용할 수 있어요.");
+        }
         if (isBlank(request.email()) || !EMAIL_PATTERN.matcher(request.email().trim()).matches()) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "올바른 이메일 주소를 입력해 주세요.");
         }

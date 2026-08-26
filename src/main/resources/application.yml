@@ -46,7 +46,7 @@ spring:
         format_sql: false
 
 qstory:
-  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006,https://q-story-f07-pilot.kaangaa.chatgpt.site,http://localhost:5173,http://127.0.0.1:5173,https://qstory.ai.kr,https://www.qstory.ai.kr,https://start.qstory.ai.kr,https://play.qstory.ai.kr,https://dev.qstory.ai.kr}
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006,https://q-story-f07-pilot.kaangaa.chatgpt.site,http://localhost:5173,http://127.0.0.1:5173,https://qstory.ai.kr,https://www.qstory.ai.kr,https://start.qstory.ai.kr,https://play.qstory.ai.kr,https://dev.qstory.ai.kr,https://demo.qstory.ai.kr,https://demo.api.qstory.ai.kr}
   max-audio-bytes: ${MAX_AUDIO_BYTES:2621440}
   request-timeout-ms: ${REQUEST_TIMEOUT_MS:40000}
   ffmpeg-path: ${FFMPEG_PATH:ffmpeg}

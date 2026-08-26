@@ -216,10 +216,12 @@ public class TutorStudentService {
     }
 
     private AppUser newParent(AcceptTutorInviteRequest request) {
-        authValidator.validateSignup(new SignupOrganizationOwnerRequest(request.email(), request.password(), request.displayName()));
+        authValidator.validateSignup(
+                new SignupOrganizationOwnerRequest(request.loginId(), request.email(), request.password(), request.displayName()));
         AppUser parent = AppUser.builder()
                 .role(Role.PARENT)
-                .loginId(request.email().trim().toLowerCase())
+                .loginId(request.loginId().trim().toLowerCase())
+                .email(request.email().trim().toLowerCase())
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .displayName(request.displayName().trim())
                 .createdAt(Instant.now())
@@ -228,7 +230,7 @@ public class TutorStudentService {
             // saveAndFlush - AuthService.signupOrganizationOwner()의 주석과 동일한 이유.
             return userRepository.saveAndFlush(parent);
         } catch (DataIntegrityViolationException alreadyRegistered) {
-            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 등록된 이메일이에요.");
+            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 사용 중인 아이디예요.");
         }
     }
 

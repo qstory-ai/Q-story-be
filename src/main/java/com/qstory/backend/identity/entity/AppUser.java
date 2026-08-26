@@ -54,9 +54,20 @@ public class AppUser {
     @Column(nullable = false)
     private Role role;
 
-    /** DIRECTOR/PARENT에게는 이메일; CLASS_ACCOUNT에게는 원장이 선택한 핸들 - ClassGroup.joinCode와는 별개다. */
+    /**
+     * 사용자가 직접 정하는 로그인 아이디 - CLASS_ACCOUNT는 예외로 시스템이 발급한 handle을 쓴다.
+     * 예전에는 이메일 형식이 강제되어 email과 사실상 같은 값이었지만, 지금은 자유 형식이고
+     * 실제 이메일은 아래 email 컬럼에 별도로 저장한다.
+     */
     @Column(nullable = false, unique = true)
     private String loginId;
+
+    /**
+     * 연락용 이메일 주소 - loginId와 달리 로그인 식별자가 아니고 unique 제약도 없다(같은 이메일로
+     * 여러 역할 계정을 만드는 것을 막지 않는다). DIRECTOR/PARENT/TUTOR는 가입 시 필수로 받고,
+     * CLASS_ACCOUNT는 원장이 반을 만들 때 이메일을 받지 않으므로 null이다.
+     */
+    private String email;
 
     /** BCrypt 해시. OAuth 전용 계정(oauthProvider가 채워진 행)에서는 null이다. */
     private String passwordHash;
