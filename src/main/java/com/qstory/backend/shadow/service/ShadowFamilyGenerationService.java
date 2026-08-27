@@ -12,6 +12,7 @@ import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.common.util.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
+import com.qstory.backend.familydraft.util.FamilyDraftHarness;
 import com.qstory.backend.provider.ProviderReadiness;
 import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
 import com.qstory.backend.shadow.entity.ShadowFamilyDraft;
@@ -80,28 +81,25 @@ public class ShadowFamilyGenerationService {
                     List.of("시범 요청", "냄비로 시선을 돌리고 열쇠 확보", "두 번 두드리기 신호", "긴 주걱으로 잠금 확인", "사탕 철문으로 추격 지연"),
                     "shadow-reference/HG-Q-C.jpg"));
 
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}", Pattern.CASE_INSENSITIVE);
-    private static final Pattern PHONE_PATTERN = Pattern.compile("(?:\\+?82[- ]?)?0?1[016789][- ]?\\d{3,4}[- ]?\\d{4}");
-    private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+", Pattern.CASE_INSENSITIVE);
-    private static final Pattern NAME_PATTERN = Pattern.compile("(?:내|제)\\s*이름은\\s*\\p{L}{1,20}");
-
     private final ShadowIntentRepository candidateRepository;
     private final ShadowFamilyDraftRepository draftRepository;
     private final OpenRouterClient openRouterClient;
     private final SupabaseStorageClient storageClient;
     private final ObjectMapper objectMapper;
     private final AppProperties config;
+    private final FamilyDraftHarness harness;
 
     public ShadowFamilyGenerationService(
             ShadowIntentRepository candidateRepository, ShadowFamilyDraftRepository draftRepository,
             OpenRouterClient openRouterClient, SupabaseStorageClient storageClient, ObjectMapper objectMapper,
-            AppProperties config) {
+            AppProperties config, FamilyDraftHarness harness) {
         this.candidateRepository = candidateRepository;
         this.draftRepository = draftRepository;
         this.openRouterClient = openRouterClient;
         this.storageClient = storageClient;
         this.objectMapper = objectMapper;
         this.config = config;
+        this.harness = harness;
     }
 
     @Transactional
@@ -125,7 +123,7 @@ public class ShadowFamilyGenerationService {
         // requestTimeoutMs(기본 40초)는 실시간 라우팅용 예산이라, 대본→검수→이미지→오디오 여러
         // 단계 전체에 하나의 데드라인을 공유하면 뒤쪽 단계가 시간 부족으로 죽는다. 호출마다
         // 새 데드라인을 준다.
-        String safeIntent = redact(candidate.getRepresentativeIntent());
+        String safeIntent = harness.redact(candidate.getRepresentativeIntent(), 160);
         JsonNode draft = null;
         List<String> revisionFeedback = List.of();
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -203,7 +201,7 @@ public class ShadowFamilyGenerationService {
 
     /** 이미지 생성이 특히 느릴 수 있어 실시간 라우팅용 기본값보다 여유 있게 잡는다. */
     private RequestDeadline freshDeadline() {
-        return RequestDeadline.startingNow(Math.max(config.requestTimeoutMs(), 60_000));
+        return harness.freshDeadline(config.requestTimeoutMs());
     }
 
     private JsonNode requestDraft(
@@ -237,29 +235,18 @@ public class ShadowFamilyGenerationService {
     private List<String> reviewGateIssues(AnchorContract contract, JsonNode draft, RequestDeadline deadline) {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("anchorId", contract.slot());
-        payload.set("draft", draft);
-        JsonNode review = openRouterClient.generateStructuredCompletion(
-                reviewSystemPrompt(), payload.toString(), reviewSchema(), "qstory_shadow_family_review_v1", 800,
-                ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "초안 검수를 완료하지 못했어요.", deadline);
-        boolean pass = review.path("pass").asBoolean(false)
-                && review.path("intentAlignment").asInt(-1) == 2
-                && review.path("continuity").asInt(-1) == 2
-                && review.path("safety").asInt(-1) == 2
-                && review.path("fixedEventCopy").asInt(-1) == 2;
-        if (pass) {
-            return List.of();
-        }
-        List<String> issues = new ArrayList<>();
-        if (review.path("issues").isArray()) {
-            review.path("issues").forEach(node -> issues.add(node.asText()));
-        }
-        if (issues.isEmpty()) {
-            issues.add("신규 family 초안 품질 검수를 통과하지 못했다.");
-        }
-        return issues;
+        return harness.reviewGateIssues(
+                payload, draft, reviewSystemPrompt(), "qstory_shadow_family_review_v1",
+                "초안 검수를 완료하지 못했어요.", deadline);
     }
 
-    /** shadow-generation.mjs의 validateShadowDraft()를 이식한 것 - 통과하면 null, 아니면 재시도 사유 문자열. */
+    /**
+     * shadow-generation.mjs의 validateShadowDraft()를 이식한 것 - 통과하면 null, 아니면 재시도 사유
+     * 문자열. proposedFamilyId/imageBrief.location/B슬롯 안전성 검사는 Shadow 고유(LiveBranch에는 해당
+     * 개념이 없다) 라 여기 그대로 두고, 나머지 공통 검사는 FamilyDraftHarness에 위임한다 - 검사 순서는
+     * 기존 그대로 유지해 여러 문제가 동시에 있는 초안에서 재시도 피드백으로 돌아가는 "첫 실패 사유"가
+     * 바뀌지 않게 한다.
+     */
     private String validationIssue(JsonNode draft, AnchorContract contract) {
         String proposedFamilyId = draft.path("proposedFamilyId").asText("");
         if (!proposedFamilyId.matches("^SHADOW_[ABC]_[A-Z0-9_]{3,50}$")
@@ -267,49 +254,34 @@ public class ShadowFamilyGenerationService {
                 || EXISTING_FAMILY_IDS.contains(proposedFamilyId)) {
             return "허용된 접두어의 새 family ID를 쓰라 - 기존 family와 겹치지 않아야 한다.";
         }
-        if (!contract.rejoinAnchorIds().contains(draft.path("rejoinAnchorId").asText(""))) {
-            return "rejoinAnchorId는 입력으로 주어진 allowedRejoinAnchorIds 중 하나여야 한다.";
+        String rejoinIssue = harness.rejoinAnchorIssue(draft, contract.rejoinAnchorIds());
+        if (rejoinIssue != null) {
+            return rejoinIssue;
         }
         JsonNode imageBrief = draft.path("imageBrief");
         if (!contract.location().equals(imageBrief.path("location").asText(""))) {
             return "imageBrief.location은 입력의 fixedLocation과 같아야 한다.";
         }
-        if (!imageBrief.path("characters").isArray() || imageBrief.path("characters").isEmpty()) {
-            return "imageBrief.characters는 최소 1명 이상이어야 한다.";
+        // Shadow의 imageBrief.characters/dialogue.speaker는 ANCHOR_CONTRACTS에 하드코딩된 bare label
+        // (예: "GRETEL")로 채워진다 - contract.allowedCharacters()가 그 실제 형식이다. LiveBranch의
+        // anchor.getAllowedSpeakerIds()(예: "HG-SPK-GRETEL")와는 다른 표현이지만, 그건 LiveBranch의
+        // draft가 실제로 그 형식으로 채워지기 때문이다(StoryCast.speakerId 문서, draftSchema의
+        // enum 참고) - 여기서 그 형식으로 정규화하면 오히려 틀린다.
+        String charactersIssue = harness.imageCharactersIssue(draft, contract.allowedCharacters());
+        if (charactersIssue != null) {
+            return charactersIssue;
         }
-        for (JsonNode character : imageBrief.path("characters")) {
-            if (!contract.allowedCharacters().contains(character.asText(""))) {
-                return "imageBrief.characters는 허용된 인물 목록만 써야 한다.";
-            }
+        String choiceCopyIssue = harness.choiceCopyIssue(draft);
+        if (choiceCopyIssue != null) {
+            return choiceCopyIssue;
         }
-        JsonNode choiceCopy = draft.path("choiceCopy");
-        if (!choiceCopy.isArray() || choiceCopy.size() != 3) {
-            return "choiceCopy는 정확히 3개여야 한다.";
+        String beatsIssue = harness.beatsIssue(draft, contract.allowedCharacters());
+        if (beatsIssue != null) {
+            return beatsIssue;
         }
-        Set<String> labels = new java.util.HashSet<>();
-        choiceCopy.forEach(node -> labels.add(node.path("label").asText("")));
-        if (labels.size() != 3) {
-            return "choiceCopy의 label 3개는 서로 달라야 한다.";
-        }
-        JsonNode beats = draft.path("beats");
-        if (!beats.isArray() || beats.isEmpty() || beats.size() > 2) {
-            return "beats는 1~2개여야 한다.";
-        }
-        Set<String> allowedSpeakers = new java.util.HashSet<>(contract.allowedCharacters());
-        allowedSpeakers.add("NARRATOR");
-        for (JsonNode beat : beats) {
-            if (beat.path("action").asText("").isBlank() || beat.path("narratorText").asText("").isBlank()) {
-                return "beats의 action/narratorText는 비어 있으면 안 된다.";
-            }
-            for (JsonNode line : beat.path("dialogue")) {
-                if (!allowedSpeakers.contains(line.path("speaker").asText(""))) {
-                    return "dialogue의 speaker는 허용된 인물이나 NARRATOR만 써야 한다.";
-                }
-            }
-        }
-        String reportSummary = draft.path("reportSummary").asText("");
-        if (reportSummary.contains("초안") || reportSummary.contains("생성함")) {
-            return "reportSummary는 생성 과정이 아니라 아이가 고른 행동과 결과를 요약해야 한다.";
+        String reportSummaryIssue = harness.reportSummaryIssue(draft);
+        if (reportSummaryIssue != null) {
+            return reportSummaryIssue;
         }
         if ("B".equals(contract.slot())) {
             String fullText = draft.toString();
@@ -331,22 +303,9 @@ public class ShadowFamilyGenerationService {
 
     private String buildImagePrompt(JsonNode draft) {
         JsonNode imageBrief = draft.path("imageBrief");
-        List<String> characters = new ArrayList<>();
-        imageBrief.path("characters").forEach(node -> characters.add(node.asText()));
-        List<String> continuityFacts = new ArrayList<>();
-        imageBrief.path("continuityFacts").forEach(node -> continuityFacts.add(node.asText()));
-        return String.join("\n",
-                "Create one unpublished Korean children's storybook illustration for ages 6-9.",
-                "Landscape 16:10 composition, hand-painted texture, detailed linework, warm brown and violet palette.",
-                "Keep the exact character faces, clothing, body proportions, location geometry and prop scale from the reference image.",
-                "Characters: " + String.join(", ", characters) + ".",
-                "Location: " + imageBrief.path("location").asText() + ".",
-                "Required action: " + imageBrief.path("action").asText() + ".",
-                "Composition: " + imageBrief.path("composition").asText() + ".",
-                "Continuity facts: " + String.join("; ", continuityFacts) + ".",
-                "Keep the lower caption-safe area free of important faces, hands and key actions.",
-                "Do not include: " + imageBrief.path("negativePrompt").asText()
-                        + "; text, letters, UI, speech bubbles, watermark, gore, photorealism.");
+        List<String> characters = harness.toStringList(imageBrief.path("characters"));
+        String locationLine = "Location: " + imageBrief.path("location").asText() + ".";
+        return String.join("\n", harness.baseImagePromptLines(characters, locationLine, imageBrief));
     }
 
     private String narrationPreviewText(JsonNode draft) {
@@ -359,18 +318,6 @@ public class ShadowFamilyGenerationService {
         }
         String joined = builder.toString().replaceAll("\\s+", " ").trim();
         return joined.length() > 1800 ? joined.substring(0, 1800) : joined;
-    }
-
-    private String redact(String value) {
-        if (value == null) {
-            return "";
-        }
-        String redacted = EMAIL_PATTERN.matcher(value).replaceAll("[email]");
-        redacted = PHONE_PATTERN.matcher(redacted).replaceAll("[phone]");
-        redacted = URL_PATTERN.matcher(redacted).replaceAll("[url]");
-        redacted = NAME_PATTERN.matcher(redacted).replaceAll("이름을 말함");
-        redacted = redacted.replaceAll("\\s+", " ").trim();
-        return redacted.length() > 160 ? redacted.substring(0, 160) : redacted;
     }
 
     private List<Map<String, Object>> toListOfMaps(JsonNode node) {
@@ -388,11 +335,11 @@ public class ShadowFamilyGenerationService {
         schema.put("type", "object");
         schema.put("additionalProperties", false);
         ObjectNode properties = schema.putObject("properties");
-        stringProp(properties, "proposedFamilyId", 8, 64);
-        stringProp(properties, "title", 2, 40);
-        stringProp(properties, "intentSummary", 2, 160);
-        stringProp(properties, "rationale", 10, 300);
-        stringProp(properties, "acknowledgementText", 5, 120);
+        harness.stringProp(properties, "proposedFamilyId", 8, 64);
+        harness.stringProp(properties, "title", 2, 40);
+        harness.stringProp(properties, "intentSummary", 2, 160);
+        harness.stringProp(properties, "rationale", 10, 300);
+        harness.stringProp(properties, "acknowledgementText", 5, 120);
 
         ObjectNode choiceCopy = properties.putObject("choiceCopy");
         choiceCopy.put("type", "array");
@@ -402,11 +349,11 @@ public class ShadowFamilyGenerationService {
         choiceCopyItem.put("type", "object");
         choiceCopyItem.put("additionalProperties", false);
         ObjectNode choiceCopyProps = choiceCopyItem.putObject("properties");
-        stringProp(choiceCopyProps, "label", 3, 30);
-        stringProp(choiceCopyProps, "meaning", 8, 100);
+        harness.stringProp(choiceCopyProps, "label", 3, 30);
+        harness.stringProp(choiceCopyProps, "meaning", 8, 100);
         choiceCopyItem.putArray("required").add("label").add("meaning");
 
-        stringProp(properties, "entryState", 5, 200);
+        harness.stringProp(properties, "entryState", 5, 200);
 
         ObjectNode beats = properties.putObject("beats");
         beats.put("type", "array");
@@ -416,8 +363,8 @@ public class ShadowFamilyGenerationService {
         beatItem.put("type", "object");
         beatItem.put("additionalProperties", false);
         ObjectNode beatProps = beatItem.putObject("properties");
-        stringProp(beatProps, "action", 5, 120);
-        stringProp(beatProps, "narratorText", 10, 300);
+        harness.stringProp(beatProps, "action", 5, 120);
+        harness.stringProp(beatProps, "narratorText", 10, 300);
         ObjectNode dialogue = beatProps.putObject("dialogue");
         dialogue.put("type", "array");
         dialogue.put("minItems", 0);
@@ -427,13 +374,13 @@ public class ShadowFamilyGenerationService {
         dialogueItem.put("additionalProperties", false);
         ObjectNode dialogueProps = dialogueItem.putObject("properties");
         dialogueProps.putObject("speaker").put("type", "string");
-        stringProp(dialogueProps, "text", 2, 120);
+        harness.stringProp(dialogueProps, "text", 2, 120);
         dialogueItem.putArray("required").add("speaker").add("text");
         beatItem.putArray("required").add("action").add("narratorText").add("dialogue");
 
-        stringProp(properties, "exitState", 5, 200);
+        harness.stringProp(properties, "exitState", 5, 200);
         properties.putObject("rejoinAnchorId").put("type", "string");
-        stringProp(properties, "reportSummary", 10, 220);
+        harness.stringProp(properties, "reportSummary", 10, 220);
 
         ObjectNode imageBrief = properties.putObject("imageBrief");
         imageBrief.put("type", "object");
@@ -445,14 +392,14 @@ public class ShadowFamilyGenerationService {
         characters.put("maxItems", 3);
         characters.putObject("items").put("type", "string");
         imageBriefProps.putObject("location").put("type", "string");
-        stringProp(imageBriefProps, "action", 5, 160);
-        stringProp(imageBriefProps, "composition", 5, 200);
+        harness.stringProp(imageBriefProps, "action", 5, 160);
+        harness.stringProp(imageBriefProps, "composition", 5, 200);
         ObjectNode continuityFacts = imageBriefProps.putObject("continuityFacts");
         continuityFacts.put("type", "array");
         continuityFacts.put("minItems", 2);
         continuityFacts.put("maxItems", 6);
         continuityFacts.putObject("items").put("type", "string");
-        stringProp(imageBriefProps, "negativePrompt", 10, 300);
+        harness.stringProp(imageBriefProps, "negativePrompt", 10, 300);
         imageBrief.putArray("required")
                 .add("characters").add("location").add("action").add("composition")
                 .add("continuityFacts").add("negativePrompt");
@@ -462,35 +409,6 @@ public class ShadowFamilyGenerationService {
                 .add("acknowledgementText").add("choiceCopy").add("entryState").add("beats")
                 .add("exitState").add("rejoinAnchorId").add("reportSummary").add("imageBrief");
         return schema;
-    }
-
-    private ObjectNode reviewSchema() {
-        ObjectNode schema = objectMapper.createObjectNode();
-        schema.put("type", "object");
-        schema.put("additionalProperties", false);
-        ObjectNode properties = schema.putObject("properties");
-        properties.putObject("pass").put("type", "boolean");
-        ObjectNode issues = properties.putObject("issues");
-        issues.put("type", "array");
-        issues.put("minItems", 0);
-        issues.put("maxItems", 8);
-        issues.putObject("items").put("type", "string");
-        for (String field : List.of("intentAlignment", "continuity", "safety", "fixedEventCopy")) {
-            ObjectNode score = properties.putObject(field);
-            score.put("type", "integer");
-            score.put("minimum", 0);
-            score.put("maximum", 2);
-        }
-        schema.putArray("required").add("pass").add("issues")
-                .add("intentAlignment").add("continuity").add("safety").add("fixedEventCopy");
-        return schema;
-    }
-
-    private void stringProp(ObjectNode properties, String name, int minLength, int maxLength) {
-        ObjectNode node = properties.putObject(name);
-        node.put("type", "string");
-        node.put("minLength", minLength);
-        node.put("maxLength", maxLength);
     }
 
     private String draftSystemPrompt() {

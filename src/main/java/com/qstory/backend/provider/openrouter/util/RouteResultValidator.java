@@ -1,13 +1,15 @@
 package com.qstory.backend.provider.openrouter.util;
+import com.qstory.backend.provider.openrouter.ContentGeneration;
+import com.qstory.backend.provider.openrouter.RouteClassification;
 import com.qstory.backend.provider.openrouter.RouteOption;
 import com.qstory.backend.provider.openrouter.RouteDecision;
+import com.qstory.backend.provider.openrouter.SafetyVerdict;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.qstory.backend.choicecopy.service.ChoiceCopyService;
 import com.qstory.backend.common.enums.CoverageStatus;
 import com.qstory.backend.common.enums.RouteKind;
 import com.qstory.backend.story.ActionFamily;
-import com.qstory.backend.story.ConcernChoice;
 import com.qstory.backend.story.StoryContext;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -19,12 +21,17 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 /**
- * providers/openrouter.mjs에 있는 검증/재작성(validation/re-authoring) 파이프라인을 Java로 포팅한 것: 서버는
- * LLM이 반환한 JSON을 절대 그대로 신뢰하지 않으며, THREE_PATHS/agency-choice/concern-choice 라우트를
- * 고정되고 검수된 스토리 데이터로부터 다시 도출한다 - 재구성된 후보(candidate)에 대해 *동일한* validator를
- * 다시 실행함으로써, 각 promote/align 헬퍼 내부에서 Node의 validateRouteResult(...) 호출과 정확히 동일하게 동작한다.
- * 순서가 중요하다: alignActionRouteCoverage는 promoteConcernToChoice보다 먼저 실행되고, promoteConcernToChoice는
- * guaranteeBetaAgencyChoice보다 먼저 실행되며, 이는 OpenRouterClient.generatePlan()에서와 정확히 동일하다.
+ * 서버는 LLM이 반환한 JSON을 절대 그대로 신뢰하지 않는다. Phase 2부터는 하나의 거대한 스키마 대신
+ * 3단계 파이프라인(safety_scope_gate -> route_classifier -> content_generator)이 각자 자기 몫만
+ * 반환하므로, 이 클래스도 단계별로 나뉜 검증 메서드({@link #validateSafetyVerdict},
+ * {@link #validateClassification}, {@link #validateContent})를 제공한다 - 그리고 최종 조립된
+ * RouteDecision에 대해서는 여전히 {@link #guaranteeBetaAgencyChoice}/{@link #sanitizeGeneratedOptionCopy}만
+ * 그대로 적용한다(QuestionRoutingService 참고).
+ *
+ * <p>예전에 있던 alignActionRouteCoverage/promoteConcernToChoice(단일 호출 시절 "커버 안 됨 -&gt; 기존
+ * family로 억지 THREE_PATHS" 보정)는 폐기됐다 - 이제는 분류기 자신이 NEW_CHOICES/coverageStatus로
+ * 그 판단을 내리기 때문이다(계획 문서 Phase 2 §1 참고). concern-choice 기반 강제 선택지
+ * (guaranteeBetaAgencyChoice)는 그 폐기 대상과 무관한 별개의 비즈니스 규칙이라 그대로 남는다.
  */
 @Component
 public class RouteResultValidator {
@@ -37,15 +44,15 @@ public class RouteResultValidator {
             "DETOUR_REJOIN", 120,
             "CLARIFY_ONCE", 60,
             "GENTLE_REDIRECT", 120,
-            "SKIP_CONTINUE", 60);
+            "SKIP_CONTINUE", 60,
+            // NEW_CHOICES의 실제 responseText는 stage3를 거치지 않고 QuestionRoutingService가 고정
+            // 안내 문구로 채운다 - 이 한도는 그 문구 자체가 아니라 방어적 상한으로만 존재한다.
+            "NEW_CHOICES", 120);
 
     private static final List<String[]> RESPONSE_TEXT_CORRECTIONS = List.of(
             new String[] {"다가지지", "다가가지"},
             new String[] {"살쳐보", "살펴보"},
             new String[] {"날개를 날개짓하", "날갯짓하"});
-
-    private static final Pattern CONCERN_CHOICE_CUE = Pattern.compile(
-            "(걱정|불안|무서|수상|의심|믿어도|괜찮|안전|위험|따라가도|들어가도|가까이\\s*가도)");
 
     /**
      * 자유롭게 생성된 THREE_PATHS 옵션 문구에 대한 최선의(best-effort) 안전망이다(sanitizeGeneratedOptionCopy 참고)
@@ -55,6 +62,8 @@ public class RouteResultValidator {
      */
     private static final Pattern UNSAFE_GENERATED_OPTION_CUE = Pattern.compile(
             "(칼|피\\s*흘|죽는다|죽였|다친다|폭력|때리|무기|불[이을]\\s*지르|납치)");
+
+    private static final Set<String> SAFETY_VERDICTS = Set.of("PASS", "REDIRECT");
 
     private final ChoiceCopyService choiceCopyService;
 
@@ -83,40 +92,6 @@ public class RouteResultValidator {
             String fallbackFamilyId,
             List<RouteOption> options) {}
 
-    public RouteDecision validateRouteResult(JsonNode value, StoryContext storyContext, String modelId) {
-        if (value == null || !value.isObject() || storyContext == null) {
-            return null;
-        }
-        String route = value.path("route").asText("").trim();
-        if (!RouteKind.ALL_NAMES.contains(route)) {
-            return null;
-        }
-        String responseText = value.path("responseText").isTextual() ? value.get("responseText").asText().trim() : "";
-        String childRelevantMeaning = value.path("childRelevantMeaning").asText("").trim();
-        String coverageStatus = value.path("coverageStatus").isTextual()
-                ? value.get("coverageStatus").asText().trim()
-                : CoverageStatus.EXACT.wireValue();
-        String coverageReason = value.path("coverageReason").isTextual()
-                ? value.get("coverageReason").asText().trim()
-                : "검수된 아이 응답 경로로 처리할 수 있다.";
-        String speakerId = value.path("speakerId").asText("").trim();
-        NullableString actionFamilyId = NullableString.of(value.get("actionFamilyId"));
-        NullableString rejoinAnchorId = NullableString.of(value.get("rejoinAnchorId"));
-        NullableString fallbackFamilyId = NullableString.of(value.get("fallbackFamilyId"));
-        if (!actionFamilyId.valid() || !rejoinAnchorId.valid() || !fallbackFamilyId.valid()) {
-            return null;
-        }
-        List<RouteOption> options = readOptions(value.get("options"));
-        if (options == null) {
-            return null;
-        }
-        return validate(
-                new Candidate(
-                        route, childRelevantMeaning, coverageStatus, coverageReason, responseText, speakerId,
-                        actionFamilyId.value(), rejoinAnchorId.value(), fallbackFamilyId.value(), options),
-                storyContext, modelId);
-    }
-
     private record NullableString(boolean valid, String value) {
         static final NullableString INVALID = new NullableString(false, null);
 
@@ -129,6 +104,111 @@ public class RouteResultValidator {
             }
             return node.isTextual() ? new NullableString(true, node.asText().trim()) : INVALID;
         }
+    }
+
+    /**
+     * 1단계 safety_scope_gate의 출력 검증. verdict가 REDIRECT일 때만 redirectReason/responseText가
+     * 채워져 있어야 하고, PASS일 때는 둘 다 null이어야 한다(모델이 실수로 채워 보내도 여기서 지운다 -
+     * QuestionRoutingService가 REDIRECT 여부만으로 분기하므로 PASS 경로에서는 이 필드들을 쓰지 않는다).
+     */
+    public SafetyVerdict validateSafetyVerdict(JsonNode value, String modelId) {
+        if (value == null || !value.isObject()) {
+            return null;
+        }
+        String verdict = value.path("verdict").asText("").trim();
+        if (!SAFETY_VERDICTS.contains(verdict)) {
+            return null;
+        }
+        if (!"REDIRECT".equals(verdict)) {
+            return new SafetyVerdict("PASS", null, null, modelId);
+        }
+        String redirectReason = value.path("redirectReason").isTextual() ? value.get("redirectReason").asText().trim() : "";
+        String responseText = value.path("responseText").isTextual() ? value.get("responseText").asText().trim() : "";
+        if (redirectReason.isEmpty() || redirectReason.length() > 160
+                || responseText.isEmpty() || responseText.length() > RESPONSE_LIMITS.get("GENTLE_REDIRECT")) {
+            return null;
+        }
+        return new SafetyVerdict("REDIRECT", redirectReason, normalizeKoreanResponseText(responseText), modelId);
+    }
+
+    /**
+     * 2단계 route_classifier의 출력 검증. GENTLE_REDIRECT는 이 단계가 절대 반환할 수 없는 route다
+     * (안전 판정은 1단계 전담, RouteKind.CLASSIFIER_ROUTES 참고). actionFamilyId/rejoinAnchorId/
+     * fallbackFamilyId의 null 여부 규칙은 오늘의 단일 호출 스키마와 동일하다 - 단순 route와
+     * NEW_CHOICES는 셋 다 null, 행동 route는 셋 다 채워짐(고정된 rejoin/fallback과 허용 family 하나),
+     * THREE_PATHS는 actionFamilyId만 null.
+     */
+    public RouteClassification validateClassification(JsonNode value, StoryContext storyContext, String modelId) {
+        if (value == null || !value.isObject() || storyContext == null) {
+            return null;
+        }
+        String route = value.path("route").asText("").trim();
+        if (!RouteKind.CLASSIFIER_ROUTES.contains(route)) {
+            return null;
+        }
+        String matchedGate = value.path("matchedGate").asText("").trim();
+        if (matchedGate.isEmpty() || matchedGate.length() > 8) {
+            return null;
+        }
+        String coverageStatus = value.path("coverageStatus").asText("").trim();
+        if (!CoverageStatus.WIRE_VALUES.contains(coverageStatus)) {
+            return null;
+        }
+        String coverageReason = value.path("coverageReason").asText("").trim();
+        String childRelevantMeaning = value.path("childRelevantMeaning").asText("").trim();
+        if (coverageReason.isEmpty() || coverageReason.length() > 160
+                || childRelevantMeaning.isEmpty() || childRelevantMeaning.length() > 160) {
+            return null;
+        }
+        String speakerId = value.path("speakerId").asText("").trim();
+        if (!storyContext.allowedSpeakerIds().contains(speakerId)) {
+            return null;
+        }
+        NullableString actionFamilyId = NullableString.of(value.get("actionFamilyId"));
+        NullableString rejoinAnchorId = NullableString.of(value.get("rejoinAnchorId"));
+        NullableString fallbackFamilyId = NullableString.of(value.get("fallbackFamilyId"));
+        if (!actionFamilyId.valid() || !rejoinAnchorId.valid() || !fallbackFamilyId.valid()) {
+            return null;
+        }
+
+        Set<String> allowedFamilyIds = new LinkedHashSet<>(storyContext.actionFamilyIds());
+        if (!familyFieldsValid(
+                route, actionFamilyId.value(), rejoinAnchorId.value(), fallbackFamilyId.value(),
+                storyContext, allowedFamilyIds)) {
+            return null;
+        }
+        return new RouteClassification(
+                route, matchedGate, coverageStatus, coverageReason, childRelevantMeaning,
+                actionFamilyId.value(), rejoinAnchorId.value(), fallbackFamilyId.value(), speakerId, modelId);
+    }
+
+    /**
+     * 3단계 content_generator의 출력 검증. optionSlots는 호출자(OpenRouterClient.generateContent)가
+     * 이미 확정한 route로부터 결정한 값(THREE_PATHS만 3, 그 외 0)이다 - JSON 스키마 자체의
+     * minItems/maxItems로도 강제하지만, 모델이 그래도 개수를 틀리게 반환할 수 있으므로 여기서 다시
+     * 확인한다(계획 문서가 명시한 "옵션 개수는 스키마만으로 강제할 수 없다" 우려에 대한 방어).
+     */
+    public ContentGeneration validateContent(JsonNode value, StoryContext storyContext, String route, int optionSlots) {
+        if (value == null || !value.isObject() || storyContext == null) {
+            return null;
+        }
+        String responseText = value.path("responseText").isTextual() ? value.get("responseText").asText().trim() : "";
+        int limit = RESPONSE_LIMITS.getOrDefault(route, 160);
+        if (responseText.isEmpty() || responseText.length() > limit) {
+            return null;
+        }
+        List<RouteOption> options = readOptions(value.get("options"));
+        if (options == null || options.size() != optionSlots) {
+            return null;
+        }
+        if (optionSlots > 0) {
+            Set<String> allowedFamilyIds = new LinkedHashSet<>(storyContext.actionFamilyIds());
+            options = validateOptions(options, allowedFamilyIds);
+            if (options == null) {
+                return null;
+            }
+        }
+        return new ContentGeneration(normalizeKoreanResponseText(responseText), options);
     }
 
     private List<RouteOption> readOptions(JsonNode optionsNode) {
@@ -150,7 +230,56 @@ public class RouteResultValidator {
         return raw;
     }
 
-    /** 모든 진입점(LLM 출력과 내부적으로 재구성된 후보 모두)이 거쳐 가는 단일한 검증 핵심 로직. */
+    private List<RouteOption> validateOptions(List<RouteOption> options, Set<String> allowedFamilyIds) {
+        if (options == null) {
+            return null;
+        }
+        List<RouteOption> normalized = new ArrayList<>();
+        for (int index = 0; index < options.size(); index++) {
+            RouteOption option = options.get(index);
+            if (!option.id().equals("OPTION_" + (index + 1))
+                    || option.label().isEmpty() || option.label().length() > 18
+                    || option.meaning().isEmpty() || option.meaning().length() > 120
+                    || option.branchLine().isEmpty() || option.branchLine().length() > 60
+                    || !allowedFamilyIds.contains(option.actionFamilyId())) {
+                return null;
+            }
+            normalized.add(option);
+        }
+        if (new LinkedHashSet<>(normalized.stream().map(RouteOption::label).toList()).size() != normalized.size()
+                || new LinkedHashSet<>(normalized.stream().map(RouteOption::actionFamilyId).toList()).size()
+                        != normalized.size()) {
+            return null;
+        }
+        return normalized;
+    }
+
+    /**
+     * route 카테고리별 actionFamilyId/rejoinAnchorId/fallbackFamilyId nullability 규칙 -
+     * validateClassification()(stage2)과 validate()(레거시 후보 재검증)이 공유한다. options 관련
+     * 규칙(SIMPLE_ROUTES/ACTION_ROUTES는 빈 배열, THREE_PATHS는 3개)은 stage2 출력에는 options
+     * 필드 자체가 없으므로 이 헬퍼에 넣지 않고 각 호출부가 따로 처리한다.
+     */
+    private boolean familyFieldsValid(
+            String route, String actionFamilyId, String rejoinAnchorId, String fallbackFamilyId,
+            StoryContext storyContext, Set<String> allowedFamilyIds) {
+        if (RouteKind.SIMPLE_ROUTES.contains(route) || RouteKind.NEW_CONTENT_ROUTES.contains(route)) {
+            return actionFamilyId == null && rejoinAnchorId == null && fallbackFamilyId == null;
+        }
+        if (RouteKind.ACTION_ROUTES.contains(route)) {
+            return actionFamilyId != null && allowedFamilyIds.contains(actionFamilyId)
+                    && storyContext.rejoinAt().equals(rejoinAnchorId)
+                    && storyContext.fallbackFamilyId().equals(fallbackFamilyId);
+        }
+        if ("THREE_PATHS".equals(route)) {
+            return actionFamilyId == null
+                    && storyContext.rejoinAt().equals(rejoinAnchorId)
+                    && storyContext.fallbackFamilyId().equals(fallbackFamilyId);
+        }
+        return true;
+    }
+
+    /** 모든 재구성된 THREE_PATHS 후보(guaranteeBetaAgencyChoice)가 거쳐 가는 단일한 검증 핵심 로직. */
     private RouteDecision validate(Candidate candidate, StoryContext storyContext, String modelId) {
         String route = candidate.route();
         if (!RouteKind.ALL_NAMES.contains(route)) {
@@ -179,81 +308,20 @@ public class RouteResultValidator {
         String rejoinAnchorId = candidate.rejoinAnchorId();
         String fallbackFamilyId = candidate.fallbackFamilyId();
 
-        if (RouteKind.SIMPLE_ROUTES.contains(route)
-                && (actionFamilyId != null || rejoinAnchorId != null || fallbackFamilyId != null || !options.isEmpty())) {
+        if (!familyFieldsValid(route, actionFamilyId, rejoinAnchorId, fallbackFamilyId, storyContext, allowedFamilyIds)) {
             return null;
         }
-        if (RouteKind.ACTION_ROUTES.contains(route)
-                && (actionFamilyId == null || !allowedFamilyIds.contains(actionFamilyId)
-                        || !storyContext.rejoinAt().equals(rejoinAnchorId)
-                        || !storyContext.fallbackFamilyId().equals(fallbackFamilyId)
-                        || !options.isEmpty())) {
+        if ((RouteKind.SIMPLE_ROUTES.contains(route) || RouteKind.ACTION_ROUTES.contains(route))
+                && !options.isEmpty()) {
             return null;
         }
-        if (route.equals("THREE_PATHS")
-                && (actionFamilyId != null
-                        || !storyContext.rejoinAt().equals(rejoinAnchorId)
-                        || !storyContext.fallbackFamilyId().equals(fallbackFamilyId)
-                        || options.size() != 3)) {
+        if (route.equals("THREE_PATHS") && options.size() != 3) {
             return null;
         }
 
         return new RouteDecision(
                 route, childRelevantMeaning, coverageStatus, coverageReason, responseText, candidate.speakerId(),
-                actionFamilyId, rejoinAnchorId, fallbackFamilyId, options, modelId, storyContext.versions());
-    }
-
-    private List<RouteOption> validateOptions(List<RouteOption> options, Set<String> allowedFamilyIds) {
-        if (options == null) {
-            return null;
-        }
-        List<RouteOption> normalized = new ArrayList<>();
-        for (int index = 0; index < options.size(); index++) {
-            RouteOption option = options.get(index);
-            if (!option.id().equals("OPTION_" + (index + 1))
-                    || option.label().isEmpty() || option.label().length() > 18
-                    || option.meaning().isEmpty() || option.meaning().length() > 120
-                    || option.branchLine().isEmpty() || option.branchLine().length() > 60
-                    || !allowedFamilyIds.contains(option.actionFamilyId())) {
-                return null;
-            }
-            normalized.add(option);
-        }
-        if (new LinkedHashSet<>(normalized.stream().map(RouteOption::label).toList()).size() != normalized.size()
-                || new LinkedHashSet<>(normalized.stream().map(RouteOption::actionFamilyId).toList()).size()
-                        != normalized.size()) {
-            return null;
-        }
-        return normalized;
-    }
-
-    public RouteDecision promoteConcernToChoice(
-            RouteDecision routeResult, StoryContext storyContext, String transcript, int questionRound) {
-        ConcernChoice concernChoice = storyContext.concernChoice();
-        if (routeResult == null || !"ANSWER_RESUME".equals(routeResult.route())
-                || concernChoice == null || !CONCERN_CHOICE_CUE.matcher(transcript).find()) {
-            return routeResult;
-        }
-        Map<String, ActionFamily> familyById = familyMap(storyContext);
-        List<RouteOption> options = new ArrayList<>();
-        for (int i = 0; i < concernChoice.familyIds().size(); i++) {
-            String familyId = concernChoice.familyIds().get(i);
-            ActionFamily family = familyById.get(familyId);
-            options.add(new RouteOption(
-                    "OPTION_" + (i + 1), "안전한 방법 " + (i + 1),
-                    family != null ? family.meaning() : "안전한 방법을 확인한다.", familyId,
-                    family != null ? family.acknowledgementText() : "좋아, 안전하게 확인해보자."));
-        }
-        RouteDecision promoted = validate(
-                new Candidate(
-                        "THREE_PATHS", routeResult.childRelevantMeaning(), routeResult.coverageStatus(),
-                        routeResult.coverageReason(), concernChoice.responseText(), routeResult.speakerId(),
-                        null, storyContext.rejoinAt(), storyContext.fallbackFamilyId(), options),
-                storyContext, routeResult.modelId());
-        if (promoted == null) {
-            return routeResult;
-        }
-        return promoted.withOptions(choiceCopyService.authoredChoiceOptions(promoted.options(), transcript, questionRound));
+                actionFamilyId, rejoinAnchorId, fallbackFamilyId, options, modelId, storyContext.versions(), null);
     }
 
     public RouteDecision guaranteeBetaAgencyChoice(
@@ -289,53 +357,13 @@ public class RouteResultValidator {
         return promoted.withOptions(choiceCopyService.authoredChoiceOptions(promoted.options(), transcript, questionRound));
     }
 
-    public RouteDecision alignActionRouteCoverage(
-            RouteDecision routeResult, StoryContext storyContext, String transcript, int questionRound) {
-        if (routeResult == null || !RouteKind.ACTION_ROUTES.contains(routeResult.route())
-                || CoverageStatus.EXACT.wireValue().equals(routeResult.coverageStatus()) || storyContext == null) {
-            return routeResult;
-        }
-        LinkedHashSet<String> preferred = new LinkedHashSet<>();
-        if (routeResult.actionFamilyId() != null) {
-            preferred.add(routeResult.actionFamilyId());
-        }
-        if (storyContext.concernChoice() != null) {
-            preferred.addAll(storyContext.concernChoice().familyIds());
-        }
-        preferred.addAll(storyContext.actionFamilyIds());
-        List<String> familyIds = preferred.stream().limit(3).toList();
-        if (familyIds.size() < 3) {
-            return routeResult;
-        }
-        Map<String, ActionFamily> familyById = familyMap(storyContext);
-        List<RouteOption> options = new ArrayList<>();
-        for (int i = 0; i < familyIds.size(); i++) {
-            ActionFamily family = familyById.get(familyIds.get(i));
-            options.add(new RouteOption(
-                    "OPTION_" + (i + 1), "이야기 길 " + (i + 1),
-                    family != null ? family.meaning() : "지금 장면에서 할 수 있는 방법을 살펴본다.", familyIds.get(i),
-                    family != null ? family.acknowledgementText() : "좋아, 지금 할 수 있는 방법을 살펴보자."));
-        }
-        RouteDecision aligned = validate(
-                new Candidate(
-                        "THREE_PATHS", routeResult.childRelevantMeaning(), routeResult.coverageStatus(),
-                        routeResult.coverageReason(),
-                        "그 생각을 그대로 하기보다, 지금 장면과 자연스럽게 이어지는 세 방법 중에서 골라 볼까?",
-                        routeResult.speakerId(), null, storyContext.rejoinAt(), storyContext.fallbackFamilyId(), options),
-                storyContext, routeResult.modelId());
-        if (aligned == null) {
-            return routeResult;
-        }
-        return aligned.withOptions(choiceCopyService.authoredChoiceOptions(aligned.options(), transcript, questionRound));
-    }
-
     /**
      * LLM이 직접 생성한 THREE_PATHS 옵션 문구를, 항상 ChoiceCopyService의 사전 작성된 변형(variant)으로
-     * 덮어쓰는 대신 아이에게 그대로 도달하게 해준다(OpenRouterClient.generatePlan()의 최종 반환값 참고).
-     * 옵션 단위로, 오직 규칙 기반(rules-based)으로만 검사한다 - 두 번째 LLM 판정 호출은 없는데, 생성 표면이
-     * 이미 촘촘히 제한되어 있기 때문이다(고정된 rejoinAnchorId/fallbackFamilyId, 이 앵커에서 허용된 family로
-     * 제한된 actionFamilyId, 유일한 창작 여지로서의 family.meaning()). 검사에 실패한 옵션은 해당 family에 대한
-     * 기존의 작성된 문구로 대체된다 - 절대 막지 않고, 절대 옵션을 누락시키지도 않는다.
+     * 덮어쓰는 대신 아이에게 그대로 도달하게 해준다. 옵션 단위로, 오직 규칙 기반(rules-based)으로만
+     * 검사한다 - 두 번째 LLM 판정 호출은 없는데, 생성 표면이 이미 촘촘히 제한되어 있기 때문이다(고정된
+     * rejoinAnchorId/fallbackFamilyId, 이 앵커에서 허용된 family로 제한된 actionFamilyId, 유일한
+     * 창작 여지로서의 family.meaning()). 검사에 실패한 옵션은 해당 family에 대한 기존의 작성된
+     * 문구로 대체된다 - 절대 막지 않고, 절대 옵션을 누락시키지도 않는다.
      */
     public RouteDecision sanitizeGeneratedOptionCopy(
             RouteDecision decision, StoryContext storyContext, String transcript, int questionRound) {

@@ -1,13 +1,16 @@
 package com.qstory.backend.provider.openrouter.util;
 import com.qstory.backend.provider.openrouter.SynthesizedAudioStream;
 import com.qstory.backend.provider.openrouter.SynthesizedAudio;
-import com.qstory.backend.provider.openrouter.RouteDecision;
+import com.qstory.backend.provider.openrouter.ContentGeneration;
+import com.qstory.backend.provider.openrouter.FewShotExample;
+import com.qstory.backend.provider.openrouter.RouteClassification;
+import com.qstory.backend.provider.openrouter.SafetyVerdict;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.qstory.backend.choicecopy.service.ChoiceCopyService;
+import com.qstory.backend.common.enums.RoutePromptStageKind;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.story.service.RoutePromptService;
 import com.qstory.backend.common.error.AbortException;
@@ -35,82 +38,265 @@ public class OpenRouterClient {
     private static final int PCM_CHANNELS = 1;
     private static final int PCM_BIT_DEPTH = 16;
 
+    /** stage3(content_generator)의 옵션 개수 재시도 - JSON 스키마의 minItems/maxItems를 optionSlots에
+     * 맞춰 만들어도 모델이 개수를 틀리게 반환할 수 있어(계획 문서가 명시한 한계), 검증 실패 시 피드백을
+     * 담아 한 번 더 시도한다(ShadowFamilyGenerationService.generateDraft/LiveBranchExecutionWorker.run과
+     * 같은 재시도-피드백 패턴). */
+    private static final int CONTENT_MAX_ATTEMPTS = 2;
+
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final RouteResultValidator routeResultValidator;
-    private final ChoiceCopyService choiceCopyService;
     private final RoutePromptService routePromptService;
     private final String apiKey;
     private final String llmModel;
+    private final String safetyModel;
     private final String ttsModel;
     private final String ttsVoice;
     private final String imageModel;
 
     public OpenRouterClient(
             HttpClient httpClient, ObjectMapper objectMapper, RouteResultValidator routeResultValidator,
-            ChoiceCopyService choiceCopyService, RoutePromptService routePromptService,
-            AppProperties config) {
+            RoutePromptService routePromptService, AppProperties config) {
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
         this.routeResultValidator = routeResultValidator;
-        this.choiceCopyService = choiceCopyService;
         this.routePromptService = routePromptService;
         this.apiKey = config.providers().openRouter().apiKey();
         this.llmModel = config.providers().openRouter().llmModel();
+        this.safetyModel = config.providers().openRouter().safetyModel();
         this.ttsModel = config.providers().openRouter().ttsModel();
         this.ttsVoice = config.providers().openRouter().ttsVoice();
         this.imageModel = config.providers().openRouter().imageModel();
     }
 
-    public record PlanRequest(String transcript, StoryContext storyContext, int questionRound, boolean guaranteeAgencyChoice) {}
+    // ---------------------------------------------------------------------------------------
+    // Phase 2: 3단계 라우팅 파이프라인 (safety_scope_gate -> route_classifier -> content_generator)
+    // 예전의 단일 호출 generatePlan()/routeSchema()를 대체한다. 오케스트레이션(REDIRECT/NEW_CHOICES
+    // 분기, guaranteeBetaAgencyChoice/sanitizeGeneratedOptionCopy 적용)은
+    // question.service.QuestionRoutingService가 맡는다 - 이 클래스는 각 단계의 프롬프트 조립 +
+    // 요청/검증만 책임진다.
+    // ---------------------------------------------------------------------------------------
 
-    public RouteDecision generatePlan(PlanRequest request, RequestDeadline deadline) {
-        StoryContext storyContext = request.storyContext();
-        List<String> actionFamilyIds = storyContext.actionFamilyIds();
-        try {
-            HttpRequest httpRequest = deadline.applyTo(HttpRequest.newBuilder(URI.create(BASE_URL + "/chat/completions"))
-                            .headers(baseHeaders())
-                            .POST(HttpRequest.BodyPublishers.ofByteArray(
-                                    buildChatCompletionsBody(request, actionFamilyIds).getBytes(StandardCharsets.UTF_8))))
-                    .build();
-            HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
-            if (response.statusCode() / 100 != 2) {
-                boolean detailPresent = readErrorDetail(response.body()) != null;
-                throw new ProviderException(
-                        ProviderErrorCode.OPENROUTER_RESPONSE_FAILED,
-                        detailPresent ? "아이의 질문에 답을 준비하지 못했어요." : "AI 응답 서버에 연결하지 못했어요.",
-                        response.statusCode() == 400 || response.statusCode() >= 429);
-            }
-            JsonNode payload = objectMapper.readTree(response.body());
-            JsonNode contentNode = payload.path("choices").path(0).path("message").path("content");
-            JsonNode parsed = contentNode.isTextual()
-                    ? objectMapper.readTree(contentNode.asText())
-                    : contentNode;
-            RouteDecision routeResult = routeResultValidator.validateRouteResult(parsed, storyContext, llmModel);
-            if (routeResult == null) {
-                throw new ProviderException(
-                        ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.");
-            }
-            if (request.questionRound() > 1 && "CLARIFY_ONCE".equals(routeResult.route())) {
-                throw new ProviderException(
-                        ProviderErrorCode.OPENROUTER_SECOND_CLARIFICATION, "같은 질문을 다시 확인하지 않고 이야기로 돌아갈게요.");
-            }
-            RouteDecision coverageAligned = routeResultValidator.alignActionRouteCoverage(
-                    routeResult, storyContext, request.transcript(), request.questionRound());
-            RouteDecision concernAware = routeResultValidator.promoteConcernToChoice(
-                    coverageAligned, storyContext, request.transcript(), request.questionRound());
-            RouteDecision agencyAware = routeResultValidator.guaranteeBetaAgencyChoice(
-                    concernAware, storyContext, request.transcript(), request.guaranteeAgencyChoice(), request.questionRound());
-            return routeResultValidator.sanitizeGeneratedOptionCopy(
-                    agencyAware, storyContext, request.transcript(), request.questionRound());
-        } catch (ProviderException | AbortException known) {
-            throw known;
-        } catch (HttpTimeoutException timeout) {
-            throw new AbortException("request-timeout");
-        } catch (Exception error) {
+    public record SafetyGateRequest(String transcript, StoryContext storyContext) {}
+
+    /** 1단계: 안전/범위만 판정한다(route는 절대 고르지 않는다) - 실패 시 예외를 던진다(재시도는 상위에서). */
+    public SafetyVerdict evaluateSafety(SafetyGateRequest request, RequestDeadline deadline) {
+        StoryContext ctx = request.storyContext();
+        RoutePromptService.StagePrompt stagePrompt =
+                routePromptService.requireStage(ctx.versions().promptVersion(), RoutePromptStageKind.SAFETY);
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("childTranscript", request.transcript());
+        ArrayNode forbiddenKnowledge = payload.putArray("forbiddenKnowledge");
+        ctx.forbiddenKnowledge().forEach(forbiddenKnowledge::add);
+
+        JsonNode raw = generateStructuredCompletion(
+                safetyModel, stagePrompt.systemText(), stagePrompt.examples(), payload.toString(),
+                safetySchema(), "qstory_safety_gate_v1", 300, 0,
+                ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "안전 확인을 하지 못했어요.", deadline);
+        SafetyVerdict verdict = routeResultValidator.validateSafetyVerdict(raw, safetyModel);
+        if (verdict == null) {
             throw new ProviderException(
-                    ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.", true, error);
+                    ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "안전 확인 결과를 확인하지 못했어요.");
         }
+        return verdict;
+    }
+
+    private ObjectNode safetySchema() {
+        ObjectNode schema = objectMapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = schema.putObject("properties");
+        ObjectNode verdict = properties.putObject("verdict");
+        verdict.put("type", "string");
+        verdict.putArray("enum").add("PASS").add("REDIRECT");
+        ObjectNode redirectReason = properties.putObject("redirectReason");
+        redirectReason.putArray("type").add("string").add("null");
+        redirectReason.put("description", "REDIRECT일 때만 위험/이야기 밖/금지지식 요구 중 어떤 것인지 한 문장으로. PASS면 null.");
+        ObjectNode responseText = properties.putObject("responseText");
+        responseText.putArray("type").add("string").add("null");
+        responseText.put("description", "REDIRECT일 때만 - 위험을 짧게 막고 안전한 대안 하나만 제시. PASS면 null.");
+        ArrayNode required = schema.putArray("required");
+        required.add("verdict").add("redirectReason").add("responseText");
+        schema.put("additionalProperties", false);
+        return schema;
+    }
+
+    public record ClassifyRequest(String transcript, StoryContext storyContext, int questionRound) {}
+
+    /** 2단계: PASS된 발화만 받는다 - 안전을 다시 판정하지 않고 route/coverage만 정한다. */
+    public RouteClassification classifyRoute(ClassifyRequest request, RequestDeadline deadline) {
+        StoryContext ctx = request.storyContext();
+        RoutePromptService.StagePrompt stagePrompt =
+                routePromptService.requireStage(ctx.versions().promptVersion(), RoutePromptStageKind.CLASSIFIER);
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("childTranscript", request.transcript());
+        payload.put("clarificationAlreadyUsed", request.questionRound() > 1);
+        ArrayNode allowedFamilies = payload.putArray("allowedFamilies");
+        for (ActionFamily family : ctx.actionFamilies()) {
+            ObjectNode node = allowedFamilies.addObject();
+            node.put("id", family.id());
+            node.put("summary", family.meaning());
+        }
+        payload.put("hasRejoinAnchor", ctx.rejoinAt() != null);
+        // sceneObservables/answerableFacts를 위한 전용 저작 필드가 아직 route-context.yaml에 없다
+        // (컨텐츠 빌드 파이프라인은 이 백엔드 작업 범위 밖) - 현재로선 currentScene 요약을 최선의
+        // 대체값으로 함께 쓴다. 콘텐츠 팀이 두 필드를 별도로 저작하게 되면 여기를 교체해야 한다.
+        ArrayNode sceneObservables = payload.putArray("sceneObservables");
+        sceneObservables.add(ctx.summary());
+        ArrayNode answerableFacts = payload.putArray("answerableFacts");
+        answerableFacts.add(ctx.summary());
+        ArrayNode allowedSpeakerIds = payload.putArray("allowedSpeakerIds");
+        ctx.allowedSpeakerIds().forEach(allowedSpeakerIds::add);
+        payload.put("fixedRejoinAnchorId", ctx.rejoinAt());
+        payload.put("fallbackFamilyId", ctx.fallbackFamilyId());
+
+        JsonNode raw = generateStructuredCompletion(
+                llmModel, stagePrompt.systemText(), stagePrompt.examples(), payload.toString(),
+                classificationSchema(ctx.actionFamilyIds(), ctx.allowedSpeakerIds()), "qstory_route_classifier_v1",
+                700, 0, ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "질문 방향을 정하지 못했어요.", deadline);
+        RouteClassification classification = routeResultValidator.validateClassification(raw, ctx, llmModel);
+        if (classification == null) {
+            throw new ProviderException(
+                    ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "질문 방향을 확인하지 못했어요.");
+        }
+        return classification;
+    }
+
+    private ObjectNode classificationSchema(List<String> actionFamilyIds, List<String> allowedSpeakerIds) {
+        ObjectNode schema = objectMapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = schema.putObject("properties");
+
+        ObjectNode route = properties.putObject("route");
+        route.put("type", "string");
+        ArrayNode routeEnum = route.putArray("enum");
+        com.qstory.backend.common.enums.RouteKind.CLASSIFIER_ROUTES.forEach(routeEnum::add);
+
+        ObjectNode matchedGate = properties.putObject("matchedGate");
+        matchedGate.put("type", "string");
+        matchedGate.putArray("enum").add("G1").add("G2").add("G3").add("G4").add("G5").add("G6").add("G7").add("NEW");
+        matchedGate.put("description", "실제로 만족시킨 게이트. NEW_CHOICES를 골랐을 때만 NEW.");
+
+        ObjectNode coverageStatus = properties.putObject("coverageStatus");
+        coverageStatus.put("type", "string");
+        ArrayNode coverageEnum = coverageStatus.putArray("enum");
+        com.qstory.backend.common.enums.CoverageStatus.WIRE_VALUES.forEach(coverageEnum::add);
+
+        addStringProperty(properties, "coverageReason", 1, 160);
+        addStringProperty(properties, "childRelevantMeaning", 1, 160);
+
+        ObjectNode speakerId = properties.putObject("speakerId");
+        speakerId.put("type", "string");
+        ArrayNode speakerEnum = speakerId.putArray("enum");
+        allowedSpeakerIds.forEach(speakerEnum::add);
+
+        addNullableFamilyEnum(properties, "actionFamilyId", actionFamilyIds,
+                "행동·장면변화·우회 route만 허용 family 하나. 단순 route/THREE_PATHS/NEW_CHOICES는 반드시 null.");
+        ObjectNode rejoinAnchorId = properties.putObject("rejoinAnchorId");
+        rejoinAnchorId.putArray("type").add("string").add("null");
+        rejoinAnchorId.put("description", "행동·장면변화·우회·THREE_PATHS는 제공된 fixedRejoinAnchorId. 단순 route/NEW_CHOICES는 반드시 null.");
+        addNullableFamilyEnum(properties, "fallbackFamilyId", actionFamilyIds,
+                "행동·장면변화·우회·THREE_PATHS는 제공된 fallbackFamilyId. 단순 route/NEW_CHOICES는 반드시 null.");
+
+        ArrayNode required = schema.putArray("required");
+        required.add("route").add("matchedGate").add("coverageStatus").add("coverageReason")
+                .add("childRelevantMeaning").add("speakerId").add("actionFamilyId").add("rejoinAnchorId")
+                .add("fallbackFamilyId");
+        schema.put("additionalProperties", false);
+        return schema;
+    }
+
+    public record ContentRequest(
+            String route, String childRelevantMeaning, String coverageStatus, String speakerId,
+            StoryContext storyContext, int optionSlots) {}
+
+    /** 3단계: 이미 확정된 route를 그대로 신뢰하고 다시 분류하지 않는다 - responseText/options만 작성한다. */
+    public ContentGeneration generateContent(ContentRequest request, RequestDeadline deadline) {
+        StoryContext ctx = request.storyContext();
+        RoutePromptService.StagePrompt stagePrompt =
+                routePromptService.requireStage(ctx.versions().promptVersion(), RoutePromptStageKind.GENERATOR);
+        List<String> revisionFeedback = List.of();
+        for (int attempt = 1; attempt <= CONTENT_MAX_ATTEMPTS; attempt++) {
+            JsonNode raw = generateStructuredCompletion(
+                    llmModel, stagePrompt.systemText(), stagePrompt.examples(),
+                    contentUserPayload(request, revisionFeedback).toString(),
+                    contentSchema(ctx.actionFamilyIds(), request.optionSlots()), "qstory_content_generator_v1", 900,
+                    0.35, ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 만들지 못했어요.", deadline);
+            ContentGeneration content =
+                    routeResultValidator.validateContent(raw, ctx, request.route(), request.optionSlots());
+            if (content != null) {
+                return content;
+            }
+            revisionFeedback = List.of(
+                    "options 배열은 정확히 " + request.optionSlots() + "개여야 하고, 각 actionFamilyId는 서로 달라야 한다.");
+        }
+        throw new ProviderException(
+                ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.");
+    }
+
+    private ObjectNode contentUserPayload(ContentRequest request, List<String> revisionFeedback) {
+        StoryContext ctx = request.storyContext();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("route", request.route());
+        payload.put("childRelevantMeaning", request.childRelevantMeaning());
+        payload.put("coverageStatus", request.coverageStatus());
+        payload.put("speaker", request.speakerId());
+        ArrayNode sceneObservables = payload.putArray("sceneObservables");
+        sceneObservables.add(ctx.summary());
+        ArrayNode forbiddenKnowledge = payload.putArray("forbiddenKnowledge");
+        ctx.forbiddenKnowledge().forEach(forbiddenKnowledge::add);
+        ArrayNode allowedFamilies = payload.putArray("allowedFamilies");
+        for (ActionFamily family : ctx.actionFamilies()) {
+            ObjectNode node = allowedFamilies.addObject();
+            node.put("id", family.id());
+            node.put("summary", family.meaning());
+        }
+        payload.put("optionSlots", request.optionSlots());
+        if (!revisionFeedback.isEmpty()) {
+            ArrayNode feedback = payload.putArray("revisionFeedback");
+            revisionFeedback.forEach(feedback::add);
+        }
+        return payload;
+    }
+
+    private ObjectNode contentSchema(List<String> actionFamilyIds, int optionSlots) {
+        ObjectNode schema = objectMapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = schema.putObject("properties");
+        addStringProperty(properties, "responseText", 1, 200);
+
+        ObjectNode options = properties.putObject("options");
+        options.put("type", "array");
+        options.put("minItems", optionSlots);
+        options.put("maxItems", optionSlots);
+        options.put("description", optionSlots == 3
+                ? "정확히 3개, 서로 다른 allowedFamilies를 하나씩 사용한다."
+                : "이 route는 선택지가 없으므로 반드시 빈 배열이다.");
+        ObjectNode optionItems = options.putObject("items");
+        optionItems.put("type", "object");
+        ObjectNode optionProperties = optionItems.putObject("properties");
+        ObjectNode optionId = optionProperties.putObject("id");
+        optionId.put("type", "string");
+        optionId.putArray("enum").add("OPTION_1").add("OPTION_2").add("OPTION_3");
+        addStringProperty(optionProperties, "label", 1, 18);
+        addStringProperty(optionProperties, "meaning", 1, 120);
+        ObjectNode branchLine = optionProperties.putObject("branchLine");
+        branchLine.put("type", "string");
+        branchLine.put("minLength", 1);
+        branchLine.put("maxLength", 60);
+        branchLine.put(
+                "description",
+                "이 선택지를 고른 직후 들려줄 한 문장 대사 - family의 의미를 벗어나지 않는 선에서 아이 발화에 맞게 직접 쓴다.");
+        ObjectNode optionFamilyId = optionProperties.putObject("actionFamilyId");
+        optionFamilyId.put("type", "string");
+        ArrayNode optionFamilyEnum = optionFamilyId.putArray("enum");
+        actionFamilyIds.forEach(optionFamilyEnum::add);
+        optionItems.putArray("required").add("id").add("label").add("meaning").add("branchLine").add("actionFamilyId");
+        optionItems.put("additionalProperties", false);
+
+        schema.putArray("required").add("responseText").add("options");
+        schema.put("additionalProperties", false);
+        return schema;
     }
 
     public record CompanionRequest(
@@ -125,7 +311,7 @@ public class OpenRouterClient {
             String topicTag, String toneTag, String valueTag) {}
 
     /**
-     * 앵커에 독립적인 companion-chat 표면을 위한 generatePlan()의 형제 메서드: LLM 호출은 한 번뿐이며,
+     * 앵커에 독립적인 companion-chat 표면을 위한 형제 메서드: LLM 호출은 한 번뿐이며,
      * options/family/rejoin 개념 자체가 전혀 없다. 라우팅 프롬프트에 직접 작성된 안전 블록
      * (RoutePrompt.companionSafetyFragment, systemPrompt()/companionSystemPrompt() 참고)을 재사용하므로
      * 두 프롬프트가 무엇을 안전하지 않다고 볼지에 대해 서로 어긋나는 일이 없다.
@@ -194,7 +380,7 @@ public class OpenRouterClient {
     }
 
     /** JSON null/누락 노드면 null을, 인식된 enum 값이면 그 라벨을, 그 외에는 NOT_FOUND를 반환한다(아래에서 거부됨). */
-    private static final String NOT_FOUND = " ";
+    private static final String NOT_FOUND = " ";
 
     private String nullableEnumLabel(JsonNode node, List<String> allowedLabels) {
         if (node == null || node.isNull() || node.isMissingNode()) {
@@ -368,21 +554,33 @@ public class OpenRouterClient {
     }
 
     /**
-     * generatePlan()/generateCompanionReply()는 각자의 고정된 스키마(RouteDecision/CompanionReply)에
-     * 강하게 결합돼 있어 재사용하기 어렵다. shadow-family 생성(대본 작성 + 별도의 자동 검수 게이트
-     * 호출, 둘 다 서로 다른 JSON 스키마를 쓴다)을 위해, 두 메서드가 이미 하던 요청 조립·에러 처리
-     * 배관(plumbing)만 일반화한 것이다 - 스키마 자체는 호출자가 만든다.
+     * generateCompanionReply()는 자신의 고정된 스키마(CompanionReply)에 강하게 결합돼 있어 재사용하기
+     * 어렵다. shadow-family 생성, live-branch 생성, 그리고 Phase 2의 3단계 라우팅 파이프라인처럼
+     * 서로 다른 JSON 스키마를 쓰는 여러 호출자를 위해, 요청 조립·에러 처리 배관(plumbing)만
+     * 일반화한 것이다 - 스키마 자체는 호출자가 만든다.
+     *
+     * <p>few-shot 예시(examples)는 system 메시지 다음, 실제 user 메시지 앞에 user/assistant 메시지
+     * 쌍으로 삽입된다 - 이 코드베이스에 멀티턴 프롬프팅 선례가 이전에 없었다(Phase 2에서 처음 도입).
      */
     public JsonNode generateStructuredCompletion(
-            String systemPrompt, String userPayloadJson, ObjectNode schema, String schemaName, int maxTokens,
+            String model, String systemPrompt, List<FewShotExample> examples, String userPayloadJson,
+            ObjectNode schema, String schemaName, int maxTokens, double temperature,
             ProviderErrorCode failureCode, String failureSafeDetail, RequestDeadline deadline) {
         try {
             ObjectNode root = objectMapper.createObjectNode();
-            root.put("model", llmModel);
+            root.put("model", model);
             ArrayNode messages = root.putArray("messages");
             ObjectNode systemMessage = messages.addObject();
             systemMessage.put("role", "system");
             systemMessage.put("content", systemPrompt);
+            for (FewShotExample example : examples) {
+                ObjectNode exampleUser = messages.addObject();
+                exampleUser.put("role", "user");
+                exampleUser.put("content", example.input());
+                ObjectNode exampleAssistant = messages.addObject();
+                exampleAssistant.put("role", "assistant");
+                exampleAssistant.put("content", example.output());
+            }
             ObjectNode userMessage = messages.addObject();
             userMessage.put("role", "user");
             userMessage.put("content", userPayloadJson);
@@ -396,7 +594,7 @@ public class OpenRouterClient {
             ObjectNode reasoning = root.putObject("reasoning");
             reasoning.put("effort", "minimal");
             reasoning.put("exclude", true);
-            root.put("temperature", 0);
+            root.put("temperature", temperature);
             root.put("max_tokens", maxTokens);
 
             HttpRequest httpRequest = deadline.applyTo(HttpRequest.newBuilder(URI.create(BASE_URL + "/chat/completions"))
@@ -419,6 +617,15 @@ public class OpenRouterClient {
         } catch (Exception error) {
             throw new ProviderException(failureCode, failureSafeDetail, true, error);
         }
+    }
+
+    /** 예전 단일 모델/단일 턴/temperature=0 호출자(ShadowFamilyGenerationService, LiveBranchExecutionWorker)를 위한 하위 호환 오버로드. */
+    public JsonNode generateStructuredCompletion(
+            String systemPrompt, String userPayloadJson, ObjectNode schema, String schemaName, int maxTokens,
+            ProviderErrorCode failureCode, String failureSafeDetail, RequestDeadline deadline) {
+        return generateStructuredCompletion(
+                llmModel, systemPrompt, List.of(), userPayloadJson, schema, schemaName, maxTokens, 0,
+                failureCode, failureSafeDetail, deadline);
     }
 
     public record GeneratedImage(byte[] bytes, String mimeType) {}
@@ -522,146 +729,6 @@ public class OpenRouterClient {
         }
     }
 
-    private String buildChatCompletionsBody(PlanRequest request, List<String> actionFamilyIds) {
-        StoryContext storyContext = request.storyContext();
-        ObjectNode root = objectMapper.createObjectNode();
-        root.put("model", llmModel);
-
-        ArrayNode messages = root.putArray("messages");
-        ObjectNode systemMessage = messages.addObject();
-        systemMessage.put("role", "system");
-        systemMessage.put("content", systemPrompt(storyContext.versions().promptVersion()));
-
-        ObjectNode userMessage = messages.addObject();
-        userMessage.put("role", "user");
-        userMessage.put("content", userPayload(request, actionFamilyIds).toString());
-
-        ObjectNode responseFormat = root.putObject("response_format");
-        responseFormat.put("type", "json_schema");
-        ObjectNode jsonSchema = responseFormat.putObject("json_schema");
-        jsonSchema.put("name", "q_story_route_v1");
-        jsonSchema.put("strict", true);
-        jsonSchema.set("schema", routeSchema(actionFamilyIds, storyContext.allowedSpeakerIds()));
-
-        root.putObject("provider").put("require_parameters", true);
-        ObjectNode reasoning = root.putObject("reasoning");
-        reasoning.put("effort", "minimal");
-        reasoning.put("exclude", true);
-        root.put("temperature", 0);
-        root.put("max_tokens", 1_200);
-        return root.toString();
-    }
-
-    private ObjectNode userPayload(PlanRequest request, List<String> actionFamilyIds) {
-        StoryContext storyContext = request.storyContext();
-        ObjectNode payload = objectMapper.createObjectNode();
-        payload.put("promptVersion", storyContext.versions().promptVersion());
-        payload.put("routePolicyVersion", storyContext.versions().routePolicyVersion());
-        payload.put("currentScene", storyContext.summary());
-        payload.put("childTranscript", request.transcript());
-        payload.put("clarificationAlreadyUsed", request.questionRound() > 1);
-        payload.put("primarySpeakerId", storyContext.primarySpeakerId());
-        ArrayNode allowedSpeakerIds = payload.putArray("allowedSpeakerIds");
-        storyContext.allowedSpeakerIds().forEach(allowedSpeakerIds::add);
-
-        ArrayNode allowedActionFamilies = payload.putArray("allowedActionFamilies");
-        for (ActionFamily family : storyContext.actionFamilies()) {
-            ObjectNode node = allowedActionFamilies.addObject();
-            node.put("id", family.id());
-            node.put("meaning", family.meaning());
-        }
-
-        ArrayNode approvedChoiceCopyBank = payload.putArray("approvedChoiceCopyBank");
-        for (var entry : choiceCopyService.choiceCopyBankForFamilies(storyContext.actionFamilies())) {
-            ObjectNode node = approvedChoiceCopyBank.addObject();
-            node.put("actionFamilyId", entry.actionFamilyId());
-            ArrayNode examples = node.putArray("examples");
-            entry.examples().forEach(example -> {
-                ObjectNode exampleNode = examples.addObject();
-                exampleNode.put("label", example.label());
-                exampleNode.put("meaning", example.meaning());
-            });
-        }
-
-        payload.put("fixedRejoinAnchorId", storyContext.rejoinAt());
-        payload.put("fallbackFamilyId", storyContext.fallbackFamilyId());
-        ArrayNode forbiddenKnowledge = payload.putArray("forbiddenKnowledge");
-        storyContext.forbiddenKnowledge().forEach(forbiddenKnowledge::add);
-        payload.put(
-                "instruction",
-                routePromptService.requirePrompt(storyContext.versions().promptVersion())
-                        .instructionText());
-        return payload;
-    }
-
-    private ObjectNode routeSchema(List<String> actionFamilyIds, List<String> routeSpeakerIds) {
-        ObjectNode schema = objectMapper.createObjectNode();
-        schema.put("type", "object");
-        ObjectNode properties = schema.putObject("properties");
-
-        ObjectNode route = properties.putObject("route");
-        route.put("type", "string");
-        ArrayNode routeEnum = route.putArray("enum");
-        com.qstory.backend.common.enums.RouteKind.ALL_NAMES.forEach(routeEnum::add);
-
-        addStringProperty(properties, "childRelevantMeaning", 1, 160);
-        ObjectNode coverageStatus = properties.putObject("coverageStatus");
-        coverageStatus.put("type", "string");
-        ArrayNode coverageEnum = coverageStatus.putArray("enum");
-        com.qstory.backend.common.enums.CoverageStatus.WIRE_VALUES.forEach(coverageEnum::add);
-        addStringProperty(properties, "coverageReason", 1, 160);
-        addStringProperty(properties, "responseText", 1, 120);
-
-        ObjectNode speakerId = properties.putObject("speakerId");
-        speakerId.put("type", "string");
-        ArrayNode speakerEnum = speakerId.putArray("enum");
-        routeSpeakerIds.forEach(speakerEnum::add);
-
-        addNullableFamilyEnum(properties, "actionFamilyId", actionFamilyIds,
-                "행동·장면변화·우회 route만 허용 family 하나. 단순 route와 THREE_PATHS는 반드시 null.");
-        ObjectNode rejoinAnchorId = properties.putObject("rejoinAnchorId");
-        rejoinAnchorId.putArray("type").add("string").add("null");
-        rejoinAnchorId.put("description", "행동·장면변화·우회·THREE_PATHS는 제공된 fixedRejoinAnchorId. 단순 route는 반드시 null.");
-        addNullableFamilyEnum(properties, "fallbackFamilyId", actionFamilyIds,
-                "행동·장면변화·우회·THREE_PATHS는 제공된 fallbackFamilyId. 단순 route는 반드시 null.");
-
-        ObjectNode options = properties.putObject("options");
-        options.put("type", "array");
-        options.put("minItems", 0);
-        options.put("maxItems", 3);
-        options.put("description", "THREE_PATHS만 정확히 3개. 그 밖의 모든 route는 반드시 빈 배열.");
-        ObjectNode optionItems = options.putObject("items");
-        optionItems.put("type", "object");
-        ObjectNode optionProperties = optionItems.putObject("properties");
-        ObjectNode optionId = optionProperties.putObject("id");
-        optionId.put("type", "string");
-        ArrayNode optionIdEnum = optionId.putArray("enum");
-        optionIdEnum.add("OPTION_1").add("OPTION_2").add("OPTION_3");
-        addStringProperty(optionProperties, "label", 1, 18);
-        addStringProperty(optionProperties, "meaning", 1, 120);
-        ObjectNode branchLine = optionProperties.putObject("branchLine");
-        branchLine.put("type", "string");
-        branchLine.put("minLength", 1);
-        branchLine.put("maxLength", 60);
-        branchLine.put(
-                "description",
-                "이 선택지를 고른 직후 들려줄 한 문장 대사 - family.meaning()을 벗어나지 않는 선에서 아이 발화에 맞게 직접 쓴다.");
-        ObjectNode optionFamilyId = optionProperties.putObject("actionFamilyId");
-        optionFamilyId.put("type", "string");
-        ArrayNode optionFamilyEnum = optionFamilyId.putArray("enum");
-        actionFamilyIds.forEach(optionFamilyEnum::add);
-        ArrayNode optionRequired = optionItems.putArray("required");
-        optionRequired.add("id").add("label").add("meaning").add("branchLine").add("actionFamilyId");
-        optionItems.put("additionalProperties", false);
-
-        ArrayNode required = schema.putArray("required");
-        required.add("route").add("childRelevantMeaning").add("coverageStatus").add("coverageReason")
-                .add("responseText").add("speakerId").add("actionFamilyId").add("rejoinAnchorId")
-                .add("fallbackFamilyId").add("options");
-        schema.put("additionalProperties", false);
-        return schema;
-    }
-
     private void addStringProperty(ObjectNode properties, String name, int minLength, int maxLength) {
         ObjectNode node = properties.putObject(name);
         node.put("type", "string");
@@ -677,14 +744,5 @@ public class OpenRouterClient {
         actionFamilyIds.forEach(enumNode::add);
         enumNode.addNull();
         node.put("description", description);
-    }
-
-    /**
-     * 정책 텍스트 자체는 이 버전이 가리키는 route_prompt 행에 들어 있다(fe/content/prompts에 작성됨).
-     * 여기서는 버전 문구만 조합하는데, 이는 요청 시점에 모델이 어떤 정책을 따라야 하는지를 다시 명시하기 위함이다.
-     */
-    private String systemPrompt(String promptVersion) {
-        return "정책 버전은 " + promptVersion + "이다. "
-                + routePromptService.requirePrompt(promptVersion).systemText();
     }
 }

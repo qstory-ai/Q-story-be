@@ -50,7 +50,8 @@ public record AppProperties(
     }
 
     public record OpenRouter(
-            String apiKey, String llmModel, String ttsModel, String ttsVoice, String imageModel) {
+            String apiKey, String llmModel, String safetyModel, String ttsModel, String ttsVoice,
+            String imageModel) {
         public boolean llmConfigured() {
             return notBlank(apiKey) && notBlank(llmModel);
         }
@@ -74,6 +75,7 @@ public record AppProperties(
             String voiceResearchBucket,
             String shadowAssetsBucket,
             String storyAudioBucket,
+            String storyImageBucket,
             String voiceResearchCleanupToken) {
         public boolean configured() {
             return url != null && !url.isBlank()

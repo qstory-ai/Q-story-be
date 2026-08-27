@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.choicecopy.ChoiceCopyVariant;
 import com.qstory.backend.choicecopy.service.ChoiceCopyRegistry;
+import com.qstory.backend.common.enums.FamilyOrigin;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.story.entity.Story;
@@ -19,9 +20,15 @@ import com.qstory.backend.story.repository.StoryAnchorRepository;
 import com.qstory.backend.common.enums.AssetCategory;
 import com.qstory.backend.story.entity.StoryAsset;
 import com.qstory.backend.story.entity.RoutePrompt;
+import com.qstory.backend.story.entity.RoutePromptStage;
+import com.qstory.backend.story.entity.StoryVisualReferencePack;
 import com.qstory.backend.story.repository.RoutePromptRepository;
+import com.qstory.backend.story.repository.RoutePromptStageRepository;
+import com.qstory.backend.story.repository.StoryVisualReferencePackRepository;
 import com.qstory.backend.common.enums.RevisionOperation;
 import com.qstory.backend.common.enums.RevisionTarget;
+import com.qstory.backend.common.enums.RoutePromptStageKind;
+import com.qstory.backend.common.enums.VisualReferenceKind;
 import com.qstory.backend.story.service.RoutePromptService;
 import com.qstory.backend.story.repository.StoryAssetRepository;
 import com.qstory.backend.story.repository.StoryCastRepository;
@@ -65,6 +72,8 @@ public class StoryImportService {
     private final StoryCastRepository castRepository;
     private final StoryAssetRepository assetRepository;
     private final RoutePromptRepository routePromptRepository;
+    private final RoutePromptStageRepository routePromptStageRepository;
+    private final StoryVisualReferencePackRepository visualReferencePackRepository;
     private final RoutePromptService routePromptService;
     private final StoryRevisionService revisionService;
     private final StorySceneRepository sceneRepository;
@@ -78,7 +87,8 @@ public class StoryImportService {
             ObjectMapper objectMapper, StoryRepository storyRepository,
             StoryAnchorRepository anchorRepository, StoryActionFamilyRepository familyRepository,
             StoryCastRepository castRepository, StoryAssetRepository assetRepository,
-            RoutePromptRepository routePromptRepository, RoutePromptService routePromptService,
+            RoutePromptRepository routePromptRepository, RoutePromptStageRepository routePromptStageRepository,
+            StoryVisualReferencePackRepository visualReferencePackRepository, RoutePromptService routePromptService,
             StoryRevisionService revisionService,
             StorySceneRepository sceneRepository, StorySegmentRepository segmentRepository,
             StoryFallbackSegmentRepository fallbackSegmentRepository,
@@ -91,6 +101,8 @@ public class StoryImportService {
         this.castRepository = castRepository;
         this.assetRepository = assetRepository;
         this.routePromptRepository = routePromptRepository;
+        this.routePromptStageRepository = routePromptStageRepository;
+        this.visualReferencePackRepository = visualReferencePackRepository;
         this.routePromptService = routePromptService;
         this.revisionService = revisionService;
         this.sceneRepository = sceneRepository;
@@ -140,10 +152,18 @@ public class StoryImportService {
         story.setPackageExtras(extras);
         story = storyRepository.save(story);
 
-        // DB 레벨의 ON DELETE CASCADE(StoryActionFamily -> StoryAnchor, StoryFallbackSegment ->
-        // StoryActionFamily)가 이 스토리의 기존 anchor/family에 딸린 하위 행들을 모두 자동으로
-        // 삭제하므로, 별도로 로드해서 삭제할 필요가 없다.
-        anchorRepository.deleteAll(anchorRepository.findByStory_Id(storyId));
+        // LiveBranchExecutionWorker가 사람 검수 없이 실시간으로 커밋한 origin=LIVE_GENERATED
+        // family(그리고 그 fallback segment/삽화 asset)는 재임포트가 절대 건드리면 안 된다. 그래서
+        // 예전처럼 anchor를 통째로 delete-cascade(-> family 전부 cascade 삭제)하지 않는다: anchor는
+        // id로 업서트(save()가 이미 동일 id 행을 병합-갱신한다 - importCast/importAssets 주석 참고)
+        // 하고, family는 origin=AUTHORED인 것만 먼저 지운 뒤 이 페이로드의 family로 새로 채운다.
+        List<String> existingAnchorIds = anchorRepository.findByStory_Id(storyId).stream()
+                .map(StoryAnchor::getId)
+                .toList();
+        if (!existingAnchorIds.isEmpty()) {
+            familyRepository.deleteByAnchor_IdInAndOrigin(existingAnchorIds, FamilyOrigin.AUTHORED);
+            familyRepository.flush();
+        }
         importAnchors(routeContext, story);
 
         castRepository.deleteAll(castRepository.findByStory_Id(storyId));
@@ -156,12 +176,26 @@ public class StoryImportService {
         castRepository.flush();
         importCast(cast, story);
 
-        // 위의 cast와 동일한 이유로 재삽입 전에 flush한다: identity 키에 더해 비즈니스 유니크 키
-        // (story_id, slug)를 갖기 때문이다.
-        assetRepository.deleteAll(assetRepository.findByStory_IdOrderBySlugAsc(storyId));
+        // asset은 family처럼 origin 컬럼이 없으므로(StoryAsset.familyId는 조인이 아니라 평범한
+        // 문자열 컬럼), LIVE_GENERATED family에 속한 삽화(BRANCH_ART, familyId로 연결됨)만 골라
+        // 삭제 대상에서 뺀다 - 그 외 asset(권위 있는 SCENE_ART/BRANCH_ART/BRIDGE/NARRATION 전부)은
+        // 예전처럼 전부 지우고 이 페이로드로 다시 채운다. 재삽입 전에 flush하는 이유는 위 cast와
+        // 동일하다(identity 키 + 비즈니스 유니크 키 (story_id, slug)).
+        List<String> liveGeneratedFamilyIds = familyRepository
+                .findByAnchor_Story_IdAndOrigin(storyId, FamilyOrigin.LIVE_GENERATED).stream()
+                .map(StoryActionFamily::getId)
+                .toList();
+        List<StoryAsset> assetsToDelete = assetRepository.findByStory_IdOrderBySlugAsc(storyId).stream()
+                .filter(asset -> asset.getFamilyId() == null || !liveGeneratedFamilyIds.contains(asset.getFamilyId()))
+                .toList();
+        assetRepository.deleteAll(assetsToDelete);
         assetRepository.flush();
         int assetCount = importAssets(packageData.path("assets"), story);
         importRoutePrompt(packageData.path("prompt"));
+        // 프론트 콘텐츠 빌드 파이프라인이 아직 이 두 섹션을 만들어 보내지 않을 수 있다(Phase 2
+        // §1/§4의 backend-only 시점 - StoryImportServiceTest 참고) - 그 경우 조용히 건너뛰고 SQL
+        // 시드 마이그레이션이 채운 행을 그대로 둔다.
+        importVisualReferencePacks(packageData.path("visualReferencePacks"), story);
 
         // DB 레벨의 ON DELETE CASCADE(StorySegment 참고)가 scene segment 행들을 자동으로
         // 삭제하므로, 여기서 따로 로드해서 삭제할 필요가 없다. fallback segment는 그 소유자인
@@ -340,9 +374,71 @@ public class StoryImportService {
         row.setSystemText(joinLines(prompt.path("system")));
         row.setInstructionText(joinLines(prompt.path("instruction")));
         routePromptRepository.save(row);
+        importRoutePromptStages(version, prompt.path("stages"));
         // 기존 버전을 다시 임포트하는 것이 정책을 그 자리에서 수정하는 방법이다 - 이 호출이 없으면
-        // 재시작 전까지는 버전별 캐시에서 계속 이전 텍스트가 서빙된다.
+        // 재시작 전까지는 버전별 캐시에서 계속 이전 텍스트가 서빙된다(단일 호출용/3단계 캐시 모두).
         routePromptService.invalidate(version);
+    }
+
+    /**
+     * Phase 2의 3단계 파이프라인(safety_scope_gate/route_classifier/content_generator) 전용
+     * 프롬프트. 콘텐츠 빌드 파이프라인이 아직 packageData.prompt.stages를 만들어 보내지 않을 수
+     * 있으므로(이 백엔드 작업 범위 밖 - 최종 보고 참고) 그 필드가 없으면 조용히 건너뛰고, 이미
+     * 시드 마이그레이션이 채워 둔 route_prompt_stage 행을 그대로 둔다. 기대하는 모양:
+     * {@code prompt.stages.{safety,classifier,generator} = {system: string[], examples: [{input, output}]}}.
+     */
+    private void importRoutePromptStages(String version, JsonNode stages) {
+        if (!stages.isObject()) {
+            return;
+        }
+        upsertStage(version, RoutePromptStageKind.SAFETY, stages.path("safety"));
+        upsertStage(version, RoutePromptStageKind.CLASSIFIER, stages.path("classifier"));
+        upsertStage(version, RoutePromptStageKind.GENERATOR, stages.path("generator"));
+    }
+
+    private void upsertStage(String version, RoutePromptStageKind stage, JsonNode stageNode) {
+        if (!stageNode.isObject()) {
+            throw ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요.");
+        }
+        RoutePromptStage row = routePromptStageRepository.findByRoutePromptVersionAndStage(version, stage)
+                .orElseGet(() -> RoutePromptStage.builder().routePromptVersion(version).stage(stage).build());
+        row.setSystemText(joinLines(stageNode.path("system")));
+        row.setExamples(toExampleMaps(stageNode.path("examples")));
+        routePromptStageRepository.save(row);
+    }
+
+    private List<Map<String, Object>> toExampleMaps(JsonNode arrayNode) {
+        if (!arrayNode.isArray()) {
+            return List.of();
+        }
+        List<Map<String, Object>> examples = new ArrayList<>();
+        for (JsonNode example : arrayNode) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("input", toMap(example.path("input")));
+            map.put("output", toMap(example.path("output")));
+            examples.add(map);
+        }
+        return examples;
+    }
+
+    /**
+     * StoryVisualReferencePack(§4) - 콘텐츠 빌드 파이프라인이 아직 이 섹션을 만들어 보내지 않을 수
+     * 있으므로(이 백엔드 작업 범위 밖) 없으면 조용히 건너뛰고 시드 마이그레이션이 채운 행을 그대로
+     * 둔다. 기대하는 모양: {@code packageData.visualReferencePacks = [{id, kind, label, immutableFacts: string[]}]}.
+     */
+    private void importVisualReferencePacks(JsonNode packs, Story story) {
+        if (!packs.isArray()) {
+            return;
+        }
+        for (JsonNode packNode : packs) {
+            visualReferencePackRepository.save(StoryVisualReferencePack.builder()
+                    .id(requireText(packNode, "id"))
+                    .story(story)
+                    .kind(VisualReferenceKind.valueOf(requireText(packNode, "kind").toUpperCase()))
+                    .label(requireText(packNode, "label"))
+                    .immutableFacts(toStringList(packNode.path("immutableFacts")))
+                    .build());
+        }
     }
 
     private String joinLines(JsonNode arrayNode) {

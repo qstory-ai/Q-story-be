@@ -35,15 +35,18 @@ public class QuestionPipelineService {
     private final AudioNormalizer normalizer;
     private final RtzrSttClient sttClient;
     private final OpenRouterClient openRouterClient;
+    private final QuestionRoutingService questionRoutingService;
     private final VoiceCastService voiceCastService;
 
     public QuestionPipelineService(
             AppProperties config, AudioNormalizer normalizer, RtzrSttClient sttClient,
-            OpenRouterClient openRouterClient, VoiceCastService voiceCastService) {
+            OpenRouterClient openRouterClient, QuestionRoutingService questionRoutingService,
+            VoiceCastService voiceCastService) {
         this.config = config;
         this.normalizer = normalizer;
         this.sttClient = sttClient;
         this.openRouterClient = openRouterClient;
+        this.questionRoutingService = questionRoutingService;
         this.voiceCastService = voiceCastService;
     }
 
@@ -150,15 +153,14 @@ public class QuestionPipelineService {
             boolean includeAudio, Map<String, Object> priorDiagnostics, RequestDeadline deadline, long startedAtNanos) {
         StoryContext storyContext = context.storyContext();
         long responseStartedAtNanos = System.nanoTime();
-        OpenRouterClient.PlanRequest planRequest = new OpenRouterClient.PlanRequest(
-                transcript, storyContext, context.questionRound(), context.guaranteeAgencyChoice());
 
         RouteDecision decision = null;
         int responseAttempts = 0;
         for (int attempt = 0; attempt < 2; attempt++) {
             responseAttempts = attempt + 1;
             try {
-                decision = openRouterClient.generatePlan(planRequest, deadline);
+                decision = questionRoutingService.route(
+                        storyContext, transcript, context.questionRound(), context.guaranteeAgencyChoice(), deadline);
                 break;
             } catch (ProviderException error) {
                 boolean shouldRetry = attempt == 0 && error.retryable();

@@ -18,13 +18,15 @@ public record RoutePlan(
         String rejoinAt,
         String fallbackFamilyId,
         List<RouteOption> options,
-        PlanVersions versions) {
+        PlanVersions versions,
+        /** decision.liveBranchJobId()의 미러 - 채워져 있으면 프런트가 GET /v1/live-branch/{jobId}를 폴링한다. */
+        String liveBranchJobId) {
 
     public static RoutePlan of(RouteDecision decision) {
         return new RoutePlan(
                 "route", decision.route(), decision.childRelevantMeaning(), decision.coverageStatus(),
                 decision.coverageReason(), decision.responseText(), decision.speakerId(), decision.actionFamilyId(),
                 decision.rejoinAnchorId(), decision.fallbackFamilyId(), decision.options(),
-                PlanVersions.of(decision.modelId(), decision.storyVersions()));
+                PlanVersions.of(decision.modelId(), decision.storyVersions()), decision.liveBranchJobId());
     }
 }

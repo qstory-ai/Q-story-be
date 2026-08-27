@@ -30,7 +30,7 @@ spring:
       # reviewed description of this schema and run on every boot, so each one must stay
       # idempotent - "create ... if not exists" and constraint adds guarded against duplicates.
       mode: always
-      schema-locations: classpath:db/schema/001-baseline.sql,classpath:db/schema/002-story-revision.sql,classpath:db/schema/003-segment-narration-stale.sql,classpath:db/schema/004-segment-narration-text.sql,classpath:db/schema/005-story-asset-rerender.sql,classpath:db/schema/006-story-catalog-metadata.sql,classpath:db/schema/007-companion-chat.sql,classpath:db/schema/008-staff-role.sql,classpath:db/schema/009-password-reset.sql,classpath:db/schema/010-story-completions.sql,classpath:db/schema/011-shadow-family-drafts.sql,classpath:db/schema/012-launch-notifications.sql,classpath:db/schema/013-launch-notification-email-optional.sql,classpath:db/schema/014-launch-notification-wants-contact.sql,classpath:db/schema/015-launch-notification-child-age-text.sql,classpath:db/schema/016-completion-surveys.sql,classpath:db/schema/017-parent-subscription.sql,classpath:db/schema/018-tutor-role.sql,classpath:db/schema/019-tutor-students.sql,classpath:db/schema/020-story-completion-tutor-student.sql,classpath:db/schema/021-app-user-profile-and-deletion.sql,classpath:db/schema/022-improvement-feedback.sql,classpath:db/schema/023-account-deletion-feedback.sql,classpath:db/schema/024-oauth-accounts.sql
+      schema-locations: classpath:db/schema/001-baseline.sql,classpath:db/schema/002-story-revision.sql,classpath:db/schema/003-segment-narration-stale.sql,classpath:db/schema/004-segment-narration-text.sql,classpath:db/schema/005-story-asset-rerender.sql,classpath:db/schema/006-story-catalog-metadata.sql,classpath:db/schema/007-companion-chat.sql,classpath:db/schema/008-staff-role.sql,classpath:db/schema/009-password-reset.sql,classpath:db/schema/010-story-completions.sql,classpath:db/schema/011-shadow-family-drafts.sql,classpath:db/schema/012-launch-notifications.sql,classpath:db/schema/013-launch-notification-email-optional.sql,classpath:db/schema/014-launch-notification-wants-contact.sql,classpath:db/schema/015-launch-notification-child-age-text.sql,classpath:db/schema/016-completion-surveys.sql,classpath:db/schema/017-parent-subscription.sql,classpath:db/schema/018-tutor-role.sql,classpath:db/schema/019-tutor-students.sql,classpath:db/schema/020-story-completion-tutor-student.sql,classpath:db/schema/021-app-user-profile-and-deletion.sql,classpath:db/schema/022-improvement-feedback.sql,classpath:db/schema/023-account-deletion-feedback.sql,classpath:db/schema/024-oauth-accounts.sql,classpath:db/schema/025-app-user-email.sql,classpath:db/schema/026-live-branch-job.sql,classpath:db/schema/027-route-prompt-stage.sql,classpath:db/schema/028-live-branch-job-options.sql,classpath:db/schema/029-story-visual-reference-pack.sql
       continue-on-error: false
   jpa:
     open-in-view: false
@@ -57,6 +57,9 @@ qstory:
     open-router:
       api-key: ${OPENROUTER_API_KEY:}
       llm-model: ${OPENROUTER_LLM_MODEL:google/gemini-3.6-flash}
+      # Phase 2 3단계 파이프라인의 1단계(safety_scope_gate) 전용 - 빠르고 저렴한 모델. 별도로
+      # 지정하지 않으면 llm-model과 같은 모델을 쓰도록 기본값을 llm-model에 겹쳐 둔다(동작 변화 없음).
+      safety-model: ${OPENROUTER_SAFETY_MODEL:${OPENROUTER_LLM_MODEL:google/gemini-3.6-flash}}
       tts-model: ${OPENROUTER_TTS_MODEL:google/gemini-3.1-flash-tts-preview}
       tts-voice: ${OPENROUTER_TTS_VOICE:Sulafat}
       image-model: ${OPENROUTER_IMAGE_MODEL:google/gemini-3.1-flash-image}
@@ -76,6 +79,9 @@ qstory:
     # Narration re-rendered from an edited line. Separate from the build's static audio, which is
     # immutable once shipped - these files are written after release and replace clips in place.
     story-audio-bucket: ${SUPABASE_STORY_AUDIO_BUCKET:qstory-story-audio}
+    # LiveBranchExecutionWorker가 실시간으로 생성한 분기 삽화 - storyAudioBucket과 동일하게 공개
+    # 버킷이어야 한다(NarrationRerenderService.rerender()와 같은 방식으로 절대 URL을 그대로 저장한다).
+    story-image-bucket: ${SUPABASE_STORY_IMAGE_BUCKET:qstory-story-images}
     voice-research-cleanup-token: ${QSTORY_RESEARCH_CLEANUP_TOKEN:}
   admin:
     story-import-token: ${QSTORY_STORY_IMPORT_TOKEN:}

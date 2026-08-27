@@ -1,8 +1,11 @@
 package com.qstory.backend.story.entity;
 
 import com.qstory.backend.choicecopy.ChoiceCopyVariant;
+import com.qstory.backend.common.enums.FamilyOrigin;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -79,4 +82,14 @@ public class StoryActionFamily {
     private String rejoinSlot;
 
     private String rejoinTarget;
+
+    /**
+     * 이 family가 저작(authoring) 콘텐츠 파이프라인에서 왔는지(AUTHORED), 아니면 사람 검수 없이
+     * LiveBranchExecutionWorker가 실시간으로 커밋했는지(LIVE_GENERATED)를 구분한다. StoryImportService의
+     * 재임포트는 AUTHORED만 삭제 후 재생성하며 LIVE_GENERATED는 절대 건드리지 않는다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    @Builder.Default
+    private FamilyOrigin origin = FamilyOrigin.AUTHORED;
 }
