@@ -23,7 +23,7 @@ public interface StoryActionFamilyRepository extends JpaRepository<StoryActionFa
      */
     @Modifying
     @Query("delete from StoryActionFamily f where f.anchor.id in :anchorIds and f.origin = :origin")
-    long deleteByAnchor_IdInAndOrigin(@Param("anchorIds") List<String> anchorIds, @Param("origin") FamilyOrigin origin);
+    int deleteByAnchor_IdInAndOrigin(@Param("anchorIds") List<String> anchorIds, @Param("origin") FamilyOrigin origin);
 
     /** LiveBranchGenerationService.enqueue()의 앵커당 상한 체크. */
     long countByAnchor_IdAndOrigin(String anchorId, FamilyOrigin origin);

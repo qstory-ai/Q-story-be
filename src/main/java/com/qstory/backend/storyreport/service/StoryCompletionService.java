@@ -15,11 +15,14 @@ import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class StoryCompletionService {
+
+    private static final int RECENT_LIMIT_MAX = 20;
 
     private final StoryCompletionRepository repository;
     private final AppUserRepository userRepository;
@@ -61,6 +64,16 @@ public class StoryCompletionService {
     public List<StoryCompletionSummary> list(CurrentUser caller) {
         return repository.findByUser_IdOrderByCompletedAtDesc(caller.userId()).stream()
                 .map(StoryCompletionSummary::of)
+                .toList();
+    }
+
+    /** 최근 N회의 전체 outcomes를 함께 반환한다 - 프론트가 여러 회차를 가로지르는 누적 트렌드(반복 접근, 관심 주제)를 계산할 때 쓴다. */
+    public List<StoryCompletionDetail> recent(CurrentUser caller, int limit) {
+        int boundedLimit = Math.max(1, Math.min(limit, RECENT_LIMIT_MAX));
+        return repository
+                .findByUser_IdOrderByCompletedAtDesc(caller.userId(), PageRequest.of(0, boundedLimit))
+                .stream()
+                .map(StoryCompletionDetail::of)
                 .toList();
     }
 

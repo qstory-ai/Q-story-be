@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -49,5 +50,12 @@ public class StoryCompletionController {
     @GetMapping("/v1/story-completions/{id}")
     public StoryCompletionDetail get(@PathVariable UUID id) {
         return service.get(currentUserResolver.require(), id);
+    }
+
+    @Operation(summary = "List the caller's most recent reports with full outcomes, newest first",
+            description = "For cross-session trend views (repeated approaches, recurring interests) - capped at 20.")
+    @GetMapping("/v1/story-completions/recent")
+    public List<StoryCompletionDetail> recent(@RequestParam(defaultValue = "5") int limit) {
+        return service.recent(currentUserResolver.require(), limit);
     }
 }

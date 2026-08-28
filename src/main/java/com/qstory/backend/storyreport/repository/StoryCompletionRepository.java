@@ -4,11 +4,15 @@ import com.qstory.backend.storyreport.entity.StoryCompletion;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface StoryCompletionRepository extends JpaRepository<StoryCompletion, UUID> {
 
     List<StoryCompletion> findByUser_IdOrderByCompletedAtDesc(UUID userId);
+
+    /** 최근 N회 누적 트렌드 계산용 - user_id, completed_at desc 복합 인덱스로 커버된다. */
+    List<StoryCompletion> findByUser_IdOrderByCompletedAtDesc(UUID userId, Pageable pageable);
 
     Optional<StoryCompletion> findByIdAndUser_Id(UUID id, UUID userId);
 
