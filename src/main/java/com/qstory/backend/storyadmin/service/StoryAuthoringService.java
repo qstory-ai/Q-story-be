@@ -5,6 +5,7 @@ import com.qstory.backend.common.enums.RevisionOperation;
 import com.qstory.backend.common.enums.RevisionTarget;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.common.util.JacksonConversion;
 import com.qstory.backend.story.entity.StoryRevision;
 import com.qstory.backend.story.entity.StoryScene;
 import com.qstory.backend.story.entity.StorySegment;
@@ -86,8 +87,7 @@ public class StoryAuthoringService {
         if (request.payload() == null || request.payload().isEmpty()) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "payload가 필요해요.", 400);
         }
-        StorySegment segment = segmentRepository.findById(segmentId)
-                .filter(candidate -> candidate.getScene().getStory().getId().equals(storyId))
+        StorySegment segment = segmentRepository.findByIdAndScene_Story_Id(segmentId, storyId)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "그 문장을 찾지 못했어요.", 404));
 
         SegmentView before = SegmentView.of(segment);
@@ -149,8 +149,7 @@ public class StoryAuthoringService {
     }
 
     private Map<String, Object> restoreSegment(String storyId, String segmentId, Map<String, Object> before) {
-        StorySegment segment = segmentRepository.findById(UUID.fromString(segmentId))
-                .filter(candidate -> candidate.getScene().getStory().getId().equals(storyId))
+        StorySegment segment = segmentRepository.findByIdAndScene_Story_Id(UUID.fromString(segmentId), storyId)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "그 문장을 찾지 못했어요.", 404));
         @SuppressWarnings("unchecked")
         Map<String, Object> payload = (Map<String, Object>) before.get("payload");
@@ -164,9 +163,8 @@ public class StoryAuthoringService {
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "그 장면을 찾지 못했어요.", 404));
     }
 
-    @SuppressWarnings("unchecked")
     private Map<String, Object> asMap(Object value) {
-        return objectMapper.convertValue(value, Map.class);
+        return JacksonConversion.toMap(objectMapper, value);
     }
 
     /**

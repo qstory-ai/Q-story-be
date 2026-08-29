@@ -77,7 +77,7 @@ public class NarrationController {
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
         NarrationContractValidator.NarrationRequest parsed = contractValidator.parse(body);
         ResolvedNarrationContext context = storyRegistryService.resolveNarrationContext(
-                parsed.storyId(), parsed.anchorId(), parsed.speakerId(), currentUserResolver.current().orElse(null));
+                parsed.storyId(), parsed.anchorId(), parsed.speakerId(), currentUserResolver.currentOrNull());
         Map<String, Object> result = pipeline.process(
                 context, parsed.storyId(), parsed.speakerId(), parsed.text(),
                 RequestDeadline.startingNow(config.requestTimeoutMs()));
@@ -107,7 +107,7 @@ public class NarrationController {
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
         NarrationContractValidator.NarrationRequest parsed = contractValidator.parse(body);
         ResolvedNarrationContext context = storyRegistryService.resolveNarrationContext(
-                parsed.storyId(), parsed.anchorId(), parsed.speakerId(), currentUserResolver.current().orElse(null));
+                parsed.storyId(), parsed.anchorId(), parsed.speakerId(), currentUserResolver.currentOrNull());
         NarrationPipelineService.StreamResult result = pipeline.processStream(
                 context, parsed.storyId(), parsed.speakerId(), parsed.text(),
                 RequestDeadline.startingNow(config.requestTimeoutMs()));
@@ -137,6 +137,9 @@ public class NarrationController {
         try (InputStream source = audio.stream()) {
             byte[] buffer = new byte[8192];
             int read;
+            // 청크마다 flush한다 - 위의 X-Accel-Buffering:no/Cache-Control:no-transform과 짝을 이뤄,
+            // TTS가 만들어내는 대로 그대로 내보내 아이가 듣는 재생 시작 지연을 최소화하려는 의도다.
+            // 전체를 버퍼링했다가 한 번에 보내면 syscall은 줄지만 첫 오디오까지의 체감 지연이 커진다.
             while ((read = source.read(buffer)) != -1) {
                 response.getOutputStream().write(buffer, 0, read);
                 response.getOutputStream().flush();

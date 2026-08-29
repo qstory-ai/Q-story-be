@@ -4,11 +4,7 @@ import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.config.AppProperties;
 import java.util.Map;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
 /**
  * 프론트가 카카오 JS SDK로 받은 access token을 그대로 보내면, 여기서 카카오의
@@ -23,11 +19,11 @@ public class KakaoOAuthVerifier {
     private static final String TOKEN_INFO_URL = "https://kapi.kakao.com/v1/user/access_token_info";
     private static final String USER_ME_URL = "https://kapi.kakao.com/v2/user/me";
 
-    private final RestClient restClient;
+    private final OAuthHttpClient httpClient;
     private final AppProperties config;
 
-    public KakaoOAuthVerifier(RestClient restClient, AppProperties config) {
-        this.restClient = restClient;
+    public KakaoOAuthVerifier(OAuthHttpClient httpClient, AppProperties config) {
+        this.httpClient = httpClient;
         this.config = config;
     }
 
@@ -67,14 +63,6 @@ public class KakaoOAuthVerifier {
     }
 
     private Map<String, Object> callKakao(String url, String accessToken) {
-        try {
-            return restClient.get()
-                    .uri(url)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
-                    .retrieve()
-                    .body(new ParameterizedTypeReference<Map<String, Object>>() {});
-        } catch (RestClientException failure) {
-            throw ApiException.contractError(ErrorCode.OAUTH_TOKEN_INVALID, "카카오 로그인 확인에 실패했어요.", 401);
-        }
+        return httpClient.getWithBearer(url, accessToken, "카카오 로그인 확인에 실패했어요.");
     }
 }

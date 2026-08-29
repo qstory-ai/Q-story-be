@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.FailureBody;
+import com.qstory.backend.common.util.HttpBodyReader;
 import com.qstory.backend.common.util.HttpJsonWriter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -16,7 +17,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Map;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -70,19 +70,10 @@ public class BetaEventController {
         if (declaredLength > MAX_PAYLOAD_BYTES) {
             throw ApiException.contractError(ErrorCode.PAYLOAD_TOO_LARGE, "요청이 너무 커요.", 413);
         }
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        byte[] chunk = new byte[2048];
-        long total = 0;
-        int read;
-        while ((read = request.getInputStream().read(chunk)) != -1) {
-            total += read;
-            if (total > MAX_PAYLOAD_BYTES) {
-                throw ApiException.contractError(ErrorCode.PAYLOAD_TOO_LARGE, "요청이 너무 커요.", 413);
-            }
-            buffer.write(chunk, 0, read);
-        }
+        byte[] body = HttpBodyReader.readAllBytes(
+                request.getInputStream(), MAX_PAYLOAD_BYTES, ErrorCode.PAYLOAD_TOO_LARGE, "요청이 너무 커요.");
         try {
-            return objectMapper.readTree(buffer.toByteArray());
+            return objectMapper.readTree(body);
         } catch (IOException malformed) {
             throw ApiException.contractError(ErrorCode.INVALID_JSON, "요청 형식이 올바르지 않아요.");
         }

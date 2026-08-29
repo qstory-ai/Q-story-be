@@ -3,6 +3,8 @@ package com.qstory.backend.org.service;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
+import com.qstory.backend.common.util.SecureTokenGenerator;
+import com.qstory.backend.common.util.TokenValidation;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.dto.UserSummary;
@@ -21,13 +23,10 @@ import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.repository.ClassGroupRepository;
 import com.qstory.backend.org.repository.ClassInviteRepository;
 import com.qstory.backend.org.util.JoinCodeGenerator;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,13 +44,13 @@ public class ClassService {
     private final AuthValidator authValidator;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
-    private final SecureRandom random = new SecureRandom();
+    private final SecureTokenGenerator tokenGenerator;
 
     public ClassService(
             ClassGroupRepository classGroupRepository, ClassInviteRepository classInviteRepository,
             AppUserRepository userRepository, OrganizationService organizationService,
             JoinCodeGenerator joinCodeGenerator, AuthValidator authValidator,
-            PasswordEncoder passwordEncoder, JwtService jwtService) {
+            PasswordEncoder passwordEncoder, JwtService jwtService, SecureTokenGenerator tokenGenerator) {
         this.classGroupRepository = classGroupRepository;
         this.classInviteRepository = classInviteRepository;
         this.userRepository = userRepository;
@@ -60,6 +59,7 @@ public class ClassService {
         this.authValidator = authValidator;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.tokenGenerator = tokenGenerator;
     }
 
     @Transactional
@@ -86,12 +86,7 @@ public class ClassService {
                 .classGroup(classGroup)
                 .createdAt(Instant.now())
                 .build();
-        try {
-            // saveAndFlush - 왜 여기서 일반 save()로는 예외를 잡을 수 없는지는 AuthService.signupOrganizationOwner()의 주석 참고.
-            userRepository.saveAndFlush(classAccount);
-        } catch (DataIntegrityViolationException collision) {
-            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "반 계정 아이디가 이미 사용 중이에요.");
-        }
+        userRepository.saveOrThrowDuplicate(classAccount, "반 계정 아이디가 이미 사용 중이에요.");
         return ClassResponse.of(classGroup);
     }
 
@@ -113,7 +108,7 @@ public class ClassService {
         if (caller.role() != Role.DIRECTOR) {
             throw ApiException.contractError(ErrorCode.FORBIDDEN, "기관 및 단체 계정만 초대를 만들 수 있어요.", 403);
         }
-        String rawToken = randomToken();
+        String rawToken = tokenGenerator.generate();
         Instant expiresAt = Instant.now().plus(INVITE_TTL);
         classInviteRepository.save(ClassInvite.builder()
                 .classGroup(classGroup)
@@ -140,12 +135,7 @@ public class ClassService {
                 .classGroup(classGroup)
                 .createdAt(Instant.now())
                 .build();
-        try {
-            // saveAndFlush - 왜 여기서 일반 save()로는 예외를 잡을 수 없는지는 AuthService.signupOrganizationOwner()의 주석 참고.
-            parent = userRepository.saveAndFlush(parent);
-        } catch (DataIntegrityViolationException alreadyRegistered) {
-            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 사용 중인 아이디예요.");
-        }
+        parent = userRepository.saveOrThrowDuplicate(parent, "이미 사용 중인 아이디예요.");
 
         CurrentUser currentUser = new CurrentUser(
                 parent.getId(), Role.PARENT, classGroup.getOrganization().getId(), classGroup.getId());
@@ -168,9 +158,8 @@ public class ClassService {
     private ClassGroup resolveByInvite(String rawToken) {
         ClassInvite invite = classInviteRepository.findByTokenHash(DigestUtil.sha256Hex(rawToken))
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_INVITE, "초대 링크가 올바르지 않아요.", 410));
-        if (invite.getUsedAt() != null || invite.getExpiresAt().isBefore(Instant.now())) {
-            throw ApiException.contractError(ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
-        }
+        TokenValidation.requireUsable(invite.getUsedAt(), invite.getExpiresAt(),
+                ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
         invite.setUsedAt(Instant.now());
         classInviteRepository.save(invite);
         return invite.getClassGroup();
@@ -201,11 +190,5 @@ public class ClassService {
             }
         }
         throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "반 코드를 생성하지 못했어요. 다시 시도해 주세요.", 500);
-    }
-
-    private String randomToken() {
-        byte[] bytes = new byte[24];
-        random.nextBytes(bytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 }

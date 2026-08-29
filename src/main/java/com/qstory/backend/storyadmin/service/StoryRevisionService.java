@@ -3,6 +3,7 @@ package com.qstory.backend.storyadmin.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.common.enums.RevisionOperation;
 import com.qstory.backend.common.enums.RevisionTarget;
+import com.qstory.backend.common.util.JacksonConversion;
 import com.qstory.backend.story.entity.StoryRevision;
 import com.qstory.backend.story.repository.StoryRevisionRepository;
 import java.time.Instant;
@@ -84,8 +85,7 @@ public class StoryRevisionService {
     }
 
     /** 엔티티는 스냅샷에 그대로 담기면 안 되는 지연 로딩(lazy) 연관관계를 갖고 있어서, DTO를 쓰는 이유가 여기에 있다. */
-    @SuppressWarnings("unchecked")
     private Map<String, Object> snapshot(Object value) {
-        return value == null ? null : objectMapper.convertValue(value, Map.class);
+        return JacksonConversion.toMap(objectMapper, value);
     }
 }

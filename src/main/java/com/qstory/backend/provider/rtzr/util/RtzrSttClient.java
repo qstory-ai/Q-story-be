@@ -51,7 +51,10 @@ public class RtzrSttClient {
             return poll(accessToken, submissionId, deadline);
         } catch (ProviderException | AbortException known) {
             throw known;
-        } catch (HttpTimeoutException | InterruptedException timeout) {
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AbortException("request-timeout");
+        } catch (HttpTimeoutException timeout) {
             throw new AbortException("request-timeout");
         } catch (Exception error) {
             throw new ProviderException(
@@ -164,9 +167,9 @@ public class RtzrSttClient {
         }
     }
 
-    private static JsonNode safeJson(byte[] body) {
+    private JsonNode safeJson(byte[] body) {
         try {
-            return new ObjectMapper().readTree(body);
+            return objectMapper.readTree(body);
         } catch (Exception ignored) {
             return null;
         }

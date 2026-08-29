@@ -8,6 +8,7 @@ import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.FailureBody;
 import com.qstory.backend.common.util.HttpJsonWriter;
+import com.qstory.backend.common.util.ValidationSupport;
 import com.qstory.backend.voiceresearch.dto.UploadRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -107,11 +108,7 @@ public class VoiceResearchController {
     }
 
     private UUID parseUuid(String value) {
-        try {
-            return UUID.fromString(value);
-        } catch (Exception malformed) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
-        }
+        return ValidationSupport.parseUuid(value, ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
     }
 
     private Instant parseInstant(String value) {

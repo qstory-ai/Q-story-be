@@ -1,5 +1,6 @@
 package com.qstory.backend.storyadmin.service;
 
+import com.qstory.backend.common.enums.AssetCategory;
 import com.qstory.backend.common.enums.RevisionOperation;
 import com.qstory.backend.common.enums.RevisionTarget;
 import com.qstory.backend.common.error.ApiException;
@@ -39,9 +40,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class NarrationRerenderService {
-
-    /** 어떤 대사(utterance)에서 재생되는 내레이션 클립은, 그 대사와 slug를 공유하는 오디오 asset이다. */
-    private static final String NARRATION_CATEGORY = "NARRATION";
 
     private final StorySegmentRepository segmentRepository;
     private final StoryAssetRepository assetRepository;
@@ -105,8 +103,7 @@ public class NarrationRerenderService {
             throw ApiException.contractError(
                     ErrorCode.INTERNAL_ERROR, "녹음을 저장할 준비가 아직 끝나지 않았어요.", 500);
         }
-        StorySegment segment = segmentRepository.findById(segmentId)
-                .filter(candidate -> candidate.getScene().getStory().getId().equals(storyId))
+        StorySegment segment = segmentRepository.findByIdAndScene_Story_Id(segmentId, storyId)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "그 문장을 찾지 못했어요.", 404));
         if (!"utterance".equals(segment.getKind())) {
             throw ApiException.contractError(
@@ -161,10 +158,7 @@ public class NarrationRerenderService {
                 : segment.getScene().getId();
         String slug = "%s-%03d".formatted(
                 sceneLocalId.toLowerCase().replace('_', '-'), segment.getDisplayOrder() + 1);
-        return assetRepository.findByStory_IdOrderBySlugAsc(storyId).stream()
-                .filter(candidate -> candidate.getSlug().equals(slug)
-                        && NARRATION_CATEGORY.equals(candidate.getCategory().name()))
-                .findFirst()
+        return assetRepository.findByStory_IdAndSlugAndCategory(storyId, slug, AssetCategory.NARRATION)
                 .orElseThrow(() -> ApiException.contractError(
                         ErrorCode.NOT_FOUND, "그 문장의 녹음을 찾지 못했어요.", 404));
     }

@@ -93,7 +93,8 @@ public final class HttpBodyReader {
         return new DecodedAudio(audio, mimeType, body);
     }
 
-    private static byte[] readAllBytes(InputStream input, long maxBytes, ErrorCode tooLargeCode, String tooLargeDetail)
+    /** BetaEventController 등이 자체 에러 코드로 크기 제한을 걸며 바디를 읽을 때 재사용하는 저수준 헬퍼. */
+    public static byte[] readAllBytes(InputStream input, long maxBytes, ErrorCode tooLargeCode, String tooLargeDetail)
             throws IOException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] chunk = new byte[8192];
