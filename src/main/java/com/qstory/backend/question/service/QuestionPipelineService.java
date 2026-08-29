@@ -87,10 +87,11 @@ public class QuestionPipelineService {
     }
 
     private Map<String, Object> newDiagnostics(String transcript) {
+        int byteLength = transcript.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
         Map<String, Object> diagnostics = new LinkedHashMap<>();
         diagnostics.put("converted", false);
-        diagnostics.put("receivedBytes", transcript.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
-        diagnostics.put("normalizedBytes", transcript.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        diagnostics.put("receivedBytes", byteLength);
+        diagnostics.put("normalizedBytes", byteLength);
         diagnostics.put("normalizationMs", 0);
         diagnostics.put("sttMs", 0);
         return diagnostics;

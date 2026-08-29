@@ -8,6 +8,7 @@ import com.qstory.backend.common.error.FailureBody;
 import com.qstory.backend.common.util.HttpBodyReader;
 import com.qstory.backend.common.util.HttpJsonWriter;
 import com.qstory.backend.common.util.RequestDeadline;
+import com.qstory.backend.common.util.ValidationSupport;
 import com.qstory.backend.companionchat.repository.CompanionChatTurnRepository;
 import com.qstory.backend.companionchat.service.CompanionChatPipelineService;
 import com.qstory.backend.config.AppProperties;
@@ -96,7 +97,7 @@ public class CompanionChatController {
         }
 
         ResolvedCompanionContext context = storyRegistryService.resolveCompanionChatContext(
-                storyId, sceneId, currentUserResolver.current().orElse(null));
+                storyId, sceneId, currentUserResolver.currentOrNull());
         Map<String, Object> result = pipeline.respond(
                 context, conversationId, transcript, RequestDeadline.startingNow(config.requestTimeoutMs()));
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
@@ -125,7 +126,7 @@ public class CompanionChatController {
         QuestionContractValidator.CompanionAudioContext header =
                 contractValidator.parseCompanionAudioContextFromBody(decoded.body(), decoded.mimeType());
         ResolvedCompanionContext context = storyRegistryService.resolveCompanionChatContext(
-                header.storyId(), header.sceneId(), currentUserResolver.current().orElse(null));
+                header.storyId(), header.sceneId(), currentUserResolver.currentOrNull());
         Map<String, Object> result = pipeline.transcribe(
                 context, header.sourceMimeType(), decoded.audio(), RequestDeadline.startingNow(config.requestTimeoutMs()));
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
@@ -142,11 +143,7 @@ public class CompanionChatController {
 
     private UUID requireUuid(JsonNode body, String field) {
         String raw = requireText(body, field);
-        try {
-            return UUID.fromString(raw);
-        } catch (IllegalArgumentException malformed) {
-            throw ApiException.contractError(
-                    ErrorCode.INVALID_COMPANION_CHAT_REQUEST, "대화 요청 형식을 읽지 못했어요.");
-        }
+        return ValidationSupport.parseUuid(
+                raw, ErrorCode.INVALID_COMPANION_CHAT_REQUEST, "대화 요청 형식을 읽지 못했어요.");
     }
 }

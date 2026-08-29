@@ -3,6 +3,8 @@ package com.qstory.backend.tutor.service;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
+import com.qstory.backend.common.util.SecureTokenGenerator;
+import com.qstory.backend.common.util.TokenValidation;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
 import com.qstory.backend.identity.dto.UserSummary;
@@ -28,17 +30,14 @@ import com.qstory.backend.tutor.entity.TutorStudent;
 import com.qstory.backend.tutor.repository.TutorInviteRepository;
 import com.qstory.backend.tutor.repository.TutorScheduleRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
-import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,12 +60,13 @@ public class TutorStudentService {
     private final AuthValidator authValidator;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
-    private final SecureRandom random = new SecureRandom();
+    private final SecureTokenGenerator tokenGenerator;
 
     public TutorStudentService(
             TutorStudentRepository tutorStudentRepository, TutorScheduleRepository tutorScheduleRepository,
             TutorInviteRepository tutorInviteRepository, AppUserRepository userRepository,
-            AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService) {
+            AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
+            SecureTokenGenerator tokenGenerator) {
         this.tutorStudentRepository = tutorStudentRepository;
         this.tutorScheduleRepository = tutorScheduleRepository;
         this.tutorInviteRepository = tutorInviteRepository;
@@ -74,6 +74,7 @@ public class TutorStudentService {
         this.authValidator = authValidator;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.tokenGenerator = tokenGenerator;
     }
 
     @Transactional
@@ -151,7 +152,7 @@ public class TutorStudentService {
         if ("SMS".equals(request.method()) && isBlank(request.phoneNumber())) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "휴대폰 번호를 입력해 주세요.");
         }
-        String rawToken = randomToken();
+        String rawToken = tokenGenerator.generate();
         Instant expiresAt = Instant.now().plus(INVITE_TTL);
         tutorInviteRepository.save(TutorInvite.builder()
                 .tutorStudent(student)
@@ -173,9 +174,8 @@ public class TutorStudentService {
     public TutorInvitePreviewResponse previewInvite(String rawToken) {
         TutorInvite invite = tutorInviteRepository.findByTokenHash(DigestUtil.sha256Hex(rawToken))
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_INVITE, "초대 링크가 올바르지 않아요.", 410));
-        if (invite.getUsedAt() != null || invite.getExpiresAt().isBefore(Instant.now())) {
-            throw ApiException.contractError(ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
-        }
+        TokenValidation.requireUsable(invite.getUsedAt(), invite.getExpiresAt(),
+                ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
         TutorStudent student = invite.getTutorStudent();
         return new TutorInvitePreviewResponse(student.getName(), student.getAgeBand(), student.getTutor().getDisplayName());
     }
@@ -189,9 +189,8 @@ public class TutorStudentService {
     public AuthResponse acceptInvite(Optional<CurrentUser> callerOrNull, String rawToken, AcceptTutorInviteRequest request) {
         TutorInvite invite = tutorInviteRepository.findByTokenHash(DigestUtil.sha256Hex(rawToken))
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_INVITE, "초대 링크가 올바르지 않아요.", 410));
-        if (invite.getUsedAt() != null || invite.getExpiresAt().isBefore(Instant.now())) {
-            throw ApiException.contractError(ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
-        }
+        TokenValidation.requireUsable(invite.getUsedAt(), invite.getExpiresAt(),
+                ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
 
         AppUser parent = callerOrNull.isPresent() ? existingParent(callerOrNull.get()) : newParent(request);
 
@@ -226,12 +225,7 @@ public class TutorStudentService {
                 .displayName(request.displayName().trim())
                 .createdAt(Instant.now())
                 .build();
-        try {
-            // saveAndFlush - AuthService.signupOrganizationOwner()의 주석과 동일한 이유.
-            return userRepository.saveAndFlush(parent);
-        } catch (DataIntegrityViolationException alreadyRegistered) {
-            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 사용 중인 아이디예요.");
-        }
+        return userRepository.saveOrThrowDuplicate(parent, "이미 사용 중인 아이디예요.");
     }
 
     private TutorStudent requireOwnedStudent(CurrentUser caller, UUID studentId) {
@@ -265,11 +259,5 @@ public class TutorStudentService {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
-    }
-
-    private String randomToken() {
-        byte[] bytes = new byte[24];
-        random.nextBytes(bytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 }

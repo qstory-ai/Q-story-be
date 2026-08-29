@@ -3,10 +3,8 @@ import com.qstory.backend.storyadmin.service.StoryImportService;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.qstory.backend.common.error.ApiException;
-import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.FailureBody;
-import com.qstory.backend.common.util.DigestUtil;
+import com.qstory.backend.common.util.AdminTokenGuard;
 import com.qstory.backend.common.util.HttpBodyReader;
 import com.qstory.backend.common.util.HttpJsonWriter;
 import com.qstory.backend.config.AppProperties;
@@ -37,12 +35,12 @@ public class StoryImportController {
 
     private static final long MAX_IMPORT_PAYLOAD_BYTES = 4L * 1024 * 1024;
 
-    private final AppProperties config;
+    private final AdminTokenGuard adminTokenGuard;
     private final ObjectMapper objectMapper;
     private final StoryImportService service;
 
-    public StoryImportController(AppProperties config, ObjectMapper objectMapper, StoryImportService service) {
-        this.config = config;
+    public StoryImportController(AdminTokenGuard adminTokenGuard, ObjectMapper objectMapper, StoryImportService service) {
+        this.adminTokenGuard = adminTokenGuard;
         this.objectMapper = objectMapper;
         this.service = service;
     }
@@ -78,7 +76,7 @@ public class StoryImportController {
             @Parameter(in = ParameterIn.HEADER, name = "X-Admin-Token", required = true,
                     description = "Shared secret, must equal qstory.admin.story-import-token") HttpServletRequest request,
             HttpServletResponse response) throws IOException {
-        requireAdminToken(request);
+        adminTokenGuard.require(request);
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper, MAX_IMPORT_PAYLOAD_BYTES);
         StoryImportService.ImportResult result = service.importStory(body);
         HttpJsonWriter.writeJson(response, objectMapper, 200, Map.of(
@@ -89,15 +87,5 @@ public class StoryImportController {
                 "fallbacksImported", result.fallbacksImported(),
                 "fallbackSegmentsImported", result.fallbackSegmentsImported(),
                 "assetsImported", result.assetsImported()));
-    }
-
-    private void requireAdminToken(HttpServletRequest request) {
-        if (!config.admin().storyImportTokenConfigured()) {
-            throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "이 기능은 아직 준비되지 않았어요.", 500);
-        }
-        String provided = request.getHeader("X-Admin-Token");
-        if (!DigestUtil.matchesAdminToken(provided, config.admin().storyImportToken())) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 작업을 수행할 권한이 없어요.", 403);
-        }
     }
 }

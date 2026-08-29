@@ -1,10 +1,7 @@
 package com.qstory.backend.identity.controller;
 import com.qstory.backend.identity.service.AuthService;
 
-import com.qstory.backend.common.error.ApiException;
-import com.qstory.backend.common.error.ErrorCode;
-import com.qstory.backend.common.util.DigestUtil;
-import com.qstory.backend.config.AppProperties;
+import com.qstory.backend.common.util.AdminTokenGuard;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.dto.ChangePasswordRequest;
 import com.qstory.backend.identity.dto.ConfirmPasswordResetRequest;
@@ -37,12 +34,12 @@ public class AuthController {
 
     private final AuthService authService;
     private final CurrentUserResolver currentUserResolver;
-    private final AppProperties config;
+    private final AdminTokenGuard adminTokenGuard;
 
-    public AuthController(AuthService authService, CurrentUserResolver currentUserResolver, AppProperties config) {
+    public AuthController(AuthService authService, CurrentUserResolver currentUserResolver, AdminTokenGuard adminTokenGuard) {
         this.authService = authService;
         this.currentUserResolver = currentUserResolver;
-        this.config = config;
+        this.adminTokenGuard = adminTokenGuard;
     }
 
     @Operation(summary = "Sign up as an organization owner",
@@ -82,7 +79,7 @@ public class AuthController {
             @Parameter(in = ParameterIn.HEADER, name = "X-Admin-Token", required = true,
                     description = "Shared secret, must equal qstory.admin.story-import-token") HttpServletRequest httpRequest,
             @RequestBody SignupOrganizationOwnerRequest request) {
-        requireAdminToken(httpRequest);
+        adminTokenGuard.require(httpRequest);
         return authService.signupStaff(request);
     }
 
@@ -141,15 +138,5 @@ public class AuthController {
     @PostMapping("/v1/auth/password-reset/confirm")
     public AuthResponse confirmPasswordReset(@RequestBody ConfirmPasswordResetRequest request) {
         return authService.confirmPasswordReset(request);
-    }
-
-    private void requireAdminToken(HttpServletRequest request) {
-        if (!config.admin().storyImportTokenConfigured()) {
-            throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "이 기능은 아직 준비되지 않았어요.", 500);
-        }
-        String provided = request.getHeader("X-Admin-Token");
-        if (!DigestUtil.matchesAdminToken(provided, config.admin().storyImportToken())) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 작업을 수행할 권한이 없어요.", 403);
-        }
     }
 }

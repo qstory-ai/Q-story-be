@@ -26,6 +26,11 @@ public class CurrentUserResolver {
         return Optional.of(user);
     }
 
+    /** 로그인 여부와 무관하게 동작하는(익명이면 개인화만 건너뛰는) 엔드포인트를 위한 헬퍼. */
+    public CurrentUser currentOrNull() {
+        return current().orElse(null);
+    }
+
     public CurrentUser require() {
         return current().orElseThrow(
                 () -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));

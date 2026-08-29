@@ -9,6 +9,7 @@ import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
+import com.qstory.backend.common.util.JacksonConversion;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.common.util.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
@@ -321,13 +322,11 @@ public class ShadowFamilyGenerationService {
     }
 
     private List<Map<String, Object>> toListOfMaps(JsonNode node) {
-        List<Map<String, Object>> list = new ArrayList<>();
-        node.forEach(item -> list.add(objectMapper.convertValue(item, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {})));
-        return list;
+        return JacksonConversion.toListOfMaps(objectMapper, node);
     }
 
     private Map<String, Object> toMap(JsonNode node) {
-        return objectMapper.convertValue(node, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+        return JacksonConversion.toMap(objectMapper, node);
     }
 
     private ObjectNode draftSchema(AnchorContract contract) {

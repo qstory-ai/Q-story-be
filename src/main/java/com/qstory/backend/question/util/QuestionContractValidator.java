@@ -3,6 +3,7 @@ package com.qstory.backend.question.util;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.common.util.ValidationSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -106,7 +107,7 @@ public class QuestionContractValidator {
         boolean guaranteeAgencyChoice = value.path("guaranteeAgencyChoice").asBoolean(false);
 
         String transcript = value.path("transcript").asText("").trim();
-        if (transcript.isEmpty() || transcript.length() > 240) {
+        if (transcript.isEmpty() || transcript.length() > ValidationSupport.MAX_SHORT_TEXT_LENGTH) {
             throw ApiException.contractError(
                     ErrorCode.INVALID_TEXT_QUESTION, "Text question must be between 1 and 240 characters");
         }

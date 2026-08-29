@@ -8,6 +8,7 @@ import com.qstory.backend.choicecopy.service.ChoiceCopyRegistry;
 import com.qstory.backend.common.enums.FamilyOrigin;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.common.util.JacksonConversion;
 import com.qstory.backend.story.entity.Story;
 import com.qstory.backend.story.entity.StoryActionFamily;
 import com.qstory.backend.story.entity.StoryAnchor;
@@ -236,14 +237,23 @@ public class StoryImportService {
                             .build()));
         }
 
+        // 아래 루프가 fallback마다 한 번씩 findById를 호출하지 않도록, 참조되는 family id를
+        // 전부 모아 한 번에 조회해 맵으로 준비해 둔다.
+        List<String> fallbackFamilyIds = new ArrayList<>();
+        generatedContent.path("fallbacks").forEach(fallbackNode -> fallbackFamilyIds.add(requireText(fallbackNode, "id")));
+        Map<String, StoryActionFamily> familiesById = new LinkedHashMap<>();
+        familyRepository.findAllById(fallbackFamilyIds).forEach(family -> familiesById.put(family.getId(), family));
+
         int fallbackCount = 0;
         int fallbackSegmentCount = 0;
         for (JsonNode fallbackNode : generatedContent.path("fallbacks")) {
             JsonNode rejoin = fallbackNode.path("rejoin");
             JsonNode requires = fallbackNode.path("requires");
             String familyId = requireText(fallbackNode, "id");
-            StoryActionFamily family = familyRepository.findById(familyId)
-                    .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요."));
+            StoryActionFamily family = familiesById.get(familyId);
+            if (family == null) {
+                throw ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요.");
+            }
             family.setRequiresFamilyId(requires.isTextual() ? requires.asText() : null);
             family.setRejoinSlot(rejoin.path("slot").asText(""));
             family.setRejoinTarget(rejoin.path("target").asText(""));
@@ -484,10 +494,7 @@ public class StoryImportService {
     }
 
     private Map<String, Object> toMap(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return null;
-        }
-        return objectMapper.convertValue(node, new TypeReference<LinkedHashMap<String, Object>>() {});
+        return JacksonConversion.toMap(objectMapper, node);
     }
 
     private JsonNode requireObject(JsonNode body, String field) {

@@ -2,6 +2,7 @@ package com.qstory.backend.voiceresearch.util;
 
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.common.util.ValidationSupport;
 import com.qstory.backend.story.StoryManifest;
 import com.qstory.backend.story.service.StoryRegistry;
 import com.qstory.backend.voiceresearch.dto.UploadRequest;
@@ -31,8 +32,9 @@ public class VoiceResearchValidator {
         StoryManifest story = storyRegistry.getBySlug(request.storyId());
         if (story == null
                 || isBlank(request.sceneId()) || isBlank(request.anchorId())
-                || isBlank(request.sttDraft()) || request.sttDraft().length() > 240
-                || isBlank(request.confirmedTranscript()) || request.confirmedTranscript().length() > 240
+                || isBlank(request.sttDraft()) || request.sttDraft().length() > ValidationSupport.MAX_SHORT_TEXT_LENGTH
+                || isBlank(request.confirmedTranscript())
+                || request.confirmedTranscript().length() > ValidationSupport.MAX_SHORT_TEXT_LENGTH
                 || request.questionRound() < 1 || request.questionRound() > 3
                 || request.durationMillis() < 250 || request.durationMillis() > 30_000) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
@@ -44,7 +46,8 @@ public class VoiceResearchValidator {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
         if (request.hasRouteOutcome()
-                && (request.coverageStatus() == null || isBlank(request.intentSummary()) || request.intentSummary().length() > 240)) {
+                && (request.coverageStatus() == null || isBlank(request.intentSummary())
+                        || request.intentSummary().length() > ValidationSupport.MAX_SHORT_TEXT_LENGTH)) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
         if (request.familyId() != null && !isKnownFamilyId(story, request.familyId())) {

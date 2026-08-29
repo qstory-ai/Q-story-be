@@ -65,7 +65,7 @@ public class StoryController {
     @GetMapping("/{storyId}")
     public StoryCatalogEntry get(
             @Parameter(description = "Stable content id, e.g. \"HG\"", example = "HG") @PathVariable String storyId) {
-        return catalogService.get(storyId, currentUserResolver.current().orElse(null));
+        return catalogService.get(storyId, currentUserResolver.currentOrNull());
     }
 
     @Operation(
@@ -85,7 +85,7 @@ public class StoryController {
     public ObjectNode content(
             @Parameter(description = "Stable content id, e.g. \"HG\"", example = "HG") @PathVariable String storyId) {
         // content에 손대기 전에 404/402를 발생시킨다 (retired/미등록/entitlement 규칙도 여기서 강제된다)
-        catalogService.get(storyId, currentUserResolver.current().orElse(null));
+        catalogService.get(storyId, currentUserResolver.currentOrNull());
         ObjectNode content = contentAssemblyService.get(storyId);
         if (content == null) {
             throw ApiException.contractError(ErrorCode.NOT_FOUND, "이 작품은 아직 콘텐츠가 준비되지 않았어요.");

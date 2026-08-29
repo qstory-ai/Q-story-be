@@ -6,6 +6,7 @@ import com.qstory.backend.provider.openrouter.FewShotExample;
 import com.qstory.backend.provider.openrouter.RouteClassification;
 import com.qstory.backend.provider.openrouter.SafetyVerdict;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -487,10 +488,7 @@ public class OpenRouterClient {
 
     public SynthesizedAudio synthesize(String text, String voice, double speed, RequestDeadline deadline) {
         try {
-            HttpRequest httpRequest = deadline.applyTo(HttpRequest.newBuilder(URI.create(BASE_URL + "/audio/speech"))
-                            .headers(baseHeaders())
-                            .POST(HttpRequest.BodyPublishers.ofByteArray(speechRequestBody(text, voice, speed))))
-                    .build();
+            HttpRequest httpRequest = buildSpeechHttpRequest(text, voice, speed, deadline);
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
                 throw new ProviderException(
@@ -501,8 +499,7 @@ public class OpenRouterClient {
                 throw new ProviderException(ProviderErrorCode.OPENROUTER_TTS_EMPTY, "답변 음성이 비어 있어요.");
             }
             String responseMimeType = response.headers().firstValue("content-type").orElse("audio/pcm");
-            boolean isPcm = responseMimeType.contains("pcm") || responseMimeType.contains("L16")
-                    || responseMimeType.equals("application/octet-stream");
+            boolean isPcm = isPcmContentType(responseMimeType);
             byte[] audio = isPcm
                     ? WavPcmUtil.wrapPcmAsWav(rawAudio, PCM_SAMPLE_RATE, PCM_CHANNELS, PCM_BIT_DEPTH)
                     : rawAudio;
@@ -521,10 +518,7 @@ public class OpenRouterClient {
 
     public SynthesizedAudioStream synthesizeStream(String text, String voice, double speed, RequestDeadline deadline) {
         try {
-            HttpRequest httpRequest = deadline.applyTo(HttpRequest.newBuilder(URI.create(BASE_URL + "/audio/speech"))
-                            .headers(baseHeaders())
-                            .POST(HttpRequest.BodyPublishers.ofByteArray(speechRequestBody(text, voice, speed))))
-                    .build();
+            HttpRequest httpRequest = buildSpeechHttpRequest(text, voice, speed, deadline);
             HttpResponse<java.io.InputStream> response =
                     httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() / 100 != 2) {
@@ -533,8 +527,7 @@ public class OpenRouterClient {
                         ProviderErrorCode.OPENROUTER_TTS_FAILED, "답변 음성을 만들지 못했어요.", response.statusCode() >= 429);
             }
             String responseMimeType = response.headers().firstValue("content-type").orElse("audio/pcm");
-            boolean isPcm = responseMimeType.contains("pcm") || responseMimeType.contains("L16")
-                    || responseMimeType.equals("application/octet-stream");
+            boolean isPcm = isPcmContentType(responseMimeType);
             if (!isPcm) {
                 response.body().close();
                 throw new ProviderException(
@@ -614,6 +607,11 @@ public class OpenRouterClient {
             throw known;
         } catch (HttpTimeoutException timeout) {
             throw new AbortException("request-timeout");
+        } catch (JsonProcessingException malformed) {
+            // 응답 파싱 실패는 네트워크 장애가 아니라 스키마/응답 형식 버그일 가능성이 높다 - 무조건
+            // retryable=true로 두면 이런 버그가 재시도 뒤에 숨어버린다(CONTENT_MAX_ATTEMPTS만큼
+            // 조용히 반복되다 결국 같은 실패로 끝난다).
+            throw new ProviderException(failureCode, failureSafeDetail, false, malformed);
         } catch (Exception error) {
             throw new ProviderException(failureCode, failureSafeDetail, true, error);
         }
@@ -666,6 +664,13 @@ public class OpenRouterClient {
             if (encoded == null || encoded.length() < 500) {
                 throw new ProviderException(ProviderErrorCode.OPENROUTER_IMAGE_EMPTY, "삽화가 비어 있어요.");
             }
+            // base64 인코딩된 길이만으로 디코딩된 크기를 미리 추정해서 검사한다 - 그래야 과도하게
+            // 큰(또는 악의적인) 응답이 실제로 10MB 제한을 초과하는지 확인하겠다고 전체를 먼저
+            // 디코딩해 메모리를 할당하는 낭비를 피할 수 있다.
+            long estimatedDecodedBytes = (encoded.length() / 4L) * 3;
+            if (estimatedDecodedBytes > 10 * 1024 * 1024) {
+                throw new ProviderException(ProviderErrorCode.OPENROUTER_IMAGE_INVALID, "삽화 형식을 확인하지 못했어요.");
+            }
             byte[] bytes = java.util.Base64.getDecoder().decode(encoded);
             String mimeType = detectImageMimeType(bytes);
             if (mimeType == null || bytes.length > 10 * 1024 * 1024) {
@@ -713,6 +718,20 @@ public class OpenRouterClient {
         body.put("response_format", "pcm");
         body.put("speed", speed);
         return body.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** synthesize()/synthesizeStream()이 공유하는 /audio/speech 요청 조립. */
+    private HttpRequest buildSpeechHttpRequest(String text, String voice, double speed, RequestDeadline deadline) {
+        return deadline.applyTo(HttpRequest.newBuilder(URI.create(BASE_URL + "/audio/speech"))
+                        .headers(baseHeaders())
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(speechRequestBody(text, voice, speed))))
+                .build();
+    }
+
+    /** synthesize()/synthesizeStream()이 공유하는, 응답 content-type으로부터 raw PCM 여부를 판별하는 로직. */
+    private boolean isPcmContentType(String contentType) {
+        return contentType.contains("pcm") || contentType.contains("L16")
+                || contentType.equals("application/octet-stream");
     }
 
     private String readErrorDetail(byte[] body) {

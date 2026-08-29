@@ -69,9 +69,10 @@ import org.springframework.transaction.annotation.Transactional;
  * (POST /v1/narrations)을 그대로 태운다.
  *
  * <p>{@code @Async} 메서드는 반드시 다른 빈(LiveBranchGenerationService)을 통해 호출되어야
- * 프록시가 적용된다 - 이 클래스 안에서 스스로를 호출하면 안 된다. run() 자신이 이미 liveBranchExecutor
- * 풀의 스레드 하나를 쓰고 있는 상태에서 하위 3개 작업도 같은 풀에 제출하므로, 풀 크기가
- * (동시 진행 job 수 x 최대 4스레드)를 감당할 수 있어야 한다(AsyncConfig 참고).
+ * 프록시가 적용된다 - 이 클래스 안에서 스스로를 호출하면 안 된다. run() 자신은 liveBranchExecutor
+ * 풀에서 실행되고, join()으로 기다리는 하위 3개 서브 작업은 별도의 liveBranchSubtaskExecutor 풀에
+ * 제출한다 - 두 역할이 같은 풀을 공유하면 동시 진행 job 수가 그 풀의 corePoolSize에 도달하는 순간
+ * 데드락이 난다(AsyncConfig의 클래스 주석 참고).
  */
 @Component
 public class LiveBranchExecutionWorker {
@@ -96,7 +97,7 @@ public class LiveBranchExecutionWorker {
     private final StoryRegistry storyRegistry;
     private final ChoiceCopyRegistry choiceCopyRegistry;
     private final StoryContentAssemblyService assemblyService;
-    private final Executor liveBranchExecutor;
+    private final Executor liveBranchSubtaskExecutor;
     private final FamilyDraftHarness harness;
 
     public LiveBranchExecutionWorker(
@@ -106,7 +107,8 @@ public class LiveBranchExecutionWorker {
             StoryVisualReferencePackRepository visualReferencePackRepository, OpenRouterClient openRouterClient,
             SupabaseStorageClient storageClient, ObjectMapper objectMapper, AppProperties config,
             StoryRegistry storyRegistry, ChoiceCopyRegistry choiceCopyRegistry,
-            StoryContentAssemblyService assemblyService, @Qualifier("liveBranchExecutor") Executor liveBranchExecutor,
+            StoryContentAssemblyService assemblyService,
+            @Qualifier("liveBranchSubtaskExecutor") Executor liveBranchSubtaskExecutor,
             FamilyDraftHarness harness) {
         this.jobRepository = jobRepository;
         this.storyRepository = storyRepository;
@@ -122,7 +124,7 @@ public class LiveBranchExecutionWorker {
         this.storyRegistry = storyRegistry;
         this.choiceCopyRegistry = choiceCopyRegistry;
         this.assemblyService = assemblyService;
-        this.liveBranchExecutor = liveBranchExecutor;
+        this.liveBranchSubtaskExecutor = liveBranchSubtaskExecutor;
         this.harness = harness;
     }
 
@@ -164,7 +166,7 @@ public class LiveBranchExecutionWorker {
                 futures.add(CompletableFuture.supplyAsync(
                         () -> generateOneFamily(
                                 index, anchor, existingFamilies, rejoinCandidates, job, referenceBytes, visualFactsByLabel),
-                        liveBranchExecutor));
+                        liveBranchSubtaskExecutor));
             }
             List<GeneratedFamily> generated = futures.stream()
                     .map(CompletableFuture::join)

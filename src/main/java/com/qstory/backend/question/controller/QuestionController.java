@@ -75,7 +75,7 @@ public class QuestionController {
             @Parameter(hidden = true) HttpServletRequest request, HttpServletResponse response) throws IOException {
         QuestionContractValidator.HeaderContext header = contractValidator.parseQuestionContext(request);
         byte[] audio = HttpBodyReader.readAudioBody(request, config.maxAudioBytes());
-        ResolvedQuestionContext context = resolveContext(header, List.of(), false, currentUserResolver.current().orElse(null));
+        ResolvedQuestionContext context = resolveContext(header, List.of(), false, currentUserResolver.currentOrNull());
         Map<String, Object> result = pipeline.transcribe(context, audio, deadline());
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
@@ -103,7 +103,7 @@ public class QuestionController {
                 HttpBodyReader.readBase64AudioBody(request, objectMapper, config.maxAudioBytes());
         QuestionContractValidator.HeaderContext header =
                 contractValidator.parseQuestionContextFromBody(decoded.body(), decoded.mimeType());
-        ResolvedQuestionContext context = resolveContext(header, List.of(), false, currentUserResolver.current().orElse(null));
+        ResolvedQuestionContext context = resolveContext(header, List.of(), false, currentUserResolver.currentOrNull());
         Map<String, Object> result = pipeline.transcribe(context, decoded.audio(), deadline());
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
@@ -133,7 +133,7 @@ public class QuestionController {
             @Parameter(hidden = true) HttpServletRequest request, HttpServletResponse response) throws IOException {
         QuestionContractValidator.HeaderContext header = contractValidator.parseQuestionContext(request);
         byte[] audio = HttpBodyReader.readAudioBody(request, config.maxAudioBytes());
-        ResolvedQuestionContext context = resolveContext(header, List.of(), false, currentUserResolver.current().orElse(null));
+        ResolvedQuestionContext context = resolveContext(header, List.of(), false, currentUserResolver.currentOrNull());
         Map<String, Object> result = pipeline.process(context, audio, deadline());
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
@@ -157,7 +157,7 @@ public class QuestionController {
     public void questionRoute(HttpServletRequest request, HttpServletResponse response) throws IOException {
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
         QuestionContractValidator.TextQuestion parsed = contractValidator.parseTextQuestionRequest(body);
-        ResolvedQuestionContext context = resolveContext(parsed, currentUserResolver.current().orElse(null));
+        ResolvedQuestionContext context = resolveContext(parsed, currentUserResolver.currentOrNull());
         Map<String, Object> result = pipeline.route(context, parsed.transcript(), deadline());
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
@@ -180,7 +180,7 @@ public class QuestionController {
     public void textQuestion(HttpServletRequest request, HttpServletResponse response) throws IOException {
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
         QuestionContractValidator.TextQuestion parsed = contractValidator.parseTextQuestionRequest(body);
-        ResolvedQuestionContext context = resolveContext(parsed, currentUserResolver.current().orElse(null));
+        ResolvedQuestionContext context = resolveContext(parsed, currentUserResolver.currentOrNull());
         Map<String, Object> result = pipeline.processText(context, parsed.transcript(), deadline());
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }

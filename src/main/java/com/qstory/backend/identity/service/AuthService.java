@@ -3,6 +3,8 @@ package com.qstory.backend.identity.service;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
+import com.qstory.backend.common.util.SecureTokenGenerator;
+import com.qstory.backend.common.util.TokenValidation;
 import com.qstory.backend.identity.OAuthProvider;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.dto.AuthResponse;
@@ -26,16 +28,13 @@ import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.service.oauth.GoogleOAuthVerifier;
 import com.qstory.backend.identity.service.oauth.KakaoOAuthVerifier;
 import com.qstory.backend.identity.util.AuthValidator;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,7 +48,7 @@ public class AuthService {
     private static final Duration PASSWORD_RESET_TTL = Duration.ofMinutes(30);
 
     /** 탈퇴 사유 - 자유 텍스트 대신 고정 목록으로 받아 통계를 낼 수 있게 한다. 문구는 프론트 MyPageDeleteAccountPage와 맞춰야 한다. */
-    private static final java.util.Set<String> DELETE_REASON_CATEGORIES = java.util.Set.of(
+    private static final Set<String> DELETE_REASON_CATEGORIES = Set.of(
             "이용료가 부담돼요", "아이가 흥미를 느끼지 못해요", "원하는 콘텐츠가 없어요", "다른 서비스를 이용해요", "기타");
 
     private static final int MAX_REASON_DETAIL_LENGTH = 2000;
@@ -65,13 +64,14 @@ public class AuthService {
     private final JwtService jwtService;
     private final GoogleOAuthVerifier googleOAuthVerifier;
     private final KakaoOAuthVerifier kakaoOAuthVerifier;
-    private final SecureRandom random = new SecureRandom();
+    private final SecureTokenGenerator tokenGenerator;
 
     public AuthService(
             AppUserRepository userRepository, PasswordResetTokenRepository passwordResetTokenRepository,
             AccountDeletionFeedbackRepository accountDeletionFeedbackRepository,
             AuthValidator validator, PasswordEncoder passwordEncoder, JwtService jwtService,
-            GoogleOAuthVerifier googleOAuthVerifier, KakaoOAuthVerifier kakaoOAuthVerifier) {
+            GoogleOAuthVerifier googleOAuthVerifier, KakaoOAuthVerifier kakaoOAuthVerifier,
+            SecureTokenGenerator tokenGenerator) {
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.accountDeletionFeedbackRepository = accountDeletionFeedbackRepository;
@@ -80,6 +80,7 @@ public class AuthService {
         this.jwtService = jwtService;
         this.googleOAuthVerifier = googleOAuthVerifier;
         this.kakaoOAuthVerifier = kakaoOAuthVerifier;
+        this.tokenGenerator = tokenGenerator;
     }
 
     @Transactional
@@ -129,15 +130,7 @@ public class AuthService {
                 .displayName(request.displayName().trim())
                 .createdAt(Instant.now())
                 .build();
-        try {
-            // save가 아니라 saveAndFlush를 쓴다: 클라이언트/사전 생성된 @UuidGenerator id를 쓰면
-            // Hibernate가 INSERT를 트랜잭션 커밋 시점까지 지연시킬 수 있는데, 그 시점은 이미 이
-            // 메서드(그리고 그 catch 블록)가 반환된 이후다 - 여기서 flush를 강제하면 제약 조건
-            // 위반이 동기적으로 드러나서 실제로 catch할 수 있게 된다.
-            user = userRepository.saveAndFlush(user);
-        } catch (DataIntegrityViolationException alreadyRegistered) {
-            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 사용 중인 아이디예요.");
-        }
+        user = userRepository.saveOrThrowDuplicate(user, "이미 사용 중인 아이디예요.");
         return issueResponse(user);
     }
 
@@ -194,11 +187,7 @@ public class AuthService {
                 .displayName(displayName)
                 .createdAt(Instant.now())
                 .build();
-        try {
-            user = userRepository.saveAndFlush(user);
-        } catch (DataIntegrityViolationException alreadyRegistered) {
-            throw ApiException.contractError(ErrorCode.LOGIN_ID_ALREADY_REGISTERED, "이미 등록된 계정이에요.");
-        }
+        user = userRepository.saveOrThrowDuplicate(user, "이미 등록된 계정이에요.");
         return issueResponse(user);
     }
 
@@ -314,7 +303,7 @@ public class AuthService {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "아이디를 입력해 주세요.");
         }
         userRepository.findByLoginId(request.loginId().trim().toLowerCase()).ifPresent(user -> {
-            String rawToken = randomToken();
+            String rawToken = tokenGenerator.generate();
             passwordResetTokenRepository.save(PasswordResetToken.builder()
                     .user(user)
                     .tokenHash(DigestUtil.sha256Hex(rawToken))
@@ -336,10 +325,8 @@ public class AuthService {
         PasswordResetToken token = passwordResetTokenRepository.findByTokenHash(DigestUtil.sha256Hex(request.token()))
                 .orElseThrow(() -> ApiException.contractError(
                         ErrorCode.INVALID_PASSWORD_RESET_TOKEN, "재설정 링크가 올바르지 않거나 만료됐어요.", 410));
-        if (token.getUsedAt() != null || token.getExpiresAt().isBefore(Instant.now())) {
-            throw ApiException.contractError(
-                    ErrorCode.INVALID_PASSWORD_RESET_TOKEN, "재설정 링크가 올바르지 않거나 만료됐어요.", 410);
-        }
+        TokenValidation.requireUsable(token.getUsedAt(), token.getExpiresAt(),
+                ErrorCode.INVALID_PASSWORD_RESET_TOKEN, "재설정 링크가 올바르지 않거나 만료됐어요.", 410);
         token.setUsedAt(Instant.now());
         passwordResetTokenRepository.save(token);
 
@@ -347,12 +334,6 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
         userRepository.save(user);
         return issueResponse(user);
-    }
-
-    private String randomToken() {
-        byte[] bytes = new byte[24];
-        random.nextBytes(bytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     private AuthResponse issueResponse(AppUser user) {

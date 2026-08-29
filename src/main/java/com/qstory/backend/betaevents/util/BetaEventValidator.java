@@ -5,6 +5,7 @@ import com.qstory.backend.common.enums.EventName;
 import com.qstory.backend.common.enums.EventSource;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.common.util.ValidationSupport;
 import java.text.Normalizer;
 import java.time.Duration;
 import java.time.Instant;
@@ -106,7 +107,7 @@ public class BetaEventValidator {
         }
         if (value.isTextual()) {
             String text = value.asText();
-            int max = isLongText ? 240 : 80;
+            int max = isLongText ? ValidationSupport.MAX_SHORT_TEXT_LENGTH : 80;
             if (text.isEmpty() || text.length() > max) {
                 throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
             }
@@ -123,15 +124,13 @@ public class BetaEventValidator {
         normalized = DIGIT_RUN.matcher(normalized).replaceAll("[숫자]");
         normalized = NAME_PATTERN.matcher(normalized).replaceAll("내 이름은 [이름]");
         normalized = normalized.replaceAll("\\s+", " ").trim();
-        return normalized.length() > 240 ? normalized.substring(0, 240) : normalized;
+        return normalized.length() > ValidationSupport.MAX_SHORT_TEXT_LENGTH
+                ? normalized.substring(0, ValidationSupport.MAX_SHORT_TEXT_LENGTH) : normalized;
     }
 
     private UUID parseUuid(JsonNode node) {
-        try {
-            return UUID.fromString(node.asText(""));
-        } catch (IllegalArgumentException malformed) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
-        }
+        return ValidationSupport.parseUuid(
+                node.asText(""), ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
     }
 
     private <T extends Enum<T>> T parseEnum(String value, Class<T> type) {

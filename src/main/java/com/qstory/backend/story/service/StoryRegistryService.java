@@ -207,13 +207,16 @@ public class StoryRegistryService {
     }
 
     public Map<String, StoryContext> storyContextsByAnchor() {
-        return registry.get(StoryRegistry.DEFAULT_BETA_STORY_ID) == null
-                ? Map.of()
-                : registry.get(StoryRegistry.DEFAULT_BETA_STORY_ID).anchors().entrySet().stream()
-                        .collect(java.util.stream.Collectors.toMap(
-                                Map.Entry::getKey,
-                                entry -> normalizeStoryContext(
-                                        registry.get(StoryRegistry.DEFAULT_BETA_STORY_ID),
-                                        entry.getKey(), entry.getValue(), List.of())));
+        // registry.reload()가 내부 맵을 통째로 스왑할 수 있으므로, 한 번만 읽어 로컬 변수에 담아
+        // 재사용한다 - 그렇지 않으면 이 세 번의 registry.get() 호출 사이에 reload가 끼어들어
+        // null과 non-null 스냅샷을 섞어 쓰다 스트림 안에서 NPE가 날 수 있다.
+        StoryManifest story = registry.get(StoryRegistry.DEFAULT_BETA_STORY_ID);
+        if (story == null) {
+            return Map.of();
+        }
+        return story.anchors().entrySet().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        Map.Entry::getKey,
+                        entry -> normalizeStoryContext(story, entry.getKey(), entry.getValue(), List.of())));
     }
 }
