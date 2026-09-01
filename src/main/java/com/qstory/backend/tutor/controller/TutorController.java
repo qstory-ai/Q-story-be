@@ -13,6 +13,7 @@ import com.qstory.backend.tutor.dto.TutorInviteResponse;
 import com.qstory.backend.tutor.dto.TutorReportSummary;
 import com.qstory.backend.tutor.dto.TutorScheduleResponse;
 import com.qstory.backend.tutor.dto.TutorStudentResponse;
+import com.qstory.backend.tutor.dto.UpdateTutorStudentRequest;
 import com.qstory.backend.tutor.service.TutorReportService;
 import com.qstory.backend.tutor.service.TutorStudentService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -52,6 +54,20 @@ public class TutorController {
     @GetMapping("/v1/tutor-students")
     public List<TutorStudentResponse> listStudents() {
         return service.listStudents(currentUserResolver.requireRole(Role.TUTOR));
+    }
+
+    @Operation(summary = "Get one of the caller's students", description = "TUTOR only. Must own the student.")
+    @GetMapping("/v1/tutor-students/{studentId}")
+    public TutorStudentResponse getStudent(@PathVariable UUID studentId) {
+        return service.getStudent(currentUserResolver.requireRole(Role.TUTOR), studentId);
+    }
+
+    @Operation(summary = "Update a student (memo / class type)",
+            description = "TUTOR only. Partial update - null 필드는 그대로 두고 빈 문자열은 지우기로 해석.")
+    @PatchMapping("/v1/tutor-students/{studentId}")
+    public TutorStudentResponse updateStudent(
+            @PathVariable UUID studentId, @RequestBody UpdateTutorStudentRequest request) {
+        return service.updateStudent(currentUserResolver.requireRole(Role.TUTOR), studentId, request);
     }
 
     @Operation(summary = "Add a weekly recurring schedule for a student", description = "TUTOR only, must own the student.")

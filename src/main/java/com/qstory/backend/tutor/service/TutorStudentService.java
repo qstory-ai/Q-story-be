@@ -25,6 +25,7 @@ import com.qstory.backend.tutor.dto.TutorInvitePreviewResponse;
 import com.qstory.backend.tutor.dto.TutorInviteResponse;
 import com.qstory.backend.tutor.dto.TutorScheduleResponse;
 import com.qstory.backend.tutor.dto.TutorStudentResponse;
+import com.qstory.backend.tutor.dto.UpdateTutorStudentRequest;
 import com.qstory.backend.tutor.entity.TutorInvite;
 import com.qstory.backend.tutor.entity.TutorSchedule;
 import com.qstory.backend.tutor.entity.TutorStudent;
@@ -98,6 +99,26 @@ public class TutorStudentService {
                 .createdAt(Instant.now())
                 .build());
         return TutorStudentResponse.of(student);
+    }
+
+    @Transactional(readOnly = true)
+    public TutorStudentResponse getStudent(CurrentUser caller, UUID studentId) {
+        return TutorStudentResponse.of(requireOwnedStudent(caller, studentId));
+    }
+
+    @Transactional
+    public TutorStudentResponse updateStudent(CurrentUser caller, UUID studentId, UpdateTutorStudentRequest request) {
+        TutorStudent student = requireOwnedStudent(caller, studentId);
+        // 각 필드가 null이면 그대로 두고, 값이 있으면 반영. 빈 문자열은 명시적 "지우기".
+        if (request.classType() != null) {
+            String trimmed = request.classType().trim();
+            student.setClassType(trimmed.isEmpty() ? null : trimmed);
+        }
+        if (request.prepNote() != null) {
+            String trimmed = request.prepNote().trim();
+            student.setPrepNote(trimmed.isEmpty() ? null : trimmed);
+        }
+        return TutorStudentResponse.of(tutorStudentRepository.save(student));
     }
 
     public List<TutorStudentResponse> listStudents(CurrentUser caller) {
