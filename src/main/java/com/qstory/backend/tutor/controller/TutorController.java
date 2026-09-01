@@ -74,6 +74,13 @@ public class TutorController {
         return service.previewInvite(token);
     }
 
+    @Operation(summary = "Preview a tutor's parent invite by short code",
+            description = "No authentication required. Same shape as the token-based preview. Case-insensitive.")
+    @GetMapping("/v1/tutor-invites/by-code/{code}")
+    public TutorInvitePreviewResponse previewInviteByCode(@PathVariable String code) {
+        return service.previewInviteByCode(code);
+    }
+
     @Operation(summary = "Accept a tutor's parent invite",
             description = "Works both signed out (creates a new PARENT account from email/password/displayName, "
                     + "same as ClassController.join) and signed in as an existing PARENT (links the caller's own "
@@ -82,6 +89,14 @@ public class TutorController {
     @ResponseStatus(HttpStatus.CREATED)
     public AuthResponse acceptInvite(@PathVariable String token, @RequestBody AcceptTutorInviteRequest request) {
         return service.acceptInvite(currentUserResolver.current(), token, request);
+    }
+
+    @Operation(summary = "Accept a tutor's parent invite by short code",
+            description = "Same semantics as the token-based accept, but resolved by the short human-copyable code.")
+    @PostMapping("/v1/tutor-invites/by-code/{code}/accept")
+    @ResponseStatus(HttpStatus.CREATED)
+    public AuthResponse acceptInviteByCode(@PathVariable String code, @RequestBody AcceptTutorInviteRequest request) {
+        return service.acceptInviteByCode(currentUserResolver.current(), code, request);
     }
 
     @Operation(summary = "List all of the caller's students' schedules", description = "TUTOR only.")

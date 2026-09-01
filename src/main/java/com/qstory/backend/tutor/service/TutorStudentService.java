@@ -5,6 +5,7 @@ import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
 import com.qstory.backend.common.util.SecureTokenGenerator;
 import com.qstory.backend.common.util.TokenValidation;
+import com.qstory.backend.org.util.JoinCodeGenerator;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
 import com.qstory.backend.identity.dto.UserSummary;
@@ -61,12 +62,13 @@ public class TutorStudentService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final SecureTokenGenerator tokenGenerator;
+    private final JoinCodeGenerator joinCodeGenerator;
 
     public TutorStudentService(
             TutorStudentRepository tutorStudentRepository, TutorScheduleRepository tutorScheduleRepository,
             TutorInviteRepository tutorInviteRepository, AppUserRepository userRepository,
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
-            SecureTokenGenerator tokenGenerator) {
+            SecureTokenGenerator tokenGenerator, JoinCodeGenerator joinCodeGenerator) {
         this.tutorStudentRepository = tutorStudentRepository;
         this.tutorScheduleRepository = tutorScheduleRepository;
         this.tutorInviteRepository = tutorInviteRepository;
@@ -75,6 +77,7 @@ public class TutorStudentService {
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.tokenGenerator = tokenGenerator;
+        this.joinCodeGenerator = joinCodeGenerator;
     }
 
     @Transactional
@@ -153,16 +156,28 @@ public class TutorStudentService {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "휴대폰 번호를 입력해 주세요.");
         }
         String rawToken = tokenGenerator.generate();
+        String shortCode = generateUniqueShortCode();
         Instant expiresAt = Instant.now().plus(INVITE_TTL);
         tutorInviteRepository.save(TutorInvite.builder()
                 .tutorStudent(student)
                 .tokenHash(DigestUtil.sha256Hex(rawToken))
+                .shortCode(shortCode)
                 .method(request.method())
                 .phoneNumber(request.phoneNumber())
                 .expiresAt(expiresAt)
                 .createdAt(Instant.now())
                 .build());
-        return new TutorInviteResponse(rawToken, expiresAt);
+        return new TutorInviteResponse(rawToken, shortCode, expiresAt);
+    }
+
+    /** ClassGroup.joinCode 생성과 동일한 접근 - 8자 코드가 이미 존재하면 다시 시도한다.
+     *  탈출은 이론상 필요 없지만(31^8이 매우 크지만), 방어적으로 최대 10회 시도만. */
+    private String generateUniqueShortCode() {
+        for (int attempt = 0; attempt < 10; attempt++) {
+            String code = joinCodeGenerator.generate();
+            if (!tutorInviteRepository.existsByShortCode(code)) return code;
+        }
+        throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "초대 코드를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
 
     /**
@@ -172,10 +187,16 @@ public class TutorStudentService {
      */
     @Transactional(readOnly = true)
     public TutorInvitePreviewResponse previewInvite(String rawToken) {
-        TutorInvite invite = tutorInviteRepository.findByTokenHash(DigestUtil.sha256Hex(rawToken))
-                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_INVITE, "초대 링크가 올바르지 않아요.", 410));
-        TokenValidation.requireUsable(invite.getUsedAt(), invite.getExpiresAt(),
-                ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
+        return previewOf(requireInviteByToken(rawToken));
+    }
+
+    /** short_code 기반 미리보기 - previewInvite와 응답 형태는 같고 조회 경로만 다르다. */
+    @Transactional(readOnly = true)
+    public TutorInvitePreviewResponse previewInviteByCode(String shortCode) {
+        return previewOf(requireInviteByShortCode(shortCode));
+    }
+
+    private static TutorInvitePreviewResponse previewOf(TutorInvite invite) {
         TutorStudent student = invite.getTutorStudent();
         return new TutorInvitePreviewResponse(student.getName(), student.getAgeBand(), student.getTutor().getDisplayName());
     }
@@ -187,11 +208,18 @@ public class TutorStudentService {
      */
     @Transactional
     public AuthResponse acceptInvite(Optional<CurrentUser> callerOrNull, String rawToken, AcceptTutorInviteRequest request) {
-        TutorInvite invite = tutorInviteRepository.findByTokenHash(DigestUtil.sha256Hex(rawToken))
-                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_INVITE, "초대 링크가 올바르지 않아요.", 410));
-        TokenValidation.requireUsable(invite.getUsedAt(), invite.getExpiresAt(),
-                ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
+        return consumeInvite(callerOrNull, requireInviteByToken(rawToken), request);
+    }
 
+    /** short_code 기반 수락 - acceptInvite와 후속 처리는 동일. 조회 경로만 다르다. */
+    @Transactional
+    public AuthResponse acceptInviteByCode(
+            Optional<CurrentUser> callerOrNull, String shortCode, AcceptTutorInviteRequest request) {
+        return consumeInvite(callerOrNull, requireInviteByShortCode(shortCode), request);
+    }
+
+    private AuthResponse consumeInvite(
+            Optional<CurrentUser> callerOrNull, TutorInvite invite, AcceptTutorInviteRequest request) {
         AppUser parent = callerOrNull.isPresent() ? existingParent(callerOrNull.get()) : newParent(request);
 
         invite.setUsedAt(Instant.now());
@@ -204,6 +232,26 @@ public class TutorStudentService {
 
         CurrentUser currentUser = new CurrentUser(parent.getId(), Role.PARENT, null, null);
         return new AuthResponse(jwtService.issue(currentUser), UserSummary.of(parent));
+    }
+
+    private TutorInvite requireInviteByToken(String rawToken) {
+        TutorInvite invite = tutorInviteRepository.findByTokenHash(DigestUtil.sha256Hex(rawToken))
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_INVITE, "초대 링크가 올바르지 않아요.", 410));
+        TokenValidation.requireUsable(invite.getUsedAt(), invite.getExpiresAt(),
+                ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
+        return invite;
+    }
+
+    private TutorInvite requireInviteByShortCode(String shortCode) {
+        String normalized = shortCode == null ? "" : shortCode.trim().toUpperCase();
+        if (normalized.isEmpty()) {
+            throw ApiException.contractError(ErrorCode.INVALID_INVITE, "초대 코드가 올바르지 않아요.", 410);
+        }
+        TutorInvite invite = tutorInviteRepository.findByShortCode(normalized)
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_INVITE, "초대 코드가 올바르지 않아요.", 410));
+        TokenValidation.requireUsable(invite.getUsedAt(), invite.getExpiresAt(),
+                ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 코드예요.", 410);
+        return invite;
     }
 
     private AppUser existingParent(CurrentUser caller) {

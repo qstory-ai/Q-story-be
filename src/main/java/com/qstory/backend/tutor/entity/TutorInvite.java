@@ -43,6 +43,15 @@ public class TutorInvite {
     @Column(nullable = false, unique = true)
     private String tokenHash;
 
+    /**
+     * 사람이 손으로 옮길 수 있는 짧은 코드(예: 8자, ClassGroup.joinCode와 같은 알파벳).
+     * 링크(token)와 함께 발급된다 - 부모가 링크를 열 수 없거나 선생님이 구두로 전달할 때 쓴다.
+     * nullable 이유: 이 컬럼이 추가되기 전에 발급된 이력 행은 null로 남는다(마이그레이션 참조).
+     * 새 초대 발급 시에는 반드시 함께 채운다.
+     */
+    @Column(name = "short_code", unique = true)
+    private String shortCode;
+
     /** "SMS" 또는 "LINK" - 초대를 어떻게 전달했는지 기록용(재전송 로직은 없음). */
     @Column(nullable = false)
     private String method;

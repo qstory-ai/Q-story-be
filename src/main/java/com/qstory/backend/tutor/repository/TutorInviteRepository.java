@@ -8,4 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface TutorInviteRepository extends JpaRepository<TutorInvite, UUID> {
 
     Optional<TutorInvite> findByTokenHash(String tokenHash);
+
+    Optional<TutorInvite> findByShortCode(String shortCode);
+
+    boolean existsByShortCode(String shortCode);
 }
