@@ -15,6 +15,12 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
     /** 최근 N회 누적 트렌드 계산용 - user_id, completed_at desc 복합 인덱스로 커버된다. */
     List<StoryCompletion> findByUser_IdOrderByCompletedAtDesc(UUID userId, Pageable pageable);
 
+    /** 특정 아이(child)에 귀속된 완주만 - 리포트 페이지의 '아이별' 필터에서 사용. */
+    List<StoryCompletion> findByUser_IdAndChild_IdOrderByCompletedAtDesc(UUID userId, UUID childId);
+
+    List<StoryCompletion> findByUser_IdAndChild_IdOrderByCompletedAtDesc(
+            UUID userId, UUID childId, Pageable pageable);
+
     Optional<StoryCompletion> findByIdAndUser_Id(UUID id, UUID userId);
 
     /** 선생님 자신이 진행한, 특정 학생과의 세션들 - TutorController가 그 학생을 소유했는지 먼저 확인한 뒤 호출한다. */

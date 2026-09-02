@@ -1,6 +1,7 @@
 package com.qstory.backend.storyreport.entity;
 
 import com.qstory.backend.identity.entity.AppUser;
+import com.qstory.backend.parent.child.entity.Child;
 import com.qstory.backend.tutor.entity.TutorStudent;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -61,6 +62,16 @@ public class StoryCompletion {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tutor_student_id")
     private TutorStudent tutorStudent;
+
+    /**
+     * 이 세션이 어느 아이 프로필로 진행됐는지 - 부모(PARENT) 계정의 아이별 리포트 필터에 쓴다.
+     * nullable 이유는 037-story-completion-child.sql 헤더 참조: 기존 완주 기록, 방문 선생님의
+     * 세션, 아이 프로필 삭제 이후 세 경우에 null이 된다. 삭제는 SET NULL이라 아이가 지워져도
+     * 완주 기록 자체는 남는다.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "child_id")
+    private Child child;
 
     @Column(name = "story_id", nullable = false)
     private String storyId;
