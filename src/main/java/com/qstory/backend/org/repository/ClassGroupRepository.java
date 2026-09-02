@@ -13,4 +13,6 @@ public interface ClassGroupRepository extends JpaRepository<ClassGroup, UUID> {
     List<ClassGroup> findByOrganization_IdOrderByCreatedAtAsc(UUID organizationId);
 
     boolean existsByJoinCode(String joinCode);
+
+    long countByOrganization_Id(UUID organizationId);
 }

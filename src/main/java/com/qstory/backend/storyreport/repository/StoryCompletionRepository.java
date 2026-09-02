@@ -27,4 +27,10 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
      */
     @EntityGraph(attributePaths = {"tutorStudent", "tutorStudent.tutor"})
     List<StoryCompletion> findByTutorStudent_LinkedParentUser_IdOrderByCompletedAtDesc(UUID linkedParentUserId);
+
+    /** 기관 전체 완주 수 - 이용 현황 요약용. 기관에 속한 사용자(PARENT/CLASS_ACCOUNT)의 완주만. */
+    long countByUser_Organization_Id(UUID organizationId);
+
+    /** 기관 전체 최근 완주 목록 - 이용 현황 최근 활동 카드용. */
+    List<StoryCompletion> findByUser_Organization_IdOrderByCompletedAtDesc(UUID organizationId, Pageable pageable);
 }

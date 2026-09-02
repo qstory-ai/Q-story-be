@@ -3,7 +3,9 @@ package com.qstory.backend.identity.repository;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.OAuthProvider;
+import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -19,6 +21,12 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     Optional<AppUser> findByIdAndDeletedAtIsNull(UUID id);
 
     Optional<AppUser> findByOauthProviderAndOauthSubject(OAuthProvider oauthProvider, String oauthSubject);
+
+    /** 반에 속한 특정 역할의 사용자를 최근 가입 순으로 조회 - 기관 관리자용 반 상세에서 사용. */
+    List<AppUser> findByClassGroup_IdAndRoleAndDeletedAtIsNullOrderByCreatedAtDesc(UUID classGroupId, Role role);
+
+    /** 기관에 속한 특정 역할의 사용자 수 - 이용 현황 집계용. */
+    long countByOrganization_IdAndRoleAndDeletedAtIsNull(UUID organizationId, Role role);
 
     /**
      * AuthService.createAccount()/loginOrSignupWithOAuth(), ClassService.create()/join(),

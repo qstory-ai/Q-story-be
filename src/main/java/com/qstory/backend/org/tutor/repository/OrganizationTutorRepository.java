@@ -15,4 +15,6 @@ public interface OrganizationTutorRepository extends JpaRepository<OrganizationT
     Optional<OrganizationTutor> findByOrganization_IdAndTutor_Id(UUID organizationId, UUID tutorId);
 
     Optional<OrganizationTutor> findByIdAndOrganization_Id(UUID id, UUID organizationId);
+
+    long countByOrganization_Id(UUID organizationId);
 }
