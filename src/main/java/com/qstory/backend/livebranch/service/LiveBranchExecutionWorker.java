@@ -387,7 +387,10 @@ public class LiveBranchExecutionWorker {
             for (JsonNode line : beat.path("dialogue")) {
                 Map<String, Object> dialoguePayload = new LinkedHashMap<>();
                 dialoguePayload.put("visualId", visualId);
-                dialoguePayload.put("speaker", line.path("speaker").asText());
+                // draftSchema()가 LLM 출력을 speakerId 형식으로 강제하므로(라인 626 근처의 enum 참고),
+                // narratorPayload의 "NARRATOR"와 같은 짧은 캐스트 태그로 맞춰준다 - 그렇지 않으면
+                // story-package.ts의 addSpeaker()가 castByTag 조회에 실패해 스토리 로드 전체가 깨진다.
+                dialoguePayload.put("speaker", normalizeCharacterLabel(line.path("speaker").asText()));
                 dialoguePayload.put("role", "DIALOGUE");
                 dialoguePayload.put("text", line.path("text").asText());
                 segments.add(StoryFallbackSegment.builder()
