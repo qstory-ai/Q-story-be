@@ -7,11 +7,20 @@ import java.util.Map;
 import java.util.UUID;
 
 public record StoryCompletionDetail(
-        UUID id, String storyId, Instant completedAt, Integer durationSeconds, List<Map<String, Object>> outcomes) {
+        UUID id,
+        String storyId,
+        Instant completedAt,
+        Integer durationSeconds,
+        UUID childId,
+        List<Map<String, Object>> outcomes) {
 
     public static StoryCompletionDetail of(StoryCompletion completion) {
         return new StoryCompletionDetail(
-                completion.getId(), completion.getStoryId(), completion.getCompletedAt(),
-                completion.getDurationSeconds(), completion.getOutcomes());
+                completion.getId(),
+                completion.getStoryId(),
+                completion.getCompletedAt(),
+                completion.getDurationSeconds(),
+                completion.getChild() == null ? null : completion.getChild().getId(),
+                completion.getOutcomes());
     }
 }

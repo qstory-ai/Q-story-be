@@ -5,6 +5,8 @@ import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
+import com.qstory.backend.parent.child.entity.Child;
+import com.qstory.backend.parent.child.repository.ChildRepository;
 import com.qstory.backend.storyreport.dto.RecordStoryCompletionRequest;
 import com.qstory.backend.storyreport.dto.StoryCompletionDetail;
 import com.qstory.backend.storyreport.dto.StoryCompletionSummary;
@@ -27,13 +29,15 @@ public class StoryCompletionService {
     private final StoryCompletionRepository repository;
     private final AppUserRepository userRepository;
     private final TutorStudentRepository tutorStudentRepository;
+    private final ChildRepository childRepository;
 
     public StoryCompletionService(
             StoryCompletionRepository repository, AppUserRepository userRepository,
-            TutorStudentRepository tutorStudentRepository) {
+            TutorStudentRepository tutorStudentRepository, ChildRepository childRepository) {
         this.repository = repository;
         this.userRepository = userRepository;
         this.tutorStudentRepository = tutorStudentRepository;
+        this.childRepository = childRepository;
     }
 
     @Transactional
@@ -49,9 +53,17 @@ public class StoryCompletionService {
                 ? null
                 : tutorStudentRepository.findByIdAndTutor_Id(request.tutorStudentId(), caller.userId())
                         .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
+        // childId도 마찬가지 - caller(=부모)가 소유한 아이 프로필일 때만 인정. 방문 선생님의 세션은
+        // childId를 보내지 않는 것이 관례이지만, 만약 함께 왔다면 그건 이 부모 계정의 아이가 아니라
+        // 404로 응답한다(다른 부모의 아이 id로 리포트를 오염시키는 걸 막는다).
+        Child child = request.childId() == null
+                ? null
+                : childRepository.findByIdAndParent_Id(request.childId(), caller.userId())
+                        .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
         StoryCompletion completion = repository.save(StoryCompletion.builder()
                 .user(user)
                 .tutorStudent(tutorStudent)
+                .child(child)
                 .storyId(request.storyId())
                 .completedAt(Instant.now())
                 .durationSeconds(request.durationSeconds())
@@ -61,20 +73,27 @@ public class StoryCompletionService {
         return StoryCompletionSummary.of(completion);
     }
 
-    public List<StoryCompletionSummary> list(CurrentUser caller) {
-        return repository.findByUser_IdOrderByCompletedAtDesc(caller.userId()).stream()
-                .map(StoryCompletionSummary::of)
-                .toList();
+    /**
+     * childId가 주어지면 그 아이 프로필의 완주만, 없으면 caller의 전체 완주.
+     * 소유 검증(child가 caller의 것인가)은 목록 조회에도 적용해야 하는데, repository 쿼리 자체가
+     * user_id로 스코프되어 있어(다른 부모의 child_id를 넣으면 결과 자체가 비므로) 별도 예외는
+     * 던지지 않고 조용히 빈 목록으로 응답한다.
+     */
+    public List<StoryCompletionSummary> list(CurrentUser caller, UUID childId) {
+        var completions = childId == null
+                ? repository.findByUser_IdOrderByCompletedAtDesc(caller.userId())
+                : repository.findByUser_IdAndChild_IdOrderByCompletedAtDesc(caller.userId(), childId);
+        return completions.stream().map(StoryCompletionSummary::of).toList();
     }
 
     /** 최근 N회의 전체 outcomes를 함께 반환한다 - 프론트가 여러 회차를 가로지르는 누적 트렌드(반복 접근, 관심 주제)를 계산할 때 쓴다. */
-    public List<StoryCompletionDetail> recent(CurrentUser caller, int limit) {
+    public List<StoryCompletionDetail> recent(CurrentUser caller, int limit, UUID childId) {
         int boundedLimit = Math.max(1, Math.min(limit, RECENT_LIMIT_MAX));
-        return repository
-                .findByUser_IdOrderByCompletedAtDesc(caller.userId(), PageRequest.of(0, boundedLimit))
-                .stream()
-                .map(StoryCompletionDetail::of)
-                .toList();
+        var page = PageRequest.of(0, boundedLimit);
+        var completions = childId == null
+                ? repository.findByUser_IdOrderByCompletedAtDesc(caller.userId(), page)
+                : repository.findByUser_IdAndChild_IdOrderByCompletedAtDesc(caller.userId(), childId, page);
+        return completions.stream().map(StoryCompletionDetail::of).toList();
     }
 
     public StoryCompletionDetail get(CurrentUser caller, UUID id) {

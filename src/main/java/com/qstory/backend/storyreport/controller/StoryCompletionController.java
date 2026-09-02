@@ -40,10 +40,11 @@ public class StoryCompletionController {
         return service.record(currentUserResolver.require(), request);
     }
 
-    @Operation(summary = "List the caller's past reports, newest first")
+    @Operation(summary = "List the caller's past reports, newest first",
+            description = "childId query param을 주면 그 아이 프로필로 진행한 세션만 반환. legacy 기록·튜터 세션은 제외.")
     @GetMapping("/v1/story-completions")
-    public List<StoryCompletionSummary> list() {
-        return service.list(currentUserResolver.require());
+    public List<StoryCompletionSummary> list(@RequestParam(required = false) UUID childId) {
+        return service.list(currentUserResolver.require(), childId);
     }
 
     @Operation(summary = "Get one past report's full detail")
@@ -53,9 +54,11 @@ public class StoryCompletionController {
     }
 
     @Operation(summary = "List the caller's most recent reports with full outcomes, newest first",
-            description = "For cross-session trend views (repeated approaches, recurring interests) - capped at 20.")
+            description = "For cross-session trend views (repeated approaches, recurring interests) - capped at 20. "
+                    + "childId를 주면 그 아이만.")
     @GetMapping("/v1/story-completions/recent")
-    public List<StoryCompletionDetail> recent(@RequestParam(defaultValue = "5") int limit) {
-        return service.recent(currentUserResolver.require(), limit);
+    public List<StoryCompletionDetail> recent(
+            @RequestParam(defaultValue = "5") int limit, @RequestParam(required = false) UUID childId) {
+        return service.recent(currentUserResolver.require(), limit, childId);
     }
 }
