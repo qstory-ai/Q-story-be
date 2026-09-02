@@ -5,6 +5,7 @@ import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.org.dto.ClassInviteResponse;
+import com.qstory.backend.org.dto.ClassMemberResponse;
 import com.qstory.backend.org.dto.ClassResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
 import com.qstory.backend.org.dto.JoinClassRequest;
@@ -49,6 +50,12 @@ public class ClassController {
     @GetMapping("/v1/classes/{classId}")
     public ClassResponse get(@PathVariable UUID classId) {
         return service.get(currentUserResolver.require(), classId);
+    }
+
+    @Operation(summary = "List parents in a class", description = "The owning DIRECTOR, or that class's own CLASS_ACCOUNT.")
+    @GetMapping("/v1/classes/{classId}/parents")
+    public List<ClassMemberResponse> listParents(@PathVariable UUID classId) {
+        return service.listParents(currentUserResolver.require(), classId);
     }
 
     @Operation(summary = "Create a single-use invite for this class",

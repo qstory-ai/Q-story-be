@@ -14,6 +14,7 @@ import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.org.dto.ClassInviteResponse;
+import com.qstory.backend.org.dto.ClassMemberResponse;
 import com.qstory.backend.org.dto.ClassResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
 import com.qstory.backend.org.dto.JoinClassRequest;
@@ -100,6 +101,18 @@ public class ClassService {
     public ClassResponse get(CurrentUser caller, UUID classId) {
         ClassGroup classGroup = requireVisible(caller, classId);
         return ClassResponse.of(classGroup);
+    }
+
+    /**
+     * IA "반 상세 > 반에 속한 부모(학생) 목록" - PARENT 역할이면서 이 반에 조인된 사용자만.
+     * 반 계정(CLASS_ACCOUNT) 자체는 이 목록에서 제외한다(그건 별도의 존재).
+     */
+    @Transactional(readOnly = true)
+    public List<ClassMemberResponse> listParents(CurrentUser caller, UUID classId) {
+        requireVisible(caller, classId);
+        return userRepository.findByClassGroup_IdAndRoleAndDeletedAtIsNullOrderByCreatedAtDesc(classId, Role.PARENT).stream()
+                .map(ClassMemberResponse::of)
+                .toList();
     }
 
     @Transactional
