@@ -9,6 +9,7 @@ import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
+import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.repository.OrganizationRepository;
 import com.qstory.backend.org.tutor.dto.OrganizationTutorInvitePreviewResponse;
@@ -47,6 +48,7 @@ public class OrganizationTutorService {
     private final AppUserRepository userRepository;
     private final SecureTokenGenerator tokenGenerator;
     private final JoinCodeGenerator joinCodeGenerator;
+    private final NotificationPublisher notificationPublisher;
 
     public OrganizationTutorService(
             OrganizationTutorRepository organizationTutorRepository,
@@ -54,13 +56,15 @@ public class OrganizationTutorService {
             OrganizationRepository organizationRepository,
             AppUserRepository userRepository,
             SecureTokenGenerator tokenGenerator,
-            JoinCodeGenerator joinCodeGenerator) {
+            JoinCodeGenerator joinCodeGenerator,
+            NotificationPublisher notificationPublisher) {
         this.organizationTutorRepository = organizationTutorRepository;
         this.organizationTutorInviteRepository = organizationTutorInviteRepository;
         this.organizationRepository = organizationRepository;
         this.userRepository = userRepository;
         this.tokenGenerator = tokenGenerator;
         this.joinCodeGenerator = joinCodeGenerator;
+        this.notificationPublisher = notificationPublisher;
     }
 
     /* ---------------------------------------------------------- listings */
@@ -148,17 +152,36 @@ public class OrganizationTutorService {
         Organization organization = invite.getOrganization();
 
         // 이미 소속이면 초대만 사용 처리하고 기존 관계를 반환 - idempotent.
+        boolean[] createdNewLink = { false };
         OrganizationTutor link = organizationTutorRepository
                 .findByOrganization_IdAndTutor_Id(organization.getId(), tutor.getId())
-                .orElseGet(() -> organizationTutorRepository.save(OrganizationTutor.builder()
-                        .organization(organization)
-                        .tutor(tutor)
-                        .joinedAt(Instant.now())
-                        .build()));
+                .orElseGet(() -> {
+                    createdNewLink[0] = true;
+                    return organizationTutorRepository.save(OrganizationTutor.builder()
+                            .organization(organization)
+                            .tutor(tutor)
+                            .joinedAt(Instant.now())
+                            .build());
+                });
 
         invite.setUsedAt(Instant.now());
         invite.setUsedByTutor(tutor);
         organizationTutorInviteRepository.save(invite);
+
+        // 새 소속이 실제로 생긴 경우에만 원장에게 알림 - 이미 소속됐던 튜터가 초대를 재사용
+        // 시도한(=idempotent) 경우엔 원장에게 스팸을 보내지 않는다. Organization은 owning
+        // director를 FK로 가지지 않으므로 role=DIRECTOR인 소속 사용자를 조회한다.
+        if (createdNewLink[0]) {
+            userRepository
+                    .findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(organization.getId(), Role.DIRECTOR)
+                    .ifPresent(director -> notificationPublisher.publish(
+                            director.getId(),
+                            "org-tutor-invite-accepted",
+                            tutor.getDisplayName() + " 선생님이 소속을 수락했어요",
+                            organization.getName() + " 소속 선생님 목록에 추가됐어요.",
+                            "/organization/tutors",
+                            "org-tutor-invite-accepted:" + invite.getId()));
+        }
 
         return OrganizationTutorResponse.of(link);
     }
