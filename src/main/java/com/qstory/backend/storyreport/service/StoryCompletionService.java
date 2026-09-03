@@ -5,6 +5,7 @@ import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
+import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.parent.child.entity.Child;
 import com.qstory.backend.parent.child.repository.ChildRepository;
 import com.qstory.backend.storyreport.dto.RecordStoryCompletionRequest;
@@ -30,14 +31,17 @@ public class StoryCompletionService {
     private final AppUserRepository userRepository;
     private final TutorStudentRepository tutorStudentRepository;
     private final ChildRepository childRepository;
+    private final NotificationPublisher notificationPublisher;
 
     public StoryCompletionService(
             StoryCompletionRepository repository, AppUserRepository userRepository,
-            TutorStudentRepository tutorStudentRepository, ChildRepository childRepository) {
+            TutorStudentRepository tutorStudentRepository, ChildRepository childRepository,
+            NotificationPublisher notificationPublisher) {
         this.repository = repository;
         this.userRepository = userRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.childRepository = childRepository;
+        this.notificationPublisher = notificationPublisher;
     }
 
     @Transactional
@@ -70,6 +74,19 @@ public class StoryCompletionService {
                 .outcomes(request.outcomes() == null ? List.of() : request.outcomes())
                 .createdAt(Instant.now())
                 .build());
+        // 튜터 세션의 완주 기록은 부모(=linkedParentUser)에게 새 리포트가 도착했다고 알린다.
+        // linkedParentUser가 null이면(=아직 부모 초대 수락 전 상태) 알림을 만들 대상이 없어 건너뛴다.
+        // dedupKey는 completion.id로 안정화 - 트랜잭션 재시도로 record()가 두 번 호출돼도 알림은 하나만.
+        if (tutorStudent != null && tutorStudent.getLinkedParentUser() != null) {
+            AppUser parent = tutorStudent.getLinkedParentUser();
+            notificationPublisher.publish(
+                    parent.getId(),
+                    "tutor-report",
+                    tutorStudent.getName() + " 선생님 수업 기록이 도착했어요",
+                    tutorStudent.getName() + "의 오늘 이야기 세션을 리포트로 확인해 보세요.",
+                    "/reports/" + completion.getId(),
+                    "tutor-report:" + completion.getId());
+        }
         return StoryCompletionSummary.of(completion);
     }
 
