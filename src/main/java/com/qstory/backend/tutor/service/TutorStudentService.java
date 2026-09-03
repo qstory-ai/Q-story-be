@@ -15,6 +15,7 @@ import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.util.AuthValidator;
+import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.tutor.TutorStudentStatus;
 import com.qstory.backend.tutor.Weekday;
 import com.qstory.backend.tutor.dto.AcceptTutorInviteRequest;
@@ -64,12 +65,14 @@ public class TutorStudentService {
     private final JwtService jwtService;
     private final SecureTokenGenerator tokenGenerator;
     private final JoinCodeGenerator joinCodeGenerator;
+    private final NotificationPublisher notificationPublisher;
 
     public TutorStudentService(
             TutorStudentRepository tutorStudentRepository, TutorScheduleRepository tutorScheduleRepository,
             TutorInviteRepository tutorInviteRepository, AppUserRepository userRepository,
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
-            SecureTokenGenerator tokenGenerator, JoinCodeGenerator joinCodeGenerator) {
+            SecureTokenGenerator tokenGenerator, JoinCodeGenerator joinCodeGenerator,
+            NotificationPublisher notificationPublisher) {
         this.tutorStudentRepository = tutorStudentRepository;
         this.tutorScheduleRepository = tutorScheduleRepository;
         this.tutorInviteRepository = tutorInviteRepository;
@@ -79,6 +82,7 @@ public class TutorStudentService {
         this.jwtService = jwtService;
         this.tokenGenerator = tokenGenerator;
         this.joinCodeGenerator = joinCodeGenerator;
+        this.notificationPublisher = notificationPublisher;
     }
 
     @Transactional
@@ -250,6 +254,19 @@ public class TutorStudentService {
         student.setLinkedParentUser(parent);
         student.setStatus(TutorStudentStatus.CONFIRMED);
         tutorStudentRepository.save(student);
+
+        // 학생을 등록한 튜터에게 "부모 연결이 완료됐다" 알림. href는 학생 상세로 - 튜터가 곧바로
+        // 수업 준비를 시작할 수 있게. dedupKey는 invite.id로 안정화해 중복 발행 방지.
+        AppUser tutor = student.getTutor();
+        if (tutor != null) {
+            notificationPublisher.publish(
+                    tutor.getId(),
+                    "tutor-invite-accepted",
+                    student.getName() + " 부모님이 연결을 수락했어요",
+                    parent.getDisplayName() + "님과 " + student.getName() + " 수업을 이어갈 수 있어요.",
+                    "/tutor/students/" + student.getId(),
+                    "tutor-invite-accepted:" + invite.getId());
+        }
 
         CurrentUser currentUser = new CurrentUser(parent.getId(), Role.PARENT, null, null);
         return new AuthResponse(jwtService.issue(currentUser), UserSummary.of(parent));
