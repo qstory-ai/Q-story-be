@@ -292,10 +292,11 @@ public class AuthService {
      * 여기서 "그런 계정 없음" 응답을 준다면 누구든 어떤 이메일이 등록되어 있는지 조사할 수
      * 있게 된다.
      *
-     * <p>아직 이메일 발송 공급자가 연결되어 있지 않으므로(Role.java 인근의 auth 작업 로그 참고)
-     * 원본 토큰은 전달되는 대신 여기서 로그로 남는다 - 이는 정확히 이메일 연동이 대체하게 될
-     * 이음매(seam)이다: 이 로그 라인을 실제 발송으로 바꾸기만 하면 되고, 토큰 생명주기의 나머지
-     * 부분은 아무것도 바뀌지 않는다.
+     * <p>이메일 발송 provider가 아직 연결되지 않아 발급된 토큰은 서버 로그로만 확인 가능하다.
+     * INFO 레벨엔 userId와 "이메일 미연결" 경고만 남기고, 원본 토큰은 DEBUG 로그로만 노출한다 -
+     * 프로덕션 기본 로그 레벨(INFO)에서 raw credential이 저장/전송되지 않도록. 개발·스테이징에서는
+     * 이 클래스만 DEBUG로 올려 확인. 이메일 provider가 연결되면 이 두 log 라인을 실제 발송으로
+     * 교체하면 되고, 토큰 생명주기 나머지 부분은 그대로다.
      */
     @Transactional
     public void requestPasswordReset(RequestPasswordResetRequest request) {
@@ -310,8 +311,9 @@ public class AuthService {
                     .expiresAt(Instant.now().plus(PASSWORD_RESET_TTL))
                     .createdAt(Instant.now())
                     .build());
-            log.info("password-reset.token-issued userId={} token={} (no email provider configured - deliver manually until one is)",
-                    user.getId(), rawToken);
+            log.warn("password-reset.token-issued userId={} — 이메일 provider 미연결. 토큰은 DEBUG 로그로만 노출됨.",
+                    user.getId());
+            log.debug("password-reset.token-value userId={} token={}", user.getId(), rawToken);
         });
     }
 
