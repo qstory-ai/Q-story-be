@@ -132,6 +132,19 @@ public class TutorStudentService {
     }
 
     /**
+     * 학생 hard delete. 스키마의 cascade 규칙 상 tutor_invite / tutor_schedule /
+     * tutor_lesson_plan / lesson_student 4개는 함께 삭제되고, story_completion.
+     * tutor_student_id는 set null로 남아 리포트 히스토리는 보존된다(단, "누구와 진행했는지"
+     * 라벨은 잃는다). 선생님이 명시적으로 지운 학생은 목록/일정에서 완전히 사라져야 UX가
+     * 정직하므로 soft delete 대신 hard delete를 선택.
+     */
+    @Transactional
+    public void deleteStudent(CurrentUser caller, UUID studentId) {
+        TutorStudent student = requireOwnedStudent(caller, studentId);
+        tutorStudentRepository.delete(student);
+    }
+
+    /**
      * 이 선생님이 등록한 모든 학생의 일정을 통틀어 - "주간 일정" 화면이 학생별로 다시 조회할 필요
      * 없게. @Transactional(readOnly=true) 필수 - TutorScheduleResponse.of()가 지연 로딩된
      * tutorStudent.getName()을 읽는데, 세션이 이미 닫힌 뒤(트랜잭션 밖)라면

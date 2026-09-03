@@ -21,6 +21,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -68,6 +69,14 @@ public class TutorController {
     public TutorStudentResponse updateStudent(
             @PathVariable UUID studentId, @RequestBody UpdateTutorStudentRequest request) {
         return service.updateStudent(currentUserResolver.requireRole(Role.TUTOR), studentId, request);
+    }
+
+    @Operation(summary = "Delete a student (hard delete)",
+            description = "TUTOR only, must own the student. DB cascade가 초대·일정·수업계획·수업참여를 함께 정리하고, 저장된 story_completion은 tutor_student_id를 null로 남긴다(리포트 히스토리는 보존).")
+    @DeleteMapping("/v1/tutor-students/{studentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteStudent(@PathVariable UUID studentId) {
+        service.deleteStudent(currentUserResolver.requireRole(Role.TUTOR), studentId);
     }
 
     @Operation(summary = "Add a weekly recurring schedule for a student", description = "TUTOR only, must own the student.")
