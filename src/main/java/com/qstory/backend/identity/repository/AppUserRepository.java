@@ -29,6 +29,13 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     long countByOrganization_IdAndRoleAndDeletedAtIsNull(UUID organizationId, Role role);
 
     /**
+     * 기관에 속한 특정 역할의 첫 사용자 - DIRECTOR는 조직당 하나뿐이라는 불변식(Organization
+     * 클래스 헤더 참고)을 활용해 owning director를 찾을 때 쓴다. 데이터에 예상치 못한 중복이
+     * 있어도 예외 대신 첫 하나를 반환하도록 findFirst를 쓴다.
+     */
+    Optional<AppUser> findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(UUID organizationId, Role role);
+
+    /**
      * AuthService.createAccount()/loginOrSignupWithOAuth(), ClassService.create()/join(),
      * TutorStudentService.newParent()가 각자 따로 갖고 있던 "saveAndFlush 하고
      * DataIntegrityViolationException이면 LOGIN_ID_ALREADY_REGISTERED로 변환" 패턴을 하나로
