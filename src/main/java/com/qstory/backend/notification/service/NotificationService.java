@@ -58,6 +58,19 @@ public class NotificationService {
         repository.markAllRead(caller.userId(), Instant.now());
     }
 
+    /**
+     * 개별 알림을 hard delete. 알림은 ephemeral 데이터라 soft delete를 두지 않는다 - 사용자가
+     * 명시적으로 정리한 항목은 목록에서 완전히 사라져야 벨/드로어의 신호가 정확하다.
+     * 소유권 검증: findByIdAndUser_Id로 조회해 다른 사용자의 알림은 삭제할 수 없다.
+     */
+    @Transactional
+    public void delete(CurrentUser caller, UUID notificationId) {
+        Notification notification = repository.findByIdAndUser_Id(notificationId, caller.userId())
+                .orElseThrow(() -> ApiException.contractError(
+                        ErrorCode.NOT_FOUND, "알림을 찾지 못했어요.", 404));
+        repository.delete(notification);
+    }
+
     private static NotificationResponse toDto(Notification n) {
         return new NotificationResponse(
                 n.getId(),

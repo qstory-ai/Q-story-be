@@ -7,6 +7,7 @@ import com.qstory.backend.notification.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.UUID;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,5 +47,12 @@ public class NotificationController {
     @PostMapping("/read-all")
     public void markAllRead() {
         service.markAllRead(currentUserResolver.require());
+    }
+
+    @Operation(summary = "Delete a single notification",
+            description = "본인이 소유한 알림만 삭제 가능. 알림은 ephemeral 데이터라 hard delete.")
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable("id") UUID id) {
+        service.delete(currentUserResolver.require(), id);
     }
 }
