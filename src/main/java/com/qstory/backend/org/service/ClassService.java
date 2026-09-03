@@ -13,6 +13,7 @@ import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.util.AuthValidator;
+import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.dto.ClassInviteResponse;
 import com.qstory.backend.org.dto.ClassMemberResponse;
 import com.qstory.backend.org.dto.ClassResponse;
@@ -46,12 +47,14 @@ public class ClassService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final SecureTokenGenerator tokenGenerator;
+    private final NotificationPublisher notificationPublisher;
 
     public ClassService(
             ClassGroupRepository classGroupRepository, ClassInviteRepository classInviteRepository,
             AppUserRepository userRepository, OrganizationService organizationService,
             JoinCodeGenerator joinCodeGenerator, AuthValidator authValidator,
-            PasswordEncoder passwordEncoder, JwtService jwtService, SecureTokenGenerator tokenGenerator) {
+            PasswordEncoder passwordEncoder, JwtService jwtService, SecureTokenGenerator tokenGenerator,
+            NotificationPublisher notificationPublisher) {
         this.classGroupRepository = classGroupRepository;
         this.classInviteRepository = classInviteRepository;
         this.userRepository = userRepository;
@@ -61,6 +64,7 @@ public class ClassService {
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.tokenGenerator = tokenGenerator;
+        this.notificationPublisher = notificationPublisher;
     }
 
     @Transactional
@@ -149,6 +153,22 @@ public class ClassService {
                 .createdAt(Instant.now())
                 .build();
         parent = userRepository.saveOrThrowDuplicate(parent, "이미 사용 중인 아이디예요.");
+
+        // 반이 속한 기관의 원장에게 "새 학부모가 반에 합류했다" 알림. 원장이 여러 반을 운영할 때
+        // 어느 반인지 곧바로 알 수 있게 body에 반 이름을 넣고 href는 반 상세로 보낸다. dedupKey는
+        // 새로 생성된 parent.id로 안정화 - 같은 부모 계정이 여러 경로로 join()을 성공시킬 수는
+        // 없으므로(loginId 중복 방지) 사실상 매 발행이 unique다.
+        AppUser savedParent = parent;
+        ClassGroup joinedClass = classGroup;
+        userRepository
+                .findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(joinedClass.getOrganization().getId(), Role.DIRECTOR)
+                .ifPresent(director -> notificationPublisher.publish(
+                        director.getId(),
+                        "class-parent-joined",
+                        "새 학부모가 반에 합류했어요",
+                        savedParent.getDisplayName() + "님이 " + joinedClass.getName() + " 반에 참여했어요.",
+                        "/organization/classes/" + joinedClass.getId(),
+                        "class-parent-joined:" + savedParent.getId()));
 
         CurrentUser currentUser = new CurrentUser(
                 parent.getId(), Role.PARENT, classGroup.getOrganization().getId(), classGroup.getId());
