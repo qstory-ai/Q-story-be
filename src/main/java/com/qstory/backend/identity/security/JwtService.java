@@ -8,6 +8,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -15,11 +16,15 @@ import java.util.Date;
 import java.util.Optional;
 import java.util.UUID;
 import javax.crypto.SecretKey;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /** 이 앱 자체의 액세스 토큰을 발급하고 검증한다 - HMAC 서명 방식의 단일한 장기 유효 토큰이며, 리프레시(refresh) 흐름은 없다(auth plan 문서 참고). */
 @Component
 public class JwtService {
+
+    private static final Logger log = LoggerFactory.getLogger(JwtService.class);
 
     private static final String CLAIM_ROLE = "role";
     private static final String CLAIM_ORG_ID = "orgId";
@@ -29,6 +34,19 @@ public class JwtService {
 
     public JwtService(AppProperties config) {
         this.config = config;
+    }
+
+    /**
+     * 앱 부팅 시점에 JWT secret 유무를 로그에 알린다 - secret이 비어 있으면 verify()가 조용히
+     * Optional.empty()를 반환해 모든 요청을 익명으로 처리하고 issue()는 500으로 실패한다.
+     * 결과적으로 "떴지만 아무도 로그인할 수 없는" 상태로 방치될 수 있어서, 운영자가 이 WARN
+     * 라인을 부팅 직후에 보고 즉시 알아채도록 한다.
+     */
+    @PostConstruct
+    void warnIfNotConfigured() {
+        if (!config.auth().configured()) {
+            log.warn("jwt-service.secret-missing — 인증 기능 사용 불가. qstory.auth.jwt-secret 환경 변수를 설정하세요.");
+        }
     }
 
     public String issue(CurrentUser user) {
