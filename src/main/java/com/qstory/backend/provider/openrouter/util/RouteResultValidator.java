@@ -321,7 +321,7 @@ public class RouteResultValidator {
 
         return new RouteDecision(
                 route, childRelevantMeaning, coverageStatus, coverageReason, responseText, candidate.speakerId(),
-                actionFamilyId, rejoinAnchorId, fallbackFamilyId, options, modelId, storyContext.versions(), null);
+                actionFamilyId, rejoinAnchorId, fallbackFamilyId, options, modelId, storyContext.versions(), null, false);
     }
 
     public RouteDecision guaranteeBetaAgencyChoice(

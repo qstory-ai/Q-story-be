@@ -88,7 +88,7 @@ public class QuestionRoutingService {
                 verdict.responseText(),
                 storyContext.primarySpeakerId(),
                 null, null, null, List.of(),
-                verdict.modelId(), storyContext.versions(), null);
+                verdict.modelId(), storyContext.versions(), null, false);
     }
 
     private RouteDecision buildGeneratedContentDecision(
@@ -103,7 +103,7 @@ public class QuestionRoutingService {
                 classification.route(), classification.childRelevantMeaning(), classification.coverageStatus(),
                 classification.coverageReason(), content.responseText(), classification.speakerId(),
                 classification.actionFamilyId(), classification.rejoinAnchorId(), classification.fallbackFamilyId(),
-                content.options(), classification.modelId(), storyContext.versions(), null);
+                content.options(), classification.modelId(), storyContext.versions(), null, false);
     }
 
     /**
@@ -116,16 +116,19 @@ public class QuestionRoutingService {
             RouteClassification classification, StoryContext storyContext, String transcript, int questionRound) {
         String jobId = liveBranchGenerationService.enqueue(storyContext, transcript, questionRound);
         if (jobId == null) {
-            // 앵커당 상한에 걸려 조용히 건너뛴 경우 - 안전한 ANSWER_RESUME 상당 응답으로 폴백한다.
+            // 앵커당 상한에 걸려 조용히 건너뛴 경우 - 안전한 ANSWER_RESUME 상당 응답으로 폴백하되,
+            // liveBranchCapped=true로 표기해 프런트가 beta event로 관측할 수 있게 한다(대사 자체는
+            // 캡이 아닌 다른 이유로 ANSWER_RESUME이 된 경우와 구분할 수 없어 UX는 동일하지만,
+            // 텔레메트리 상에서는 두 경우가 구분된다).
             return new RouteDecision(
                     "ANSWER_RESUME", classification.childRelevantMeaning(), CoverageStatus.UNCOVERED.wireValue(),
                     classification.coverageReason(), NEW_CHOICES_CAP_FALLBACK_TEXT, classification.speakerId(),
-                    null, null, null, List.of(), classification.modelId(), storyContext.versions(), null);
+                    null, null, null, List.of(), classification.modelId(), storyContext.versions(), null, true);
         }
         RouteDecision withoutJob = new RouteDecision(
                 "NEW_CHOICES", classification.childRelevantMeaning(), classification.coverageStatus(),
                 classification.coverageReason(), LIVE_BRANCH_ACKNOWLEDGEMENT_TEXT, classification.speakerId(),
-                null, null, null, List.<RouteOption>of(), classification.modelId(), storyContext.versions(), null);
+                null, null, null, List.<RouteOption>of(), classification.modelId(), storyContext.versions(), null, false);
         return withoutJob.withLiveBranchJob(jobId);
     }
 }

@@ -8,6 +8,8 @@ import com.qstory.backend.livebranch.repository.LiveBranchJobRepository;
 import com.qstory.backend.story.StoryContext;
 import com.qstory.backend.story.repository.StoryActionFamilyRepository;
 import java.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -19,6 +21,8 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class LiveBranchGenerationService {
+
+    private static final Logger log = LoggerFactory.getLogger(LiveBranchGenerationService.class);
 
     /**
      * 앵커당 라이브 생성 family 상한. 없으면 매 라우팅 호출마다 프롬프트에 실리는
@@ -49,6 +53,11 @@ public class LiveBranchGenerationService {
         long liveFamilyCount = familyRepository.countByAnchor_IdAndOrigin(
                 storyContext.anchorId(), FamilyOrigin.LIVE_GENERATED);
         if (liveFamilyCount >= MAX_LIVE_FAMILIES_PER_ANCHOR) {
+            // 조용히 폴백하되 운영에서 이 상황이 얼마나 자주 발생하는지 볼 수 있어야 상한 값
+            // 조정 판단이 가능하다 - INFO로 남기면 stdout에 들어가 그라파나/로키 대시보드에서
+            // 세면 되고, 알람이 필요하면 WARN으로 조정할 수 있다.
+            log.info("live-branch.cap-reached storyId={} anchorId={} liveFamilyCount={} cap={}",
+                    storyContext.storyId(), storyContext.anchorId(), liveFamilyCount, MAX_LIVE_FAMILIES_PER_ANCHOR);
             return null;
         }
         Instant now = Instant.now();

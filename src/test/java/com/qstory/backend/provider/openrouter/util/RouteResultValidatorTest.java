@@ -196,7 +196,7 @@ class RouteResultValidatorTest {
         StoryContext ctx = storyContext();
         var decision = new com.qstory.backend.provider.openrouter.RouteDecision(
                 "SKIP_CONTINUE", "의미", "exact", "사유", "괜찮아, 이야기를 계속 들어보자.", "HG-SPK-GRETEL",
-                null, null, null, List.<RouteOption>of(), "model", ctx.versions(), null);
+                null, null, null, List.<RouteOption>of(), "model", ctx.versions(), null, false);
         var result = validator.guaranteeBetaAgencyChoice(decision, ctx, "transcript", true, 1);
         assertThat(result).isSameAs(decision);
     }

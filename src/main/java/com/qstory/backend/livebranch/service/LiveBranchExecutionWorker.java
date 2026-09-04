@@ -233,8 +233,15 @@ public class LiveBranchExecutionWorker {
 
             String familyId = "LIVE_" + anchor.getSlot() + "_"
                     + job.getId().toString().substring(0, 8).toUpperCase(Locale.ROOT) + "_" + subIndex;
-            OpenRouterClient.GeneratedImage image = openRouterClient.generateImage(
-                    buildImagePrompt(visualFactsByLabel, anchor, draft), referenceBytes, "image/jpeg", freshDeadline());
+            // 이미지 생성은 draft/review 게이트와 달리 실패 시 지금까지는 곧바로 null 반환 - 그 자리는
+            // 상위(run)에서 기존 family로 padding됐다. 이미지 자체는 transient한 이유(OpenRouter 스로틀,
+            // 일시 네트워크 에러)로 실패하는 경우가 많아 1회 재시도만 넣어도 신선한 옵션 유지 확률이
+            // 눈에 띄게 오른다. 여전히 실패하면 기존 padding 폴백이 안전망이다.
+            OpenRouterClient.GeneratedImage image = generateImageWithOneRetry(
+                    buildImagePrompt(visualFactsByLabel, anchor, draft), referenceBytes, job.getId(), subIndex);
+            if (image == null) {
+                return null;
+            }
 
             String imageExtension = switch (image.mimeType()) {
                 case "image/png" -> "png";
@@ -421,6 +428,28 @@ public class LiveBranchExecutionWorker {
     /** 이미지 생성이 특히 느릴 수 있어 실시간 라우팅용 기본값보다 여유 있게 잡는다(ShadowFamilyGenerationService와 동일). */
     private RequestDeadline freshDeadline() {
         return harness.freshDeadline(config.requestTimeoutMs());
+    }
+
+    /**
+     * 이미지 생성 1회 재시도. draft/review처럼 여러 번 왕복하지 않는 이유는 이미지 한 장 생성에만
+     * 이미 수 초가 걸려서 여러 번 재시도하면 폴링 타임아웃을 넘길 위험이 있기 때문이다 - 한 번의
+     * transient 실패(스로틀, 일시 네트워크 오류)만 흡수하고, 그래도 실패하면 상위에서 padding으로
+     * 안전하게 폴백한다.
+     */
+    private OpenRouterClient.GeneratedImage generateImageWithOneRetry(
+            String prompt, byte[] referenceBytes, UUID jobId, int subIndex) {
+        try {
+            return openRouterClient.generateImage(prompt, referenceBytes, "image/jpeg", freshDeadline());
+        } catch (Exception firstError) {
+            log.info("live-branch.sub-image-retry jobId={} subIndex={} cause={}",
+                    jobId, subIndex, firstError.toString());
+            try {
+                return openRouterClient.generateImage(prompt, referenceBytes, "image/jpeg", freshDeadline());
+            } catch (Exception secondError) {
+                log.warn("live-branch.sub-image-retry-exhausted jobId={} subIndex={}", jobId, subIndex, secondError);
+                return null;
+            }
+        }
     }
 
     /**
