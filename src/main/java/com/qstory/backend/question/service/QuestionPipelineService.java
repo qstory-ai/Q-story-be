@@ -23,11 +23,15 @@ import com.qstory.backend.common.util.RequestDeadline;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /** question-pipeline.mjs를 Java로 이식한 것. */
 @Service
 public class QuestionPipelineService {
+
+    private static final Logger log = LoggerFactory.getLogger(QuestionPipelineService.class);
 
     private static final Duration ROUTE_RETRY_DELAY = Duration.ofMillis(350);
 
@@ -227,6 +231,12 @@ public class QuestionPipelineService {
                     providerException.code().name(), providerException.stage(), providerException.retryable(),
                     providerException.safeDetail(), storyContext);
         }
+        // AbortException/ProviderException 외의 예외는 원래 조용히 삼켜지고 사용자는 "질문을
+        // 처리하지 못했어요" 하나만 봤다 - 원인 파악이 안 돼 재발 방지 어렵다. 이제 WARN 로그로
+        // 원인을 남기고, 사용자에게는 여전히 안전한 안내 대사를 보여준다.
+        log.warn("question-pipeline.unexpected-failure storyId={} anchorId={} stage={} type={}",
+                storyContext.storyId(), storyContext.anchorId(), timeoutStage,
+                error.getClass().getName(), error);
         return failureEnvelope(
                 ProviderErrorCode.SPEECH_PIPELINE_FAILED, "response", true, "질문을 처리하지 못했어요.", storyContext);
     }

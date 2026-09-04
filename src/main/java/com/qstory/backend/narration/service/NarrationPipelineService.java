@@ -75,7 +75,12 @@ public class NarrationPipelineService {
     }
 
     private Map<String, Object> failureFrom(ProviderException error, String fallbackSafeDetail) {
-        return failureEnvelope(error.code().name(), "tts", error.retryable(), fallbackSafeDetail);
+        // 예전엔 error.safeDetail()을 항상 버리고 fallbackSafeDetail만 넘겨서, OpenRouter가
+        // 실어 보낸 구체적 안내("음성 생성 할당량을 초과했어요" 등)가 사용자에게 도달하지 못했다.
+        // 이제 provider가 명시적으로 safeDetail을 채웠으면 그것을 우선 쓰고, 없을 때만 fallback.
+        String providerDetail = error.safeDetail();
+        String safeDetail = providerDetail != null && !providerDetail.isBlank() ? providerDetail : fallbackSafeDetail;
+        return failureEnvelope(error.code().name(), "tts", error.retryable(), safeDetail);
     }
 
     private Map<String, Object> failureEnvelope(String code, String stage, boolean retryable, String safeDetail) {
