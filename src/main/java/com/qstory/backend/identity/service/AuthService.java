@@ -100,7 +100,7 @@ public class AuthService {
     }
 
     /**
-     * 방문 선생님 - 가정을 방문해 1:1 수업을 진행하는 셀프서비스 고객 역할이다. organization/
+     * 선생님 - 1:1 수업을 진행하는 셀프서비스 고객 역할이다. organization/
      * classGroup 둘 다 null이며, tutor 패키지의 TutorStudent가 이 계정이 등록한 학생을 소유한다.
      */
     @Transactional

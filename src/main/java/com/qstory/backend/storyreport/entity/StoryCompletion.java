@@ -36,7 +36,7 @@ import org.hibernate.type.SqlTypes;
  * 조회 시점에 이 데이터와 스토리 자체의 reportCopy로부터 리포트를 다시 만들어내며, 이는 방금 완료된
  * 세션에 대해 하는 것과 동일한 방식이다.
  *
- * <p>tutorStudent는 이 세션이 방문 선생님이 그 학생과 진행한 수업이면 채워지고, 가정에서 부모가
+ * <p>tutorStudent는 이 세션이 선생님이 그 학생과 진행한 수업이면 채워지고, 가정에서 부모가
  * 자유롭게 본 세션이면 null이다 - "누가 진행했는지"를 나타내는 별도 플래그를 새로 두는 대신, user가
  * 이미 실제로 세션을 진행한 계정(선생님이 진행하면 user=선생님)이라는 사실을 그대로 활용한다.
  * 이 구분 하나로 "선생님이 진행한 수업만" 부모에게 공유하는 게 가능해진다(TutorReportService 참고).
@@ -65,7 +65,7 @@ public class StoryCompletion {
 
     /**
      * 이 세션이 어느 아이 프로필로 진행됐는지 - 부모(PARENT) 계정의 아이별 리포트 필터에 쓴다.
-     * nullable 이유는 037-story-completion-child.sql 헤더 참조: 기존 완주 기록, 방문 선생님의
+     * nullable 이유는 037-story-completion-child.sql 헤더 참조: 기존 완주 기록, 선생님의
      * 세션, 아이 프로필 삭제 이후 세 경우에 null이 된다. 삭제는 SET NULL이라 아이가 지워져도
      * 완주 기록 자체는 남는다.
      */

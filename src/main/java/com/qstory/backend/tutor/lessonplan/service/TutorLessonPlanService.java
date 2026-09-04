@@ -18,7 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 방문 선생님이 특정 학생의 다음 수업에 쓸 이야기를 담아 두는 리스트의 CRUD. 저장은 (student,
+ * 선생님이 특정 학생의 다음 수업에 쓸 이야기를 담아 두는 리스트의 CRUD. 저장은 (student,
  * story) 조합으로 최대 1건이라 같은 조합을 다시 add해도 idempotent하게 기존 계획을 반환한다.
  * 학생 소유권은 TutorStudentRepository.findByIdAndTutor_Id를 통해서만 확인한다 - 다른 선생님의
  * 학생에게 담으려는 시도는 404로 응답한다(존재조차 노출하지 않는다).

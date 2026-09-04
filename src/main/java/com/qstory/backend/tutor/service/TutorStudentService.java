@@ -46,7 +46,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 방문 선생님의 학생 등록/일정/부모 초대 - org.service.ClassService의 초대 메커니즘(랜덤 토큰 생성,
+ * 선생님의 학생 등록/일정/부모 초대 - org.service.ClassService의 초대 메커니즘(랜덤 토큰 생성,
  * SHA-256 해시 저장, 14일 TTL, 1회용 소진)을 그대로 재사용한다. ClassService.join()과 다른 점 하나:
  * 초대 수락자는 새로 가입하는 경우도, 이미 로그인된 기존 PARENT 계정인 경우도 있을 수 있다(자녀가
  * 이미 다른 경로로 부모 계정을 갖고 있는 흔한 케이스) - acceptInvite()가 둘 다 받는다.

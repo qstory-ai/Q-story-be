@@ -1,4 +1,4 @@
--- 방문 선생님의 학생 등록/일정/부모 초대. class_group/class_invite와 같은 모양이지만 기관이 아닌
+-- 선생님의 학생 등록/일정/부모 초대. class_group/class_invite와 같은 모양이지만 기관이 아닌
 -- 개별 TUTOR 계정(app_user.role='TUTOR')이 직접 소유한다.
 create table if not exists public.tutor_student (
     id uuid primary key,

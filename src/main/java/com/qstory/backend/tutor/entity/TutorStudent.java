@@ -23,7 +23,7 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 /**
- * 방문 선생님(TUTOR)이 등록한 학생 한 명 - ClassGroup이 Organization에 속하듯, 이 엔티티는 TUTOR
+ * 선생님(TUTOR)이 등록한 학생 한 명 - ClassGroup이 Organization에 속하듯, 이 엔티티는 TUTOR
  * 역할의 AppUser에 속한다. 등록 시점엔 별명/연령대/수업 메모만 저장되고(부모 계정과 아직 연결되지
  * 않음), TutorInvite를 통해 부모가 수락해야 linkedParentUser가 채워지고 status가 CONFIRMED로
  * 바뀐다 - 그 전까지는 리포트 전달이 활성화되지 않는다(TutorStudentService 참고).

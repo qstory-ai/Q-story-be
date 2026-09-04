@@ -22,7 +22,7 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 /**
- * 방문 선생님이 특정 학생의 다음 수업에 쓸 이야기를 담아 두는 한 행. 서재의 "수업에 사용하기"
+ * 선생님이 특정 학생의 다음 수업에 쓸 이야기를 담아 두는 한 행. 서재의 "수업에 사용하기"
  * 버튼이 여기 하나를 추가한다. story_id는 FK가 아니라 varchar(64) - story_completion/bookmark와
  * 같은 규약(콘텐츠가 시드 전이거나 회수된 경우도 참조를 유지).
  *

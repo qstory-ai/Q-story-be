@@ -57,7 +57,7 @@ public class StoryCompletionService {
                 ? null
                 : tutorStudentRepository.findByIdAndTutor_Id(request.tutorStudentId(), caller.userId())
                         .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
-        // childId도 마찬가지 - caller(=부모)가 소유한 아이 프로필일 때만 인정. 방문 선생님의 세션은
+        // childId도 마찬가지 - caller(=부모)가 소유한 아이 프로필일 때만 인정. 선생님의 세션은
         // childId를 보내지 않는 것이 관례이지만, 만약 함께 왔다면 그건 이 부모 계정의 아이가 아니라
         // 404로 응답한다(다른 부모의 아이 id로 리포트를 오염시키는 걸 막는다).
         Child child = request.childId() == null
