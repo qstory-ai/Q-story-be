@@ -72,7 +72,7 @@ public class GeminiTtsClient {
             }
             byte[] pcm = decodeAudioData(response.body());
             if (pcm.length == 0) {
-                log.warn("gemini-tts.empty-audio context=synthesize status={}", response.statusCode());
+                logEmptyAudio("synthesize", response.statusCode(), response.body());
                 throw new ProviderException(ProviderErrorCode.GEMINI_TTS_EMPTY, "답변 음성이 비어 있어요.");
             }
             byte[] wav = WavPcmUtil.wrapPcmAsWav(pcm, PCM_SAMPLE_RATE, PCM_CHANNELS, PCM_BIT_DEPTH);
@@ -103,7 +103,7 @@ public class GeminiTtsClient {
             }
             byte[] pcm = decodeAudioData(response.body());
             if (pcm.length == 0) {
-                log.warn("gemini-tts.empty-audio context=synthesizeStream status={}", response.statusCode());
+                logEmptyAudio("synthesizeStream", response.statusCode(), response.body());
                 throw new ProviderException(ProviderErrorCode.GEMINI_TTS_EMPTY, "답변 음성이 비어 있어요.");
             }
             return new SynthesizedAudioStream(
@@ -148,6 +148,23 @@ public class GeminiTtsClient {
      * 같은 이유(사용자에게는 고정 안전 문구만 내려가므로, 이 로그가 없으면 401/400 같은 설정
      * 오류인지조차 운영 중엔 알 수 없다). API 키는 헤더에만 실리므로 본문을 그대로 남겨도 새지 않는다.
      */
+    /**
+     * 200인데도 decodeAudioData()가 오디오를 못 찾았을 때 실제 응답 구조를 남긴다 - interaction/
+     * output_audio/data라는 필드 경로는 문서 요약만으로 추정한 것이라 실제 스키마와 다를 수 있고,
+     * 이 로그 없이는 어느 필드가 잘못됐는지 알 방법이 없다. base64 오디오 값 자체가 길 수 있어
+     * FAILURE_BODY_LOG_LIMIT보다 넉넉하게 남긴다 - 필드 이름/구조를 보는 게 목적이라.
+     */
+    private void logEmptyAudio(String context, int statusCode, byte[] responseBody) {
+        String bodySnippet = new String(responseBody, StandardCharsets.UTF_8);
+        int limit = FAILURE_BODY_LOG_LIMIT * 4;
+        if (bodySnippet.length() > limit) {
+            bodySnippet = bodySnippet.substring(0, limit) + "...(truncated)";
+        }
+        log.warn(
+                "gemini-tts.empty-audio context={} status={} responseBody={}",
+                context, statusCode, bodySnippet);
+    }
+
     private void logProviderHttpFailure(String context, int statusCode, byte[] responseBody) {
         String bodySnippet = new String(responseBody, StandardCharsets.UTF_8);
         if (bodySnippet.length() > FAILURE_BODY_LOG_LIMIT) {
