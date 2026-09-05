@@ -33,12 +33,16 @@ public class SupabaseStorageClient {
     }
 
     public boolean upload(String bucket, String objectName, byte[] content, String contentType) {
+        return upload(bucket, objectName, content, contentType, false);
+    }
+
+    public boolean upload(String bucket, String objectName, byte[] content, String contentType, boolean upsert) {
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/storage/v1/object/" + bucket + "/" + objectName))
                     .timeout(Duration.ofSeconds(30))
                     .header("authorization", "Bearer " + serviceRoleKey)
                     .header("content-type", contentType)
-                    .header("x-upsert", "false")
+                    .header("x-upsert", Boolean.toString(upsert))
                     .POST(HttpRequest.BodyPublishers.ofByteArray(content))
                     .build();
             HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
@@ -46,6 +50,11 @@ public class SupabaseStorageClient {
         } catch (java.io.IOException | InterruptedException error) {
             return false;
         }
+    }
+
+    /** Public URL for a bucket configured as public in Supabase Storage. */
+    public String publicObjectUrl(String bucket, String objectName) {
+        return baseUrl + "/storage/v1/object/public/" + bucket + "/" + objectName;
     }
 
     /**

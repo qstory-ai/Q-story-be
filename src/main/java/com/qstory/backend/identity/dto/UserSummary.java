@@ -1,6 +1,7 @@
 package com.qstory.backend.identity.dto;
 
 import com.qstory.backend.identity.entity.AppUser;
+import java.time.Instant;
 import java.util.UUID;
 
 public record UserSummary(
@@ -13,15 +14,19 @@ public record UserSummary(
         UUID classId,
         String subscriptionStatus,
         boolean grantsAccess,
-        String childName) {
+        String childName,
+        String profileImageUrl,
+        Instant subscriptionExpiresAt) {
 
     public static UserSummary of(AppUser user) {
         return new UserSummary(
                 user.getId(), user.getRole().name(), user.getLoginId(), user.getEmail(), user.getDisplayName(),
                 user.getOrganization() == null ? null : user.getOrganization().getId(),
                 user.getClassGroup() == null ? null : user.getClassGroup().getId(),
-                user.getSubscriptionStatus().name(),
-                user.getSubscriptionStatus().grantsAccess(),
-                user.getChildName());
+                user.getSubscriptionStatus().effectiveAt(user.getSubscriptionExpiresAt(), Instant.now()).name(),
+                user.getSubscriptionStatus().grantsAccessAt(user.getSubscriptionExpiresAt(), Instant.now()),
+                user.getChildName(),
+                user.getProfileImageUrl(),
+                user.getSubscriptionExpiresAt());
     }
 }

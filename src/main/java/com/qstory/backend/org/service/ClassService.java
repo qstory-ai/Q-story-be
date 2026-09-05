@@ -19,6 +19,7 @@ import com.qstory.backend.org.dto.ClassMemberResponse;
 import com.qstory.backend.org.dto.ClassResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
 import com.qstory.backend.org.dto.JoinClassRequest;
+import com.qstory.backend.org.dto.JoinExistingClassRequest;
 import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.org.entity.ClassInvite;
 import com.qstory.backend.org.entity.Organization;
@@ -138,7 +139,7 @@ public class ClassService {
 
     @Transactional
     public AuthResponse join(JoinClassRequest request) {
-        ClassGroup classGroup = resolveClassGroup(request);
+        ClassGroup classGroup = resolveClassGroup(request.classCode(), request.inviteToken());
         authValidator.validateSignup(new com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest(
                 request.loginId(), request.email(), request.password(), request.displayName()));
 
@@ -154,38 +155,84 @@ public class ClassService {
                 .build();
         parent = userRepository.saveOrThrowDuplicate(parent, "이미 사용 중인 아이디예요.");
 
-        // 반이 속한 기관의 원장에게 "새 학부모가 반에 합류했다" 알림. 원장이 여러 반을 운영할 때
-        // 어느 반인지 곧바로 알 수 있게 body에 반 이름을 넣고 href는 반 상세로 보낸다. dedupKey는
-        // 새로 생성된 parent.id로 안정화 - 같은 부모 계정이 여러 경로로 join()을 성공시킬 수는
-        // 없으므로(loginId 중복 방지) 사실상 매 발행이 unique다.
-        AppUser savedParent = parent;
-        ClassGroup joinedClass = classGroup;
-        userRepository
-                .findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(joinedClass.getOrganization().getId(), Role.DIRECTOR)
-                .ifPresent(director -> notificationPublisher.publish(
-                        director.getId(),
-                        "class-parent-joined",
-                        "새 학부모가 반에 합류했어요",
-                        savedParent.getDisplayName() + "님이 " + joinedClass.getName() + " 반에 참여했어요.",
-                        "/organization/classes/" + joinedClass.getId(),
-                        "class-parent-joined:" + savedParent.getId()));
+        publishParentJoined(parent, classGroup);
 
         CurrentUser currentUser = new CurrentUser(
                 parent.getId(), Role.PARENT, classGroup.getOrganization().getId(), classGroup.getId());
         return new AuthResponse(jwtService.issue(currentUser), UserSummary.of(parent));
     }
 
-    private ClassGroup resolveClassGroup(JoinClassRequest request) {
-        boolean hasCode = request.classCode() != null && !request.classCode().isBlank();
-        boolean hasInvite = request.inviteToken() != null && !request.inviteToken().isBlank();
+    /**
+     * 독립 학부모가 가입 후 반 코드를 입력해 기관 수업과 연결하는 경로다. 새 계정을 만들지 않고
+     * 현재 계정의 organization/classGroup만 채운 뒤, JWT도 새 소속 claim으로 다시 발급한다.
+     * 한 학부모 계정은 현재 하나의 기관 반만 가질 수 있으므로 다른 반으로의 교체는 먼저 연결
+     * 해제 정책이 확정된 뒤 별도 흐름으로 제공한다.
+     */
+    @Transactional
+    public AuthResponse joinExistingParent(CurrentUser caller, JoinExistingClassRequest request) {
+        AppUser parent = userRepository.findByIdAndDeletedAtIsNull(caller.userId())
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
+        if (parent.getClassGroup() != null) {
+            throw ApiException.contractError(
+                    ErrorCode.VALIDATION_FAILED,
+                    "이미 기관 반에 참여 중이에요. 다른 반으로 변경하려면 기관 관리자에게 문의해 주세요.",
+                    409);
+        }
+
+        ClassGroup classGroup = resolveClassGroup(request.classCode(), request.inviteToken());
+        parent.setOrganization(classGroup.getOrganization());
+        parent.setClassGroup(classGroup);
+        userRepository.save(parent);
+        publishParentJoined(parent, classGroup);
+
+        CurrentUser refreshedUser = new CurrentUser(
+                parent.getId(), Role.PARENT, classGroup.getOrganization().getId(), classGroup.getId());
+        return new AuthResponse(jwtService.issue(refreshedUser), UserSummary.of(parent));
+    }
+
+    /**
+     * A parent has exactly one institutional class relationship. Leaving clears both foreign keys and
+     * returns a replacement JWT, after which the same account can join a different class code.
+     */
+    @Transactional
+    public AuthResponse leaveExistingParent(CurrentUser caller) {
+        AppUser parent = userRepository.findByIdAndDeletedAtIsNull(caller.userId())
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
+        if (parent.getClassGroup() == null) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "연결된 기관 반이 없어요.", 409);
+        }
+        parent.setClassGroup(null);
+        parent.setOrganization(null);
+        userRepository.save(parent);
+        return new AuthResponse(
+                jwtService.issue(new CurrentUser(parent.getId(), Role.PARENT, null, null)),
+                UserSummary.of(parent));
+    }
+
+    private ClassGroup resolveClassGroup(String classCode, String inviteToken) {
+        boolean hasCode = classCode != null && !classCode.isBlank();
+        boolean hasInvite = inviteToken != null && !inviteToken.isBlank();
         if (hasCode == hasInvite) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "반 코드 또는 초대 링크가 필요해요.");
         }
         if (hasInvite) {
-            return resolveByInvite(request.inviteToken().trim());
+            return resolveByInvite(inviteToken.trim());
         }
-        return classGroupRepository.findByJoinCode(request.classCode().trim().toUpperCase())
+        return classGroupRepository.findByJoinCode(classCode.trim().toUpperCase())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_JOIN_CODE, "반 코드를 다시 확인해 주세요.", 404));
+    }
+
+    /** 새 가입/기존 계정 연결 모두에서 같은 기관 관리자 알림을 발행한다. */
+    private void publishParentJoined(AppUser parent, ClassGroup classGroup) {
+        userRepository
+                .findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(classGroup.getOrganization().getId(), Role.DIRECTOR)
+                .ifPresent(director -> notificationPublisher.publish(
+                        director.getId(),
+                        "class-parent-joined",
+                        "새 학부모가 반에 합류했어요",
+                        parent.getDisplayName() + "님이 " + classGroup.getName() + " 반에 참여했어요.",
+                        "/organization/classes/" + classGroup.getId(),
+                        "class-parent-joined:" + parent.getId()));
     }
 
     private ClassGroup resolveByInvite(String rawToken) {

@@ -1,6 +1,8 @@
 package com.qstory.backend.storyreport.entity;
 
 import com.qstory.backend.identity.entity.AppUser;
+import com.qstory.backend.org.entity.ClassGroup;
+import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.parent.child.entity.Child;
 import com.qstory.backend.tutor.entity.TutorStudent;
 import jakarta.persistence.Column;
@@ -58,6 +60,15 @@ public class StoryCompletion {
     @JoinColumn(name = "user_id", nullable = false)
     @OnDelete(action = OnDeleteAction.CASCADE)
     private AppUser user;
+
+    /** Membership snapshot for historical institution reports after a parent changes classes. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id")
+    private Organization organization;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "class_group_id")
+    private ClassGroup classGroup;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tutor_student_id")

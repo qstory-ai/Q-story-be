@@ -28,6 +28,8 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     /** 기관에 속한 특정 역할의 사용자 수 - 이용 현황 집계용. */
     long countByOrganization_IdAndRoleAndDeletedAtIsNull(UUID organizationId, Role role);
 
+    long countByClassGroup_IdAndRoleAndDeletedAtIsNull(UUID classGroupId, Role role);
+
     /**
      * 기관에 속한 특정 역할의 첫 사용자 - DIRECTOR는 조직당 하나뿐이라는 불변식(Organization
      * 클래스 헤더 참고)을 활용해 owning director를 찾을 때 쓴다. 데이터에 예상치 못한 중복이

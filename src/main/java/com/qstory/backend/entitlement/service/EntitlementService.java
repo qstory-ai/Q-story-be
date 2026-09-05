@@ -8,6 +8,7 @@ import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.repository.OrganizationRepository;
 import com.qstory.backend.story.StoryManifest;
+import java.time.Instant;
 import org.springframework.stereotype.Service;
 
 /**
@@ -47,11 +48,13 @@ public class EntitlementService {
             return false;
         }
         Organization organization = organizationRepository.findById(caller.orgId()).orElse(null);
-        return organization != null && organization.getSubscriptionStatus().grantsAccess();
+        return organization != null && organization.getSubscriptionStatus()
+                .grantsAccessAt(organization.getSubscriptionExpiresAt(), Instant.now());
     }
 
     private boolean personalGrantsAccess(CurrentUser caller) {
         AppUser user = appUserRepository.findById(caller.userId()).orElse(null);
-        return user != null && user.getSubscriptionStatus().grantsAccess();
+        return user != null && user.getSubscriptionStatus()
+                .grantsAccessAt(user.getSubscriptionExpiresAt(), Instant.now());
     }
 }

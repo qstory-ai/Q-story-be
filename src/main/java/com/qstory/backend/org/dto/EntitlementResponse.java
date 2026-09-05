@@ -1,3 +1,5 @@
 package com.qstory.backend.org.dto;
 
-public record EntitlementResponse(String subscriptionStatus, boolean grantsAccess) {}
+import java.time.Instant;
+
+public record EntitlementResponse(String subscriptionStatus, boolean grantsAccess, Instant subscriptionExpiresAt) {}

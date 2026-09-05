@@ -4,7 +4,9 @@ import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
 import com.qstory.backend.common.util.SecureTokenGenerator;
+import com.qstory.backend.common.util.SupabaseStorageClient;
 import com.qstory.backend.common.util.TokenValidation;
+import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.OAuthProvider;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.dto.AuthResponse;
@@ -30,6 +32,9 @@ import com.qstory.backend.identity.service.oauth.KakaoOAuthVerifier;
 import com.qstory.backend.identity.util.AuthValidator;
 import java.time.Duration;
 import java.time.Instant;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import javax.imageio.ImageIO;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -38,6 +43,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class AuthService {
@@ -65,13 +71,15 @@ public class AuthService {
     private final GoogleOAuthVerifier googleOAuthVerifier;
     private final KakaoOAuthVerifier kakaoOAuthVerifier;
     private final SecureTokenGenerator tokenGenerator;
+    private final SupabaseStorageClient storageClient;
+    private final AppProperties config;
 
     public AuthService(
             AppUserRepository userRepository, PasswordResetTokenRepository passwordResetTokenRepository,
             AccountDeletionFeedbackRepository accountDeletionFeedbackRepository,
             AuthValidator validator, PasswordEncoder passwordEncoder, JwtService jwtService,
             GoogleOAuthVerifier googleOAuthVerifier, KakaoOAuthVerifier kakaoOAuthVerifier,
-            SecureTokenGenerator tokenGenerator) {
+            SecureTokenGenerator tokenGenerator, SupabaseStorageClient storageClient, AppProperties config) {
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.accountDeletionFeedbackRepository = accountDeletionFeedbackRepository;
@@ -81,6 +89,8 @@ public class AuthService {
         this.googleOAuthVerifier = googleOAuthVerifier;
         this.kakaoOAuthVerifier = kakaoOAuthVerifier;
         this.tokenGenerator = tokenGenerator;
+        this.storageClient = storageClient;
+        this.config = config;
     }
 
     @Transactional
@@ -235,6 +245,57 @@ public class AuthService {
             user.setChildName(trimmed.isEmpty() ? null : trimmed);
         }
         userRepository.save(user);
+        return UserSummary.of(user);
+    }
+
+    /** Teacher profile photos are validated by content as well as MIME type before server-only storage upload. */
+    @Transactional
+    public UserSummary uploadProfileImage(CurrentUser caller, MultipartFile image) {
+        AppUser user = requireActiveUser(caller.userId());
+        if (user.getRole() != Role.TUTOR) {
+            throw ApiException.contractError(ErrorCode.FORBIDDEN, "선생님 계정만 프로필 이미지를 올릴 수 있어요.", 403);
+        }
+        if (image == null || image.isEmpty()) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "업로드할 이미지를 선택해 주세요.");
+        }
+        if (image.getSize() > 4L * 1024 * 1024) {
+            throw ApiException.contractError(ErrorCode.PAYLOAD_TOO_LARGE, "프로필 이미지는 4MB 이하만 올릴 수 있어요.", 413);
+        }
+        String contentType = image.getContentType();
+        if (!"image/jpeg".equals(contentType) && !"image/png".equals(contentType)) {
+            throw ApiException.contractError(ErrorCode.UNSUPPORTED_CONTENT_TYPE, "JPG 또는 PNG 이미지만 올릴 수 있어요.", 415);
+        }
+        if (!config.supabase().configured() || config.supabase().profileImageBucket() == null
+                || config.supabase().profileImageBucket().isBlank()) {
+            throw ApiException.contractError(ErrorCode.STORAGE_FAILED, "프로필 이미지 저장소가 준비되지 않았어요.", 503);
+        }
+
+        byte[] bytes;
+        BufferedImage decoded;
+        try {
+            bytes = image.getBytes();
+            decoded = ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+        } catch (IOException exception) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "이미지 파일을 읽을 수 없어요.");
+        }
+        if (decoded == null || decoded.getWidth() > 2048 || decoded.getHeight() > 2048) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "가로·세로 2048px 이하의 이미지를 올려 주세요.");
+        }
+
+        String extension = "image/png".equals(contentType) ? "png" : "jpg";
+        String objectName = "profiles/" + user.getId() + "/" + UUID.randomUUID() + "." + extension;
+        String bucket = config.supabase().profileImageBucket();
+        if (!storageClient.upload(bucket, objectName, bytes, contentType)) {
+            throw ApiException.contractError(ErrorCode.STORAGE_FAILED, "프로필 이미지를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.", 502);
+        }
+
+        String previousObjectName = user.getProfileImageObjectName();
+        user.setProfileImageObjectName(objectName);
+        user.setProfileImageUrl(storageClient.publicObjectUrl(bucket, objectName));
+        userRepository.save(user);
+        if (previousObjectName != null && previousObjectName.startsWith("profiles/" + user.getId() + "/")) {
+            storageClient.delete(bucket, previousObjectName);
+        }
         return UserSummary.of(user);
     }
 

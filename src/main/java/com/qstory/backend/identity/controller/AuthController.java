@@ -18,11 +18,14 @@ import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 회원가입/로그인/whoami. 반 코드로 가입하는 학부모 회원가입은 ClassController(POST
@@ -101,6 +104,12 @@ public class AuthController {
     @PostMapping("/v1/auth/me/profile")
     public UserSummary updateProfile(@RequestBody UpdateProfileRequest request) {
         return authService.updateProfile(currentUserResolver.require(), request);
+    }
+
+    @Operation(summary = "Upload a tutor profile image", description = "TUTOR only. JPG/PNG, up to 4MB and 2048px per side.")
+    @PostMapping(value = "/v1/auth/me/profile-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public UserSummary uploadProfileImage(@RequestParam("image") MultipartFile image) {
+        return authService.uploadProfileImage(currentUserResolver.require(), image);
     }
 
     @Operation(summary = "Change the current user's password",

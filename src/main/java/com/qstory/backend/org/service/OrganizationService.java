@@ -66,7 +66,9 @@ public class OrganizationService {
     public EntitlementResponse entitlement(CurrentUser caller, UUID organizationId) {
         Organization organization = requireOwned(caller, organizationId);
         return new EntitlementResponse(
-                organization.getSubscriptionStatus().name(), organization.getSubscriptionStatus().grantsAccess());
+                organization.getSubscriptionStatus().effectiveAt(organization.getSubscriptionExpiresAt(), Instant.now()).name(),
+                organization.getSubscriptionStatus().grantsAccessAt(organization.getSubscriptionExpiresAt(), Instant.now()),
+                organization.getSubscriptionExpiresAt());
     }
 
     /** ClassService가 반을 생성/조회할 때 동일한 소유권 검사를 재사용할 수 있도록 패키지 가시성으로 둔다. */

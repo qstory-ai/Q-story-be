@@ -44,6 +44,9 @@ public class Organization {
 
     private Instant subscriptionUpdatedAt;
 
+    @Column(name = "subscription_expires_at")
+    private Instant subscriptionExpiresAt;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 }

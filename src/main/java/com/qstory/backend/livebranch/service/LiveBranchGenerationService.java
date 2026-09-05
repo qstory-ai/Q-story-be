@@ -29,7 +29,7 @@ public class LiveBranchGenerationService {
      * allowedActionFamilies/approvedChoiceCopyBank가 무한정 커지고, 스토리 전체 번들도 그만큼
      * 비대해진다 - 상한 도달 시 조용히 생성을 건너뛰고 평소 ANSWER_RESUME 응답을 그대로 둔다.
      */
-    private static final int MAX_LIVE_FAMILIES_PER_ANCHOR = 5;
+    private static final int MAX_LIVE_FAMILIES_PER_ANCHOR = 10;
 
     /** DB에 남기기 전 redact()로 지운 아이 발화의 최대 길이 - childTranscriptRedacted 컬럼 크기에 맞춘다. */
     private static final int REDACTED_TRANSCRIPT_MAX_LENGTH = 400;

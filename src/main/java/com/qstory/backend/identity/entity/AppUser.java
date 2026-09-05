@@ -105,6 +105,15 @@ public class AppUser {
 
     private Instant subscriptionUpdatedAt;
 
+    @Column(name = "subscription_expires_at")
+    private Instant subscriptionExpiresAt;
+
+    @Column(name = "profile_image_url")
+    private String profileImageUrl;
+
+    @Column(name = "profile_image_object_name")
+    private String profileImageObjectName;
+
     /** PARENT 역할에서만 의미가 있다 - 마이페이지 "내 정보 관리"에서 학부모가 직접 입력한다. */
     @Column(name = "child_name")
     private String childName;

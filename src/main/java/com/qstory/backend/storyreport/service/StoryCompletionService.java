@@ -66,6 +66,8 @@ public class StoryCompletionService {
                         .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
         StoryCompletion completion = repository.save(StoryCompletion.builder()
                 .user(user)
+                .organization(user.getOrganization())
+                .classGroup(user.getClassGroup())
                 .tutorStudent(tutorStudent)
                 .child(child)
                 .storyId(request.storyId())
@@ -113,9 +115,23 @@ public class StoryCompletionService {
         return completions.stream().map(StoryCompletionDetail::of).toList();
     }
 
+    /**
+     * 본인 가정 완주 기록뿐 아니라, 부모가 연결한 선생님 수업의 완주 기록도 읽을 수 있다.
+     * 튜터 리포트 목록은 이미 linkedParentUser 기준으로 노출되는데 상세에서 다시 user_id(튜터)
+     * 만 검사하면 부모가 알림을 눌러도 404가 되는 불일치가 생긴다. 반대로 연결되지 않은 부모는
+     * 존재 여부를 알 수 없도록 같은 NOT_FOUND로 처리한다.
+     */
+    @Transactional(readOnly = true)
     public StoryCompletionDetail get(CurrentUser caller, UUID id) {
-        StoryCompletion completion = repository.findByIdAndUser_Id(id, caller.userId())
+        StoryCompletion completion = repository.findById(id)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404));
+        boolean isSessionOwner = completion.getUser().getId().equals(caller.userId());
+        boolean isLinkedParent = completion.getTutorStudent() != null
+                && completion.getTutorStudent().getLinkedParentUser() != null
+                && completion.getTutorStudent().getLinkedParentUser().getId().equals(caller.userId());
+        if (!isSessionOwner && !isLinkedParent) {
+            throw ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404);
+        }
         return StoryCompletionDetail.of(completion);
     }
 }

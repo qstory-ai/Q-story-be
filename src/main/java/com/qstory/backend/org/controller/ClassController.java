@@ -9,12 +9,14 @@ import com.qstory.backend.org.dto.ClassMemberResponse;
 import com.qstory.backend.org.dto.ClassResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
 import com.qstory.backend.org.dto.JoinClassRequest;
+import com.qstory.backend.org.dto.JoinExistingClassRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -74,5 +76,18 @@ public class ClassController {
     @ResponseStatus(HttpStatus.CREATED)
     public AuthResponse join(@RequestBody JoinClassRequest request) {
         return service.join(request);
+    }
+
+    @Operation(summary = "Join a class with an existing parent account",
+            description = "PARENT only. Links the signed-in account to one class using exactly one of classCode or inviteToken, then returns a refreshed JWT with the new organization/class claims.")
+    @PostMapping("/v1/classes/join-existing")
+    public AuthResponse joinExisting(@RequestBody JoinExistingClassRequest request) {
+        return service.joinExistingParent(currentUserResolver.requireRole(Role.PARENT), request);
+    }
+
+    @Operation(summary = "Leave the current institutional class", description = "PARENT only. Clears the current class and organization relationship, then returns a fresh JWT so the same account can join another class.")
+    @DeleteMapping("/v1/classes/membership")
+    public AuthResponse leaveMembership() {
+        return service.leaveExistingParent(currentUserResolver.requireRole(Role.PARENT));
     }
 }

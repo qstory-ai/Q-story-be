@@ -39,4 +39,8 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
 
     /** 기관 전체 최근 완주 목록 - 이용 현황 최근 활동 카드용. */
     List<StoryCompletion> findByUser_Organization_IdOrderByCompletedAtDesc(UUID organizationId, Pageable pageable);
+
+    /** Full organization aggregate report. The graph prevents one query per completion/class membership. */
+    @EntityGraph(attributePaths = {"classGroup"})
+    List<StoryCompletion> findByOrganization_IdOrderByCompletedAtDesc(UUID organizationId);
 }

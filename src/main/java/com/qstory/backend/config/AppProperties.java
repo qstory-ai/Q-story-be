@@ -12,7 +12,16 @@ public record AppProperties(
         Providers providers,
         Supabase supabase,
         Admin admin,
-        Auth auth) {
+        Auth auth,
+        Payments payments) {
+
+    public record Payments(Toss toss) {}
+
+    public record Toss(String secretKey, int parentMonthlyAmount, int organizationMonthlyAmount, int accessDays) {
+        public boolean configured() {
+            return secretKey != null && !secretKey.isBlank();
+        }
+    }
 
     public record Admin(String storyImportToken) {
         public boolean storyImportTokenConfigured() {
@@ -76,6 +85,7 @@ public record AppProperties(
             String shadowAssetsBucket,
             String storyAudioBucket,
             String storyImageBucket,
+            String profileImageBucket,
             String voiceResearchCleanupToken) {
         public boolean configured() {
             return url != null && !url.isBlank()
