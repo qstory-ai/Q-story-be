@@ -64,6 +64,15 @@ public class Lesson {
     @Column(name = "scheduled_at")
     private Instant scheduledAt;
 
+    /**
+     * 정기 수업 제출 한 번(N개의 개별 create 호출)이 공유하는 클라이언트 생성 UUID - 단발성
+     * 수업은 null. "이 수업만" vs "향후 모든 수업"을 구분해 수정하려면 같은 시리즈의 형제
+     * lesson들을 찾을 수 있어야 하는데, 이 컬럼이 그 유일한 연결고리다(041-lesson-series.sql
+     * 참고). 서버는 값을 생성하지 않고 그대로 저장만 한다.
+     */
+    @Column(name = "series_id")
+    private UUID seriesId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default

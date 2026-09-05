@@ -16,6 +16,9 @@ public interface LessonRepository extends JpaRepository<Lesson, UUID> {
 
     Optional<Lesson> findByIdAndTutor_Id(UUID id, UUID tutorId);
 
+    /** "향후 모든 수업 수정" 대상 조회 - 아직 안 지난(SCHEDULED) 같은 시리즈의 형제들. */
+    List<Lesson> findBySeriesIdAndTutor_IdAndStatus(UUID seriesId, UUID tutorId, LessonStatus status);
+
     /** LessonReminderScheduler 전용 - 아직 시작 안 한(SCHEDULED) 수업 중 곧 시작하는 것들. */
     List<Lesson> findByStatusAndScheduledAtBetween(LessonStatus status, Instant from, Instant to);
 }

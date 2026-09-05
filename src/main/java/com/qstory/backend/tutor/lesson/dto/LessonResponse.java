@@ -22,7 +22,9 @@ public record LessonResponse(
         List<StudentSummary> students,
         List<String> storyIds,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        /** null이면 단발성 - 클라이언트는 이 값의 존재 여부로 "향후 모든 수업 수정" 선택지를 보여준다. */
+        UUID seriesId) {
 
     public record StudentSummary(UUID id, String name, String ageBand, String status) {
         public static StudentSummary of(TutorStudent student) {
@@ -45,6 +47,7 @@ public record LessonResponse(
                 students,
                 stories,
                 lesson.getCreatedAt(),
-                lesson.getUpdatedAt());
+                lesson.getUpdatedAt(),
+                lesson.getSeriesId());
     }
 }
