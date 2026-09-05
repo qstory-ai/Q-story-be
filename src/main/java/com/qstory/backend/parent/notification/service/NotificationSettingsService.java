@@ -45,10 +45,14 @@ public class NotificationSettingsService {
                     return NotificationSettings.builder()
                             .user(user)
                             .marketingEnabled(true)
+                            .lessonReminderEnabled(true)
+                            .lessonReportEnabled(true)
                             .updatedAt(Instant.now())
                             .build();
                 });
         if (request.marketingEnabled() != null) settings.setMarketingEnabled(request.marketingEnabled());
+        if (request.lessonReminderEnabled() != null) settings.setLessonReminderEnabled(request.lessonReminderEnabled());
+        if (request.lessonReportEnabled() != null) settings.setLessonReportEnabled(request.lessonReportEnabled());
         settings.setUpdatedAt(Instant.now());
         return NotificationSettingsResponse.of(repository.save(settings));
     }

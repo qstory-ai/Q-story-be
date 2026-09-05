@@ -4,8 +4,10 @@ import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.notification.entity.Notification;
 import com.qstory.backend.notification.repository.NotificationRepository;
+import com.qstory.backend.parent.notification.repository.NotificationSettingsRepository;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,13 +27,23 @@ public class NotificationPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationPublisher.class);
 
+    // kind → notification_settings의 어느 토글이 이 kind를 관장하는지. 여기 없는 kind(초대 수락
+    // 등 계정 이벤트류)는 끌 수 없는 알림으로 취급해 항상 보낸다 - marketing_enabled처럼 아직
+    // 아무 발신자도 안 걸려 있는 토글은 이 표에 넣을 이유가 없다(발신자가 생기면 그때 추가).
+    private static final Set<String> LESSON_REMINDER_KINDS = Set.of("lesson-reminder");
+    private static final Set<String> LESSON_REPORT_KINDS = Set.of("tutor-report", "lesson-report");
+
     private final NotificationRepository notificationRepository;
     private final AppUserRepository userRepository;
+    private final NotificationSettingsRepository notificationSettingsRepository;
 
     public NotificationPublisher(
-            NotificationRepository notificationRepository, AppUserRepository userRepository) {
+            NotificationRepository notificationRepository,
+            AppUserRepository userRepository,
+            NotificationSettingsRepository notificationSettingsRepository) {
         this.notificationRepository = notificationRepository;
         this.userRepository = userRepository;
+        this.notificationSettingsRepository = notificationSettingsRepository;
     }
 
     /**
@@ -45,6 +57,10 @@ public class NotificationPublisher {
     @Transactional
     public void publish(
             UUID userId, String kind, String title, String body, String href, String dedupKey) {
+        if (!isEnabled(userId, kind)) {
+            log.debug("notification.settings-skip userId={} kind={}", userId, kind);
+            return;
+        }
         if (dedupKey != null) {
             Optional<Notification> existing =
                     notificationRepository.findByUser_IdAndDedupKey(userId, dedupKey);
@@ -65,5 +81,24 @@ public class NotificationPublisher {
                 .dedupKey(dedupKey)
                 .build());
         log.debug("notification.published id={} userId={} kind={}", saved.getId(), userId, kind);
+    }
+
+    /**
+     * kind가 LESSON_REMINDER_KINDS/LESSON_REPORT_KINDS에 속하면 그 사용자의 해당 토글을 따르고,
+     * 아직 preference 행이 없으면(가입 직후) 기본값 true로 간주한다(마이그레이션 DEFAULT와 일치).
+     * 표에 없는 kind는 끌 수 없는 알림으로 취급해 항상 true.
+     */
+    private boolean isEnabled(UUID userId, String kind) {
+        if (LESSON_REMINDER_KINDS.contains(kind)) {
+            return notificationSettingsRepository.findById(userId)
+                    .map(settings -> settings.isLessonReminderEnabled())
+                    .orElse(true);
+        }
+        if (LESSON_REPORT_KINDS.contains(kind)) {
+            return notificationSettingsRepository.findById(userId)
+                    .map(settings -> settings.isLessonReportEnabled())
+                    .orElse(true);
+        }
+        return true;
     }
 }

@@ -53,6 +53,16 @@ public class NotificationSettings {
     @Builder.Default
     private boolean marketingEnabled = true;
 
+    /** 수업 시작 30분 전 알림(LessonReminderScheduler). 기본값 true(opt-in). */
+    @Column(name = "lesson_reminder_enabled", nullable = false)
+    @Builder.Default
+    private boolean lessonReminderEnabled = true;
+
+    /** 수업/세션 완료 → 리포트 도착 알림(StoryCompletionService, LessonService). 기본값 true(opt-in). */
+    @Column(name = "lesson_report_enabled", nullable = false)
+    @Builder.Default
+    private boolean lessonReportEnabled = true;
+
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 }

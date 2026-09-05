@@ -5,6 +5,7 @@ import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
+import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.tutor.entity.TutorStudent;
 import com.qstory.backend.tutor.lesson.LessonStatus;
 import com.qstory.backend.tutor.lesson.dto.CreateLessonRequest;
@@ -35,14 +36,17 @@ public class LessonService {
     private final LessonRepository lessonRepository;
     private final TutorStudentRepository tutorStudentRepository;
     private final AppUserRepository userRepository;
+    private final NotificationPublisher notificationPublisher;
 
     public LessonService(
             LessonRepository lessonRepository,
             TutorStudentRepository tutorStudentRepository,
-            AppUserRepository userRepository) {
+            AppUserRepository userRepository,
+            NotificationPublisher notificationPublisher) {
         this.lessonRepository = lessonRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.userRepository = userRepository;
+        this.notificationPublisher = notificationPublisher;
     }
 
     @Transactional(readOnly = true)
@@ -123,7 +127,28 @@ public class LessonService {
         lesson.setStatus(LessonStatus.COMPLETED);
         lesson.setCompletedAt(now);
         lesson.setUpdatedAt(now);
-        return LessonResponse.of(lessonRepository.save(lesson));
+        Lesson saved = lessonRepository.save(lesson);
+        notifyParentsOfCompletion(saved);
+        return LessonResponse.of(saved);
+    }
+
+    // 이 수업이 실제로 앱 리더로 진행됐다면 StoryCompletionService가 이미 "tutor-report" 알림을
+    // 보냈을 것이다(그쪽은 실제 완주 이벤트를 정확히 알지만, 이 Lesson과의 연결고리는 없다) - 이
+    // 알림은 그 경로를 안 거치는 경우(오프라인/가정방문 수업을 튜터가 여기서만 완료 처리하는 경우)
+    // 까지 부모에게 신호를 주기 위한 별도 kind("lesson-report")다. 같은 날 둘 다 발생하면 알림이
+    // 두 번 갈 수 있는데, 서로 다른 이벤트를 가리키는 별개 알림이라 감수하기로 했다.
+    private void notifyParentsOfCompletion(Lesson lesson) {
+        for (TutorStudent student : lesson.getStudents()) {
+            AppUser parent = student.getLinkedParentUser();
+            if (parent == null) continue;
+            notificationPublisher.publish(
+                    parent.getId(),
+                    "lesson-report",
+                    student.getName() + "의 [" + lesson.getName() + "] 수업이 끝났어요",
+                    "리포트에서 오늘 수업 기록을 확인해 보세요.",
+                    "/reports",
+                    "lesson-report:" + lesson.getId() + ":" + student.getId());
+        }
     }
 
     @Transactional
