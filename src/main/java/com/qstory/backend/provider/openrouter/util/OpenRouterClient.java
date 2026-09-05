@@ -332,6 +332,7 @@ public class OpenRouterClient {
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
                 boolean detailPresent = readErrorDetail(response.body()) != null;
+                logProviderHttpFailure("generateCompanionReply", response.statusCode(), response.body());
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_RESPONSE_FAILED,
                         detailPresent ? "아이의 말에 답을 준비하지 못했어요." : "AI 응답 서버에 연결하지 못했어요.",
@@ -496,7 +497,7 @@ public class OpenRouterClient {
             HttpRequest httpRequest = buildSpeechHttpRequest(text, voice, speed, deadline);
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
-                logTtsFailure("synthesize", response.statusCode(), response.body());
+                logProviderHttpFailure("synthesize", response.statusCode(), response.body());
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_TTS_FAILED, "답변 음성을 만들지 못했어요.", response.statusCode() >= 429);
             }
@@ -531,7 +532,7 @@ public class OpenRouterClient {
             if (response.statusCode() / 100 != 2) {
                 byte[] bodySnippet = response.body().readNBytes(FAILURE_BODY_LOG_LIMIT);
                 response.body().close();
-                logTtsFailure("synthesizeStream", response.statusCode(), bodySnippet);
+                logProviderHttpFailure("synthesizeStream", response.statusCode(), bodySnippet);
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_TTS_FAILED, "답변 음성을 만들지 못했어요.", response.statusCode() >= 429);
             }
@@ -559,18 +560,21 @@ public class OpenRouterClient {
     }
 
     /**
-     * TTS 호출이 2xx가 아닌 상태로 실패했을 때 실제 원인을 서버 로그에 남긴다 - 사용자에게는 항상
-     * 안전한 고정 문구("답변 음성을 만들지 못했어요")만 내려가므로, 이 로그가 없으면 429 미만
-     * (예: 401/403/400 - 잘못된 키, voice 값, 요청 형식)로 실패했는지조차 운영 중엔 알 방법이 없다.
-     * API 키는 헤더에만 실리고 본문에는 없으므로 응답 본문을 그대로 남겨도 새지 않는다.
+     * OpenRouter 호출(TTS/채팅완성/이미지 생성 전부 공유)이 2xx가 아닌 상태로 실패했을 때 실제
+     * 원인을 서버 로그에 남긴다 - 사용자에게는 항상 안전한 고정 문구만 내려가므로, 이 로그가
+     * 없으면 429 미만(예: 401/403/400 - 잘못된 키, 잘못된 파라미터, 요청 형식)으로 실패했는지조차
+     * 운영 중엔 알 방법이 없다. API 키는 헤더에만 실리고 본문에는 없으므로 응답 본문을 그대로
+     * 남겨도 새지 않는다. 태그(openrouter-http.failed)를 모든 호출 지점이 공유하므로, Grafana에서
+     * `{app="qstory-backend"} |= "openrouter-http.failed"` 하나로 TTS/채팅완성/이미지 생성 실패를
+     * 전부 모아 볼 수 있다.
      */
-    private void logTtsFailure(String context, int statusCode, byte[] responseBody) {
+    private void logProviderHttpFailure(String context, int statusCode, byte[] responseBody) {
         String bodySnippet = new String(responseBody, StandardCharsets.UTF_8);
         if (bodySnippet.length() > FAILURE_BODY_LOG_LIMIT) {
             bodySnippet = bodySnippet.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)";
         }
         log.warn(
-                "openrouter-tts.failed context={} status={} retryable={} responseBody={}",
+                "openrouter-http.failed context={} status={} retryable={} responseBody={}",
                 context, statusCode, statusCode >= 429, bodySnippet);
     }
 
@@ -625,6 +629,7 @@ public class OpenRouterClient {
                     .build();
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
+                logProviderHttpFailure("generateStructuredCompletion:" + schemaName, response.statusCode(), response.body());
                 throw new ProviderException(
                         failureCode, failureSafeDetail, response.statusCode() == 400 || response.statusCode() >= 429);
             }
@@ -684,6 +689,7 @@ public class OpenRouterClient {
                     .build();
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
+                logProviderHttpFailure("generateImage", response.statusCode(), response.body());
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_IMAGE_FAILED, "삽화를 만들지 못했어요.", response.statusCode() >= 429);
             }

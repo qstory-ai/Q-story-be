@@ -27,6 +27,13 @@ dependencies {
 
     runtimeOnly 'org.postgresql:postgresql'
 
+    // Grafana Cloud Loki 로그 전송 - logback-spring.xml의 LOKI appender가 이걸로 동작한다.
+    // LOKI_URL이 설정 안 됐으면(로컬/CI) 그 appender 자체가 안 만들어지므로 이 의존성은 로드만 되고
+    // 아무 것도 안 한다.
+    implementation 'com.github.loki4j:loki-logback-appender:2.0.3'
+    // logback-spring.xml의 <if>/<then> 조건부 설정(LOKI_URL 존재 여부로 appender 유무 결정)에 필요.
+    runtimeOnly 'org.codehaus.janino:janino'
+
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 

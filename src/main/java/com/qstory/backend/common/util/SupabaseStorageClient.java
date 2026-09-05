@@ -10,6 +10,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -19,6 +21,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class SupabaseStorageClient {
+
+    private static final Logger log = LoggerFactory.getLogger(SupabaseStorageClient.class);
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -46,8 +50,13 @@ public class SupabaseStorageClient {
                     .POST(HttpRequest.BodyPublishers.ofByteArray(content))
                     .build();
             HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-            return response.statusCode() / 100 == 2;
+            boolean ok = response.statusCode() / 100 == 2;
+            if (!ok) {
+                log.warn("supabase-storage.upload-failed bucket={} object={} status={}", bucket, objectName, response.statusCode());
+            }
+            return ok;
         } catch (java.io.IOException | InterruptedException error) {
+            log.warn("supabase-storage.upload-error bucket={} object={}", bucket, objectName, error);
             return false;
         }
     }
@@ -75,12 +84,14 @@ public class SupabaseStorageClient {
                     .build();
             HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
+                log.warn("supabase-storage.sign-failed bucket={} object={} status={}", bucket, objectName, response.statusCode());
                 return null;
             }
             JsonNode payload = objectMapper.readTree(response.body());
             String signedPath = payload.path("signedURL").asText(null);
             return signedPath == null ? null : baseUrl + "/storage/v1" + signedPath;
         } catch (Exception error) {
+            log.warn("supabase-storage.sign-error bucket={} object={}", bucket, objectName, error);
             return null;
         }
     }
@@ -93,8 +104,13 @@ public class SupabaseStorageClient {
                     .DELETE()
                     .build();
             HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-            return response.statusCode() / 100 == 2 || response.statusCode() == 404;
+            boolean ok = response.statusCode() / 100 == 2 || response.statusCode() == 404;
+            if (!ok) {
+                log.warn("supabase-storage.delete-failed bucket={} object={} status={}", bucket, objectName, response.statusCode());
+            }
+            return ok;
         } catch (java.io.IOException | InterruptedException error) {
+            log.warn("supabase-storage.delete-error bucket={} object={}", bucket, objectName, error);
             return false;
         }
     }

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  기본 콘솔 로그(Railway가 이미 그대로 수집)는 그대로 두고, LOKI_URL 환경변수가 있을 때만 Grafana
+  Cloud Loki로도 같은 로그를 실시간 전송한다(loki4j). LOKI_URL이 없으면(로컬 개발/CI) <if> 블록이
+  통째로 건너뛰어져서 콘솔 로그만 남는 지금까지의 동작과 완전히 동일하다 - 로컬 개발 경험은
+  바뀌지 않는다.
+
+  Grafana Cloud에서 LOKI_URL/LOKI_USERNAME/LOKI_API_KEY 얻는 법: Grafana Cloud 콘솔 ->
+  Connections -> Data sources -> Loki -> Details 탭에 셋 다 나온다(url은 .../loki/api/v1/push
+  까지 붙여야 함). Railway 백엔드 서비스의 환경변수로 등록하면 다음 배포부터 바로 전송 시작.
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <springProperty scope="context" name="appEnv" source="spring.profiles.active" defaultValue="local"/>
+
+    <if condition='isDefined("LOKI_URL")'>
+        <then>
+            <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+                <!-- app/env/level만 label로 둔다 - Loki는 label마다 별도 스트림을 만들어 색인하므로,
+                     카디널리티 낮은 값만 label로 쓰고 나머지(logger, 메시지 본문)는 로그 라인
+                     자체에 남겨 LogQL의 |= / |~ 로 검색하게 한다. -->
+                <labels>
+                    app = qstory-backend
+                    env = ${appEnv}
+                    level = %level
+                </labels>
+                <message>
+                    <pattern>%d{ISO8601} [%thread] %logger{36} - %msg%n%ex</pattern>
+                </message>
+                <http>
+                    <url>${LOKI_URL}</url>
+                    <auth>
+                        <username>${LOKI_USERNAME:-}</username>
+                        <password>${LOKI_API_KEY:-}</password>
+                    </auth>
+                    <!-- Grafana Cloud는 요청당 페이로드 상한이 있어 표준 Loki 기본값(4MB)보다 훨씬
+                         작게, 그리고 지연에 여유를 둔다(loki4j 공식 Grafana Cloud 가이드 권장값). -->
+                    <requestTimeoutMs>15000</requestTimeoutMs>
+                </http>
+                <batch>
+                    <maxBytes>65536</maxBytes>
+                </batch>
+            </appender>
+            <root level="INFO">
+                <appender-ref ref="CONSOLE"/>
+                <appender-ref ref="LOKI"/>
+            </root>
+        </then>
+        <else>
+            <root level="INFO">
+                <appender-ref ref="CONSOLE"/>
+            </root>
+        </else>
+    </if>
+</configuration>
