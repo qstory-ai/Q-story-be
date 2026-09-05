@@ -60,9 +60,15 @@ qstory:
       # Phase 2 3단계 파이프라인의 1단계(safety_scope_gate) 전용 - 빠르고 저렴한 모델. 별도로
       # 지정하지 않으면 llm-model과 같은 모델을 쓰도록 기본값을 llm-model에 겹쳐 둔다(동작 변화 없음).
       safety-model: ${OPENROUTER_SAFETY_MODEL:${OPENROUTER_LLM_MODEL:google/gemini-3.6-flash}}
-      tts-model: ${OPENROUTER_TTS_MODEL:google/gemini-3.1-flash-tts-preview}
-      tts-voice: ${OPENROUTER_TTS_VOICE:Sulafat}
       image-model: ${OPENROUTER_IMAGE_MODEL:google/gemini-3.1-flash-image}
+    # TTS는 OpenRouter를 거치지 않고 Gemini의 Interactions API(generativelanguage.googleapis.com)를
+    # 직접 호출한다 - google/gemini-3.1-flash-tts-preview는 OpenRouter 모델 카탈로그에 없어서(직접
+    # 조회로 확인) OpenRouter 경유로는 매번 OPENROUTER_TTS_FAILED로 실패했다. Sulafat 등 프리셋
+    # 목소리 이름도 Gemini 자체 API 전용이라 OpenRouter의 다른 provider에서는 통하지 않는다.
+    gemini:
+      api-key: ${GEMINI_API_KEY:}
+      tts-model: ${GEMINI_TTS_MODEL:gemini-3.1-flash-tts-preview}
+      tts-voice: ${GEMINI_TTS_VOICE:Sulafat}
     oauth:
       # 둘 다 "비밀값"이 아니다 - client-id/app-id는 프론트 SDK 초기화에도 그대로 노출되는
       # 공개 식별자다(실제 시크릿은 아래 verifier들이 provider의 토큰 검증 엔드포인트만 호출해서

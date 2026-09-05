@@ -10,7 +10,7 @@ import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.provider.openrouter.SynthesizedAudio;
 import com.qstory.backend.provider.ProviderReadiness;
-import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
+import com.qstory.backend.provider.gemini.util.GeminiTtsClient;
 import com.qstory.backend.story.entity.StoryAsset;
 import com.qstory.backend.story.entity.StorySegment;
 import com.qstory.backend.story.repository.StoryAssetRepository;
@@ -43,7 +43,7 @@ public class NarrationRerenderService {
 
     private final StorySegmentRepository segmentRepository;
     private final StoryAssetRepository assetRepository;
-    private final OpenRouterClient openRouterClient;
+    private final GeminiTtsClient geminiTtsClient;
     private final VoiceCastService voiceCastService;
     private final SupabaseStorageClient storageClient;
     private final StoryRevisionService revisionService;
@@ -52,14 +52,14 @@ public class NarrationRerenderService {
     public NarrationRerenderService(
             StorySegmentRepository segmentRepository,
             StoryAssetRepository assetRepository,
-            OpenRouterClient openRouterClient,
+            GeminiTtsClient geminiTtsClient,
             VoiceCastService voiceCastService,
             SupabaseStorageClient storageClient,
             StoryRevisionService revisionService,
             AppProperties config) {
         this.segmentRepository = segmentRepository;
         this.assetRepository = assetRepository;
-        this.openRouterClient = openRouterClient;
+        this.geminiTtsClient = geminiTtsClient;
         this.voiceCastService = voiceCastService;
         this.storageClient = storageClient;
         this.revisionService = revisionService;
@@ -115,7 +115,7 @@ public class NarrationRerenderService {
         var cast = voiceCastService.voiceCastForSpeaker(storyId, speaker);
         String ttsInput = voiceCastService.buildGeminiTtsPerformanceInput(storyId, speaker, written);
 
-        SynthesizedAudio audio = openRouterClient.synthesize(
+        SynthesizedAudio audio = geminiTtsClient.synthesize(
                 ttsInput, cast.voice(), 1.0, RequestDeadline.startingNow(config.requestTimeoutMs()));
 
         // 렌더링된 클립은 자신이 대체하는 파일의 slug가 아니라 segment id로 주소가 지정된다:

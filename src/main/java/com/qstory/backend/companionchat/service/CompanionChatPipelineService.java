@@ -10,6 +10,7 @@ import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.provider.ProviderReadiness;
 import com.qstory.backend.provider.audio.NormalizedAudio;
 import com.qstory.backend.provider.audio.service.AudioNormalizer;
+import com.qstory.backend.provider.gemini.util.GeminiTtsClient;
 import com.qstory.backend.provider.openrouter.SynthesizedAudio;
 import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
 import com.qstory.backend.provider.rtzr.RtzrTranscriptionResult;
@@ -26,7 +27,7 @@ import org.springframework.stereotype.Service;
 /**
  * 구조적으로는 QuestionPipelineService.respondToTranscript와 쌍둥이 - LLM 호출 한 번, TTS 호출
  * 한 번 - 이지만 앵커와 무관하며 anchors/families/options는 절대 반환하지 않고 응답과 그
- * 오디오만 반환한다.
+ * 오디오만 반환한다. LLM 라우팅은 여전히 OpenRouter, TTS는 GeminiTtsClient(직접 호출)로 나뉜다.
  */
 @Service
 public class CompanionChatPipelineService {
@@ -35,17 +36,19 @@ public class CompanionChatPipelineService {
     private final AudioNormalizer normalizer;
     private final RtzrSttClient sttClient;
     private final OpenRouterClient openRouterClient;
+    private final GeminiTtsClient geminiTtsClient;
     private final VoiceCastService voiceCastService;
     private final CompanionChatTurnRepository turnRepository;
 
     public CompanionChatPipelineService(
             AppProperties config, AudioNormalizer normalizer, RtzrSttClient sttClient,
-            OpenRouterClient openRouterClient, VoiceCastService voiceCastService,
+            OpenRouterClient openRouterClient, GeminiTtsClient geminiTtsClient, VoiceCastService voiceCastService,
             CompanionChatTurnRepository turnRepository) {
         this.config = config;
         this.normalizer = normalizer;
         this.sttClient = sttClient;
         this.openRouterClient = openRouterClient;
+        this.geminiTtsClient = geminiTtsClient;
         this.voiceCastService = voiceCastService;
         this.turnRepository = turnRepository;
     }
@@ -130,7 +133,7 @@ public class CompanionChatPipelineService {
             var cast = voiceCastService.voiceCastForSpeaker(context.story().storyId(), reply.speakerId());
             String ttsInput = voiceCastService.buildGeminiTtsPerformanceInput(
                     context.story().storyId(), reply.speakerId(), reply.responseText());
-            generatedAudio = openRouterClient.synthesize(ttsInput, cast.voice(), 1.0, deadline);
+            generatedAudio = geminiTtsClient.synthesize(ttsInput, cast.voice(), 1.0, deadline);
         } catch (ProviderException error) {
             ttsFailureCode = error.code().name();
         } catch (AbortException abort) {

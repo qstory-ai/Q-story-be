@@ -6,7 +6,7 @@ import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.provider.ProviderReadiness;
-import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
+import com.qstory.backend.provider.gemini.util.GeminiTtsClient;
 import com.qstory.backend.provider.openrouter.SynthesizedAudio;
 import com.qstory.backend.provider.openrouter.SynthesizedAudioStream;
 import com.qstory.backend.question.dto.AudioPayload;
@@ -22,12 +22,12 @@ import org.springframework.stereotype.Service;
 public class NarrationPipelineService {
 
     private final AppProperties config;
-    private final OpenRouterClient openRouterClient;
+    private final GeminiTtsClient geminiTtsClient;
     private final VoiceCastService voiceCastService;
 
-    public NarrationPipelineService(AppProperties config, OpenRouterClient openRouterClient, VoiceCastService voiceCastService) {
+    public NarrationPipelineService(AppProperties config, GeminiTtsClient geminiTtsClient, VoiceCastService voiceCastService) {
         this.config = config;
-        this.openRouterClient = openRouterClient;
+        this.geminiTtsClient = geminiTtsClient;
         this.voiceCastService = voiceCastService;
     }
 
@@ -38,7 +38,7 @@ public class NarrationPipelineService {
         CastEntry cast = context.cast();
         try {
             String ttsInput = voiceCastService.buildGeminiTtsPerformanceInput(storyId, speakerId, text);
-            SynthesizedAudio generated = openRouterClient.synthesize(ttsInput, cast.voice(), 1.0, deadline);
+            SynthesizedAudio generated = geminiTtsClient.synthesize(ttsInput, cast.voice(), 1.0, deadline);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("ok", true);
             result.put("text", text);
@@ -61,7 +61,7 @@ public class NarrationPipelineService {
         CastEntry cast = context.cast();
         try {
             String ttsInput = voiceCastService.buildGeminiTtsPerformanceInput(storyId, speakerId, text);
-            SynthesizedAudioStream generated = openRouterClient.synthesizeStream(ttsInput, cast.voice(), 1.0, deadline);
+            SynthesizedAudioStream generated = geminiTtsClient.synthesizeStream(ttsInput, cast.voice(), 1.0, deadline);
             return new StreamResult(true, null, generated);
         } catch (AbortException abort) {
             return new StreamResult(false, failure(ProviderErrorCode.NARRATION_TIMEOUT, "캐릭터 음성을 기다리는 시간이 길어졌어요."), null);

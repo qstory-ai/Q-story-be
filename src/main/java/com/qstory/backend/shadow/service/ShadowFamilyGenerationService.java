@@ -15,6 +15,7 @@ import com.qstory.backend.common.util.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.familydraft.util.FamilyDraftHarness;
 import com.qstory.backend.provider.ProviderReadiness;
+import com.qstory.backend.provider.gemini.util.GeminiTtsClient;
 import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
 import com.qstory.backend.shadow.entity.ShadowFamilyDraft;
 import com.qstory.backend.shadow.entity.ShadowIntentCandidate;
@@ -85,6 +86,7 @@ public class ShadowFamilyGenerationService {
     private final ShadowIntentRepository candidateRepository;
     private final ShadowFamilyDraftRepository draftRepository;
     private final OpenRouterClient openRouterClient;
+    private final GeminiTtsClient geminiTtsClient;
     private final SupabaseStorageClient storageClient;
     private final ObjectMapper objectMapper;
     private final AppProperties config;
@@ -92,11 +94,12 @@ public class ShadowFamilyGenerationService {
 
     public ShadowFamilyGenerationService(
             ShadowIntentRepository candidateRepository, ShadowFamilyDraftRepository draftRepository,
-            OpenRouterClient openRouterClient, SupabaseStorageClient storageClient, ObjectMapper objectMapper,
-            AppProperties config, FamilyDraftHarness harness) {
+            OpenRouterClient openRouterClient, GeminiTtsClient geminiTtsClient, SupabaseStorageClient storageClient,
+            ObjectMapper objectMapper, AppProperties config, FamilyDraftHarness harness) {
         this.candidateRepository = candidateRepository;
         this.draftRepository = draftRepository;
         this.openRouterClient = openRouterClient;
+        this.geminiTtsClient = geminiTtsClient;
         this.storageClient = storageClient;
         this.objectMapper = objectMapper;
         this.config = config;
@@ -152,8 +155,8 @@ public class ShadowFamilyGenerationService {
         OpenRouterClient.GeneratedImage image = openRouterClient.generateImage(
                 buildImagePrompt(draft), referenceBytes, "image/jpeg", freshDeadline());
         String narrationText = narrationPreviewText(draft);
-        var audio = openRouterClient.synthesize(
-                narrationText, config.providers().openRouter().ttsVoice(), 1.0, freshDeadline());
+        var audio = geminiTtsClient.synthesize(
+                narrationText, config.providers().gemini().ttsVoice(), 1.0, freshDeadline());
 
         String imageExtension = switch (image.mimeType()) {
             case "image/png" -> "png";
@@ -191,7 +194,7 @@ public class ShadowFamilyGenerationService {
         entity.setPromptVersion(PROMPT_VERSION);
         entity.setLlmModel(config.providers().openRouter().llmModel());
         entity.setImageModel(config.providers().openRouter().imageModel());
-        entity.setTtsModel(config.providers().openRouter().ttsModel());
+        entity.setTtsModel(config.providers().gemini().ttsModel());
         entity.setGeneratedAt(Instant.now());
         // 제품 결정: 사람 검수 없이 위 자동 게이트(reviewGateIssues) 통과만으로 바로 승인한다.
         entity.setReviewStatus(ReviewStatus.APPROVED);

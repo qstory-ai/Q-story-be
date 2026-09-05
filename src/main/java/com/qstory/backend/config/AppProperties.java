@@ -35,7 +35,7 @@ public record AppProperties(
         }
     }
 
-    public record Providers(Rtzr rtzr, OpenRouter openRouter, Oauth oauth) {}
+    public record Providers(Rtzr rtzr, OpenRouter openRouter, Gemini gemini, Oauth oauth) {}
 
     public record Rtzr(String clientId, String clientSecret) {
         public boolean configured() {
@@ -59,18 +59,24 @@ public record AppProperties(
     }
 
     public record OpenRouter(
-            String apiKey, String llmModel, String safetyModel, String ttsModel, String ttsVoice,
-            String imageModel) {
+            String apiKey, String llmModel, String safetyModel, String imageModel) {
         public boolean llmConfigured() {
             return notBlank(apiKey) && notBlank(llmModel);
         }
 
-        public boolean ttsConfigured() {
-            return notBlank(apiKey) && notBlank(ttsModel) && notBlank(ttsVoice);
-        }
-
         public boolean imageConfigured() {
             return notBlank(apiKey) && notBlank(imageModel);
+        }
+
+        private static boolean notBlank(String value) {
+            return value != null && !value.isBlank();
+        }
+    }
+
+    /** TTS 전용 - OpenRouter 카탈로그에 없는 Gemini 자체 모델/목소리를 쓰므로 Gemini API를 직접 호출한다. */
+    public record Gemini(String apiKey, String ttsModel, String ttsVoice) {
+        public boolean ttsConfigured() {
+            return notBlank(apiKey) && notBlank(ttsModel) && notBlank(ttsVoice);
         }
 
         private static boolean notBlank(String value) {

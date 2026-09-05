@@ -1,6 +1,4 @@
 package com.qstory.backend.provider.openrouter.util;
-import com.qstory.backend.provider.openrouter.SynthesizedAudioStream;
-import com.qstory.backend.provider.openrouter.SynthesizedAudio;
 import com.qstory.backend.provider.openrouter.ContentGeneration;
 import com.qstory.backend.provider.openrouter.FewShotExample;
 import com.qstory.backend.provider.openrouter.RouteClassification;
@@ -18,7 +16,6 @@ import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.common.util.RequestDeadline;
-import com.qstory.backend.common.util.WavPcmUtil;
 import com.qstory.backend.story.ActionFamily;
 import com.qstory.backend.story.StoryContext;
 import java.net.URI;
@@ -32,7 +29,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/** providers/openrouter.mjs를 Java로 포팅한 것: chat/completions 라우트 플래닝 + audio/speech TTS(버퍼링 및 스트리밍). */
+/** providers/openrouter.mjs를 Java로 포팅한 것: chat/completions 라우트 플래닝 + 이미지 생성.
+ * TTS(audio/speech)는 더 이상 여기서 다루지 않는다 - google/gemini-*-tts-preview 모델이 OpenRouter
+ * 카탈로그에 없어서 GeminiTtsClient로 옮기고 generativelanguage.googleapis.com을 직접 호출한다. */
 @Component
 public class OpenRouterClient {
 
@@ -40,9 +39,6 @@ public class OpenRouterClient {
     private static final String BASE_URL = "https://openrouter.ai/api/v1";
     /** 진단 로그에 남길 실패 응답 본문의 최대 길이 - 전체를 남기면 로그가 지나치게 커질 수 있다. */
     private static final int FAILURE_BODY_LOG_LIMIT = 500;
-    private static final int PCM_SAMPLE_RATE = 24_000;
-    private static final int PCM_CHANNELS = 1;
-    private static final int PCM_BIT_DEPTH = 16;
 
     /** stage3(content_generator)의 옵션 개수 재시도 - JSON 스키마의 minItems/maxItems를 optionSlots에
      * 맞춰 만들어도 모델이 개수를 틀리게 반환할 수 있어(계획 문서가 명시한 한계), 검증 실패 시 피드백을
@@ -57,8 +53,6 @@ public class OpenRouterClient {
     private final String apiKey;
     private final String llmModel;
     private final String safetyModel;
-    private final String ttsModel;
-    private final String ttsVoice;
     private final String imageModel;
 
     public OpenRouterClient(
@@ -71,8 +65,6 @@ public class OpenRouterClient {
         this.apiKey = config.providers().openRouter().apiKey();
         this.llmModel = config.providers().openRouter().llmModel();
         this.safetyModel = config.providers().openRouter().safetyModel();
-        this.ttsModel = config.providers().openRouter().ttsModel();
-        this.ttsVoice = config.providers().openRouter().ttsVoice();
         this.imageModel = config.providers().openRouter().imageModel();
     }
 
@@ -492,73 +484,6 @@ public class OpenRouterClient {
                 "응답을 반환하기 전에 한국어 맞춤법·띄어쓰기와 말투 일치를 한 번 확인한다.");
     }
 
-    public SynthesizedAudio synthesize(String text, String voice, double speed, RequestDeadline deadline) {
-        try {
-            HttpRequest httpRequest = buildSpeechHttpRequest(text, voice, speed, deadline);
-            HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
-            if (response.statusCode() / 100 != 2) {
-                logProviderHttpFailure("synthesize", response.statusCode(), response.body());
-                throw new ProviderException(
-                        ProviderErrorCode.OPENROUTER_TTS_FAILED, "답변 음성을 만들지 못했어요.", response.statusCode() >= 429);
-            }
-            byte[] rawAudio = response.body();
-            if (rawAudio.length == 0) {
-                log.warn("openrouter-tts.empty-audio context=synthesize status={}", response.statusCode());
-                throw new ProviderException(ProviderErrorCode.OPENROUTER_TTS_EMPTY, "답변 음성이 비어 있어요.");
-            }
-            String responseMimeType = response.headers().firstValue("content-type").orElse("audio/pcm");
-            boolean isPcm = isPcmContentType(responseMimeType);
-            byte[] audio = isPcm
-                    ? WavPcmUtil.wrapPcmAsWav(rawAudio, PCM_SAMPLE_RATE, PCM_CHANNELS, PCM_BIT_DEPTH)
-                    : rawAudio;
-            return new SynthesizedAudio(
-                    audio, isPcm ? "audio/wav" : responseMimeType,
-                    response.headers().firstValue("x-generation-id").orElse(null));
-        } catch (ProviderException | AbortException known) {
-            throw known;
-        } catch (HttpTimeoutException timeout) {
-            throw new AbortException("request-timeout");
-        } catch (Exception error) {
-            throw new ProviderException(
-                    ProviderErrorCode.OPENROUTER_TTS_NETWORK_FAILED, "답변 음성 서버에 연결하지 못했어요.", true, error);
-        }
-    }
-
-    public SynthesizedAudioStream synthesizeStream(String text, String voice, double speed, RequestDeadline deadline) {
-        try {
-            HttpRequest httpRequest = buildSpeechHttpRequest(text, voice, speed, deadline);
-            HttpResponse<java.io.InputStream> response =
-                    httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
-            if (response.statusCode() / 100 != 2) {
-                byte[] bodySnippet = response.body().readNBytes(FAILURE_BODY_LOG_LIMIT);
-                response.body().close();
-                logProviderHttpFailure("synthesizeStream", response.statusCode(), bodySnippet);
-                throw new ProviderException(
-                        ProviderErrorCode.OPENROUTER_TTS_FAILED, "답변 음성을 만들지 못했어요.", response.statusCode() >= 429);
-            }
-            String responseMimeType = response.headers().firstValue("content-type").orElse("audio/pcm");
-            boolean isPcm = isPcmContentType(responseMimeType);
-            if (!isPcm) {
-                response.body().close();
-                log.warn(
-                        "openrouter-tts.invalid-stream-format context=synthesizeStream status={} contentType={}",
-                        response.statusCode(), responseMimeType);
-                throw new ProviderException(
-                        ProviderErrorCode.OPENROUTER_TTS_STREAM_INVALID, "스트리밍 음성 형식을 확인하지 못했어요.");
-            }
-            return new SynthesizedAudioStream(
-                    response.body(), "audio/pcm", PCM_SAMPLE_RATE, PCM_CHANNELS, PCM_BIT_DEPTH,
-                    response.headers().firstValue("x-generation-id").orElse(null));
-        } catch (ProviderException | AbortException known) {
-            throw known;
-        } catch (HttpTimeoutException timeout) {
-            throw new AbortException("request-timeout");
-        } catch (Exception error) {
-            throw new ProviderException(
-                    ProviderErrorCode.OPENROUTER_TTS_NETWORK_FAILED, "답변 음성 서버에 연결하지 못했어요.", true, error);
-        }
-    }
-
     /**
      * OpenRouter 호출(TTS/채팅완성/이미지 생성 전부 공유)이 2xx가 아닌 상태로 실패했을 때 실제
      * 원인을 서버 로그에 남긴다 - 사용자에게는 항상 안전한 고정 문구만 내려가므로, 이 로그가
@@ -742,30 +667,6 @@ public class OpenRouterClient {
             "http-referer", "https://q-story-f07-pilot.kaangaa.chatgpt.site",
             "x-openrouter-title", "Q-Story",
         };
-    }
-
-    private byte[] speechRequestBody(String text, String voice, double speed) {
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("model", ttsModel);
-        body.put("input", text);
-        body.put("voice", voice == null ? ttsVoice : voice);
-        body.put("response_format", "pcm");
-        body.put("speed", speed);
-        return body.toString().getBytes(StandardCharsets.UTF_8);
-    }
-
-    /** synthesize()/synthesizeStream()이 공유하는 /audio/speech 요청 조립. */
-    private HttpRequest buildSpeechHttpRequest(String text, String voice, double speed, RequestDeadline deadline) {
-        return deadline.applyTo(HttpRequest.newBuilder(URI.create(BASE_URL + "/audio/speech"))
-                        .headers(baseHeaders())
-                        .POST(HttpRequest.BodyPublishers.ofByteArray(speechRequestBody(text, voice, speed))))
-                .build();
-    }
-
-    /** synthesize()/synthesizeStream()이 공유하는, 응답 content-type으로부터 raw PCM 여부를 판별하는 로직. */
-    private boolean isPcmContentType(String contentType) {
-        return contentType.contains("pcm") || contentType.contains("L16")
-                || contentType.equals("application/octet-stream");
     }
 
     private String readErrorDetail(byte[] body) {

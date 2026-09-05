@@ -7,7 +7,7 @@ import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.provider.ProviderReadiness;
 import com.qstory.backend.provider.audio.service.AudioNormalizer;
 import com.qstory.backend.provider.audio.NormalizedAudio;
-import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
+import com.qstory.backend.provider.gemini.util.GeminiTtsClient;
 import com.qstory.backend.provider.openrouter.RouteDecision;
 import com.qstory.backend.provider.openrouter.SynthesizedAudio;
 import com.qstory.backend.provider.rtzr.util.RtzrSttClient;
@@ -38,18 +38,18 @@ public class QuestionPipelineService {
     private final AppProperties config;
     private final AudioNormalizer normalizer;
     private final RtzrSttClient sttClient;
-    private final OpenRouterClient openRouterClient;
+    private final GeminiTtsClient geminiTtsClient;
     private final QuestionRoutingService questionRoutingService;
     private final VoiceCastService voiceCastService;
 
     public QuestionPipelineService(
             AppProperties config, AudioNormalizer normalizer, RtzrSttClient sttClient,
-            OpenRouterClient openRouterClient, QuestionRoutingService questionRoutingService,
+            GeminiTtsClient geminiTtsClient, QuestionRoutingService questionRoutingService,
             VoiceCastService voiceCastService) {
         this.config = config;
         this.normalizer = normalizer;
         this.sttClient = sttClient;
-        this.openRouterClient = openRouterClient;
+        this.geminiTtsClient = geminiTtsClient;
         this.questionRoutingService = questionRoutingService;
         this.voiceCastService = voiceCastService;
     }
@@ -188,7 +188,7 @@ public class QuestionPipelineService {
                 var cast = voiceCastService.voiceCastForSpeaker(context.storyId(), decision.speakerId());
                 String ttsInput = voiceCastService.buildGeminiTtsPerformanceInput(
                         context.storyId(), decision.speakerId(), decision.responseText());
-                generatedAudio = openRouterClient.synthesize(ttsInput, cast.voice(), 1.0, deadline);
+                generatedAudio = geminiTtsClient.synthesize(ttsInput, cast.voice(), 1.0, deadline);
             } catch (ProviderException error) {
                 ttsFailureCode = error.code().name();
             } catch (AbortException abort) {

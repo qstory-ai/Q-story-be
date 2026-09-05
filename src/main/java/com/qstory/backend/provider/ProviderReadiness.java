@@ -8,7 +8,7 @@ public record ProviderReadiness(boolean stt, boolean llm, boolean tts, boolean i
         return new ProviderReadiness(
                 config.providers().rtzr().configured(),
                 config.providers().openRouter().llmConfigured(),
-                config.providers().openRouter().ttsConfigured(),
+                config.providers().gemini().ttsConfigured(),
                 config.providers().openRouter().imageConfigured());
     }
 }
