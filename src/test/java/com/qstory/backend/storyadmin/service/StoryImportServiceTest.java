@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.choicecopy.service.ChoiceCopyRegistry;
 import com.qstory.backend.common.enums.FamilyOrigin;
+import com.qstory.backend.languagepolicy.LanguagePolicyRepository;
 import com.qstory.backend.story.entity.Story;
 import com.qstory.backend.story.entity.StoryAnchor;
 import com.qstory.backend.story.entity.StoryAsset;
@@ -21,10 +22,13 @@ import com.qstory.backend.story.repository.StoryActionFamilyRepository;
 import com.qstory.backend.story.repository.StoryAnchorRepository;
 import com.qstory.backend.story.repository.StoryAssetRepository;
 import com.qstory.backend.story.repository.StoryCastRepository;
+import com.qstory.backend.story.repository.StoryDiscussionTopicRepository;
 import com.qstory.backend.story.repository.StoryFallbackSegmentRepository;
+import com.qstory.backend.story.repository.StoryPersonaRepository;
 import com.qstory.backend.story.repository.StoryRepository;
 import com.qstory.backend.story.repository.StorySceneRepository;
 import com.qstory.backend.story.repository.StorySegmentRepository;
+import com.qstory.backend.story.repository.StoryVisualProvenanceRepository;
 import com.qstory.backend.story.repository.StoryVisualReferencePackRepository;
 import com.qstory.backend.story.service.RoutePromptService;
 import com.qstory.backend.story.service.StoryContentAssemblyService;
@@ -60,12 +64,17 @@ class StoryImportServiceTest {
     private final StoryRegistry storyRegistry = mock(StoryRegistry.class);
     private final ChoiceCopyRegistry choiceCopyRegistry = mock(ChoiceCopyRegistry.class);
     private final StoryContentAssemblyService assemblyService = mock(StoryContentAssemblyService.class);
+    private final StoryPersonaRepository personaRepository = mock(StoryPersonaRepository.class);
+    private final StoryDiscussionTopicRepository discussionTopicRepository = mock(StoryDiscussionTopicRepository.class);
+    private final StoryVisualProvenanceRepository visualProvenanceRepository = mock(StoryVisualProvenanceRepository.class);
+    private final LanguagePolicyRepository languagePolicyRepository = mock(LanguagePolicyRepository.class);
 
     private final StoryImportService service = new StoryImportService(
             objectMapper, storyRepository, anchorRepository, familyRepository, castRepository, assetRepository,
             routePromptRepository, routePromptStageRepository, visualReferencePackRepository, routePromptService,
             revisionService, sceneRepository, segmentRepository,
-            fallbackSegmentRepository, storyRegistry, choiceCopyRegistry, assemblyService);
+            fallbackSegmentRepository, storyRegistry, choiceCopyRegistry, assemblyService,
+            personaRepository, discussionTopicRepository, visualProvenanceRepository, languagePolicyRepository);
 
     @Test
     void reimportPreservesLiveGeneratedFamilyAndItsAsset() throws Exception {

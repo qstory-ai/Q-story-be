@@ -9,15 +9,25 @@ import com.qstory.backend.common.enums.FamilyOrigin;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.JacksonConversion;
+import com.qstory.backend.languagepolicy.LanguageBannedWord;
+import com.qstory.backend.languagepolicy.LanguagePolicy;
+import com.qstory.backend.languagepolicy.LanguagePolicyRepository;
+import com.qstory.backend.story.entity.PersonaRelationship;
 import com.qstory.backend.story.entity.Story;
 import com.qstory.backend.story.entity.StoryActionFamily;
 import com.qstory.backend.story.entity.StoryAnchor;
 import com.qstory.backend.story.entity.StoryCast;
+import com.qstory.backend.story.entity.StoryDiscussionTopic;
 import com.qstory.backend.story.entity.StoryFallbackSegment;
+import com.qstory.backend.story.entity.StoryPersona;
 import com.qstory.backend.story.entity.StoryScene;
 import com.qstory.backend.story.entity.StorySegment;
+import com.qstory.backend.story.entity.StoryVisualProvenance;
 import com.qstory.backend.story.repository.StoryActionFamilyRepository;
 import com.qstory.backend.story.repository.StoryAnchorRepository;
+import com.qstory.backend.story.repository.StoryDiscussionTopicRepository;
+import com.qstory.backend.story.repository.StoryPersonaRepository;
+import com.qstory.backend.story.repository.StoryVisualProvenanceRepository;
 import com.qstory.backend.common.enums.AssetCategory;
 import com.qstory.backend.story.entity.StoryAsset;
 import com.qstory.backend.story.entity.RoutePrompt;
@@ -39,6 +49,7 @@ import com.qstory.backend.story.repository.StorySceneRepository;
 import com.qstory.backend.story.repository.StorySegmentRepository;
 import com.qstory.backend.story.service.StoryContentAssemblyService;
 import com.qstory.backend.story.service.StoryRegistry;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -83,6 +94,10 @@ public class StoryImportService {
     private final StoryRegistry storyRegistry;
     private final ChoiceCopyRegistry choiceCopyRegistry;
     private final StoryContentAssemblyService assemblyService;
+    private final StoryPersonaRepository personaRepository;
+    private final StoryDiscussionTopicRepository discussionTopicRepository;
+    private final StoryVisualProvenanceRepository visualProvenanceRepository;
+    private final LanguagePolicyRepository languagePolicyRepository;
 
     public StoryImportService(
             ObjectMapper objectMapper, StoryRepository storyRepository,
@@ -94,7 +109,11 @@ public class StoryImportService {
             StorySceneRepository sceneRepository, StorySegmentRepository segmentRepository,
             StoryFallbackSegmentRepository fallbackSegmentRepository,
             StoryRegistry storyRegistry, ChoiceCopyRegistry choiceCopyRegistry,
-            StoryContentAssemblyService assemblyService) {
+            StoryContentAssemblyService assemblyService,
+            StoryPersonaRepository personaRepository,
+            StoryDiscussionTopicRepository discussionTopicRepository,
+            StoryVisualProvenanceRepository visualProvenanceRepository,
+            LanguagePolicyRepository languagePolicyRepository) {
         this.objectMapper = objectMapper;
         this.storyRepository = storyRepository;
         this.anchorRepository = anchorRepository;
@@ -112,6 +131,10 @@ public class StoryImportService {
         this.storyRegistry = storyRegistry;
         this.choiceCopyRegistry = choiceCopyRegistry;
         this.assemblyService = assemblyService;
+        this.personaRepository = personaRepository;
+        this.discussionTopicRepository = discussionTopicRepository;
+        this.visualProvenanceRepository = visualProvenanceRepository;
+        this.languagePolicyRepository = languagePolicyRepository;
     }
 
     public record ImportResult(
@@ -197,6 +220,13 @@ public class StoryImportService {
         // §1/§4의 backend-only 시점 - StoryImportServiceTest 참고) - 그 경우 조용히 건너뛰고 SQL
         // 시드 마이그레이션이 채운 행을 그대로 둔다.
         importVisualReferencePacks(packageData.path("visualReferencePacks"), story);
+        // §2.3/§5.1/§2.6 신설 섹션 - 프론트 파이프라인이 아직 이 필드들을 보내지 않는 구버전
+        // 페이로드도 있을 수 있으므로(위 visualReferencePacks와 동일한 이유) 각 import 메서드가
+        // 배열/객체가 아니면 조용히 건너뛴다.
+        importPersonas(packageData.path("personas"), cast, story);
+        importDiscussionTopics(packageData.path("discussionBank"), story);
+        importVisualProvenance(packageData.path("visualProvenance"), story);
+        importLanguagePolicy(packageData.path("languageRules"));
 
         // DB 레벨의 ON DELETE CASCADE(StorySegment 참고)가 scene segment 행들을 자동으로
         // 삭제하므로, 여기서 따로 로드해서 삭제할 필요가 없다. fallback segment는 그 소유자인
@@ -449,6 +479,129 @@ public class StoryImportService {
                     .immutableFacts(toStringList(packNode.path("immutableFacts")))
                     .build());
         }
+    }
+
+    /**
+     * StoryPersona(§2.3) - personas.<CAST_TAG>는 cast.speakers.<CAST_TAG>와 1:1(프론트 검증기가
+     * 이미 강제하지만, speakerId/samePersonKey는 여기서도 그대로 복사해 조인 없이 바로 조회/검증
+     * 가능하게 한다). story_id+cast_tag가 유니크 키라 cast와 마찬가지로 재삽입 전에 flush한다.
+     */
+    private void importPersonas(JsonNode personas, JsonNode cast, Story story) {
+        JsonNode personasNode = personas.path("personas");
+        if (!personasNode.isObject()) {
+            return;
+        }
+        personaRepository.deleteAll(personaRepository.findByStory_Id(story.getId()));
+        personaRepository.flush();
+        var speakers = cast.path("speakers");
+        var fieldNames = personasNode.fieldNames();
+        while (fieldNames.hasNext()) {
+            String castTag = fieldNames.next();
+            JsonNode personaNode = personasNode.path(castTag);
+            JsonNode speakerNode = speakers.path(castTag);
+            personaRepository.save(StoryPersona.builder()
+                    .story(story)
+                    .castTag(castTag)
+                    .speakerId(requireText(personaNode, "speakerId"))
+                    .role(requireText(personaNode, "role"))
+                    .ageBand(requireText(personaNode, "ageBand"))
+                    .personalityTraits(toStringList(personaNode.path("personality").path("traits")))
+                    .personalityOneLiner(requireText(personaNode.path("personality"), "oneLiner"))
+                    .speechEndings(toStringList(personaNode.path("speechStyle").path("endings")))
+                    .speechCatchphrases(toStringList(personaNode.path("speechStyle").path("catchphrases")))
+                    .sentenceLengthBias(requireText(personaNode.path("speechStyle"), "sentenceLengthBias"))
+                    .emotionRangeAllowed(toStringList(personaNode.path("emotionRange").path("allowed")))
+                    .emotionCapNote(requireText(personaNode.path("emotionRange"), "capNote"))
+                    .voiceTexture(toStringList(personaNode.path("voiceTexture")))
+                    .appearanceFacts(toStringList(personaNode.path("appearanceFacts")))
+                    .relationships(toPersonaRelationships(personaNode.path("relationships")))
+                    .knowledgeKnows(toStringList(personaNode.path("knowledgeBoundary").path("knows")))
+                    .knowledgeDoesNotKnow(toStringList(personaNode.path("knowledgeBoundary").path("doesNotKnow")))
+                    .knowledgeNeverRevealsFirst(toStringList(personaNode.path("knowledgeBoundary").path("neverRevealsFirst")))
+                    .samePersonKey(speakerNode.path("samePersonKey").isMissingNode() ? null : speakerNode.path("samePersonKey").asText(null))
+                    .build());
+        }
+    }
+
+    private List<PersonaRelationship> toPersonaRelationships(JsonNode arrayNode) {
+        if (!arrayNode.isArray()) {
+            return List.of();
+        }
+        return objectMapper.convertValue(arrayNode, new TypeReference<List<PersonaRelationship>>() {});
+    }
+
+    /** StoryDiscussionTopic(§5.1) - id로 upsert되는 다른 콘텐츠 테이블들과 달리, 스토리마다 통째로
+     * 삭제 후 재삽입한다(id가 파일에서 바뀌어도 - 예: 토픽 순서 재배열 - 고아 행이 안 남는다). */
+    private void importDiscussionTopics(JsonNode discussionBank, Story story) {
+        JsonNode topics = discussionBank.path("topics");
+        if (!topics.isArray()) {
+            return;
+        }
+        discussionTopicRepository.deleteAll(discussionTopicRepository.findByStory_Id(story.getId()));
+        for (JsonNode topicNode : topics) {
+            discussionTopicRepository.save(StoryDiscussionTopic.builder()
+                    .id(requireText(topicNode, "id"))
+                    .story(story)
+                    .statement(requireText(topicNode, "statement"))
+                    .relatedSceneIds(toStringList(topicNode.path("relatedSceneIds")))
+                    .relatedAssetIds(toStringList(topicNode.path("relatedAssetIds")))
+                    .ageHint(requireText(topicNode, "ageHint"))
+                    .safetyNoForcedAnswer(topicNode.path("safetyBoundary").path("noForcedAnswer").asBoolean(false))
+                    .safetyRespectChildOpinion(topicNode.path("safetyBoundary").path("respectChildOpinion").asBoolean(false))
+                    .build());
+        }
+    }
+
+    /** StoryVisualProvenance(대원칙 "재현 가능성") - story_id+asset_slug가 유니크 키라 persona/cast와
+     * 같은 이유로 재삽입 전에 flush한다. */
+    private void importVisualProvenance(JsonNode visualProvenance, Story story) {
+        JsonNode records = visualProvenance.path("records");
+        if (!records.isArray()) {
+            return;
+        }
+        visualProvenanceRepository.deleteAll(visualProvenanceRepository.findByStory_Id(story.getId()));
+        visualProvenanceRepository.flush();
+        for (JsonNode recordNode : records) {
+            JsonNode generatedAt = recordNode.path("generatedAt");
+            visualProvenanceRepository.save(StoryVisualProvenance.builder()
+                    .story(story)
+                    .assetSlug(requireText(recordNode, "assetSlug"))
+                    .status(requireText(recordNode, "status"))
+                    .prompt(recordNode.path("prompt").isTextual() ? recordNode.path("prompt").asText() : null)
+                    .model(recordNode.path("model").isTextual() ? recordNode.path("model").asText() : null)
+                    .inputHash(recordNode.path("inputHash").isTextual() ? recordNode.path("inputHash").asText() : null)
+                    .generatedAt(generatedAt.isTextual() ? Instant.parse(generatedAt.asText()) : null)
+                    .approvedBy(recordNode.path("approvedBy").isTextual() ? recordNode.path("approvedBy").asText() : null)
+                    .note(recordNode.path("note").isTextual() ? recordNode.path("note").asText() : null)
+                    .build());
+        }
+    }
+
+    /**
+     * LanguagePolicy(§2.4) - 스토리 단위가 아니라 scope="GLOBAL" 단일 행으로 upsert된다(여러
+     * 스토리가 같은 언어 규칙을 공유하기 때문 - RoutePrompt가 버전 단위로 upsert되는 것과 같은
+     * 이유). 매 스토리 임포트마다 같은 값을 보내므로 매번 덮어써도 무해하다.
+     */
+    private void importLanguagePolicy(JsonNode languageRules) {
+        if (!languageRules.isObject() || languageRules.isMissingNode()) {
+            return;
+        }
+        String scope = requireText(languageRules, "scope");
+        LanguagePolicy policy = languagePolicyRepository.findById(scope)
+                .orElseGet(() -> LanguagePolicy.builder().scope(scope).build());
+        policy.setMaxSentenceLength(languageRules.path("maxSentenceLength").asInt());
+        policy.setRecommendedMin(languageRules.path("recommendedRange").path("min").asInt());
+        policy.setRecommendedMax(languageRules.path("recommendedRange").path("max").asInt());
+        policy.setOnomatopoeiaPolicy(requireText(languageRules, "onomatopoeiaPolicy"));
+        policy.setBannedWords(toBannedWords(languageRules.path("bannedWords")));
+        languagePolicyRepository.save(policy);
+    }
+
+    private List<LanguageBannedWord> toBannedWords(JsonNode arrayNode) {
+        if (!arrayNode.isArray()) {
+            return List.of();
+        }
+        return objectMapper.convertValue(arrayNode, new TypeReference<List<LanguageBannedWord>>() {});
     }
 
     private String joinLines(JsonNode arrayNode) {

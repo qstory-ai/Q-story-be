@@ -28,13 +28,18 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /** providers/openrouter.mjs를 Java로 포팅한 것: chat/completions 라우트 플래닝 + audio/speech TTS(버퍼링 및 스트리밍). */
 @Component
 public class OpenRouterClient {
 
+    private static final Logger log = LoggerFactory.getLogger(OpenRouterClient.class);
     private static final String BASE_URL = "https://openrouter.ai/api/v1";
+    /** 진단 로그에 남길 실패 응답 본문의 최대 길이 - 전체를 남기면 로그가 지나치게 커질 수 있다. */
+    private static final int FAILURE_BODY_LOG_LIMIT = 500;
     private static final int PCM_SAMPLE_RATE = 24_000;
     private static final int PCM_CHANNELS = 1;
     private static final int PCM_BIT_DEPTH = 16;
@@ -491,11 +496,13 @@ public class OpenRouterClient {
             HttpRequest httpRequest = buildSpeechHttpRequest(text, voice, speed, deadline);
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
+                logTtsFailure("synthesize", response.statusCode(), response.body());
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_TTS_FAILED, "답변 음성을 만들지 못했어요.", response.statusCode() >= 429);
             }
             byte[] rawAudio = response.body();
             if (rawAudio.length == 0) {
+                log.warn("openrouter-tts.empty-audio context=synthesize status={}", response.statusCode());
                 throw new ProviderException(ProviderErrorCode.OPENROUTER_TTS_EMPTY, "답변 음성이 비어 있어요.");
             }
             String responseMimeType = response.headers().firstValue("content-type").orElse("audio/pcm");
@@ -522,7 +529,9 @@ public class OpenRouterClient {
             HttpResponse<java.io.InputStream> response =
                     httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() / 100 != 2) {
+                byte[] bodySnippet = response.body().readNBytes(FAILURE_BODY_LOG_LIMIT);
                 response.body().close();
+                logTtsFailure("synthesizeStream", response.statusCode(), bodySnippet);
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_TTS_FAILED, "답변 음성을 만들지 못했어요.", response.statusCode() >= 429);
             }
@@ -530,6 +539,9 @@ public class OpenRouterClient {
             boolean isPcm = isPcmContentType(responseMimeType);
             if (!isPcm) {
                 response.body().close();
+                log.warn(
+                        "openrouter-tts.invalid-stream-format context=synthesizeStream status={} contentType={}",
+                        response.statusCode(), responseMimeType);
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_TTS_STREAM_INVALID, "스트리밍 음성 형식을 확인하지 못했어요.");
             }
@@ -544,6 +556,22 @@ public class OpenRouterClient {
             throw new ProviderException(
                     ProviderErrorCode.OPENROUTER_TTS_NETWORK_FAILED, "답변 음성 서버에 연결하지 못했어요.", true, error);
         }
+    }
+
+    /**
+     * TTS 호출이 2xx가 아닌 상태로 실패했을 때 실제 원인을 서버 로그에 남긴다 - 사용자에게는 항상
+     * 안전한 고정 문구("답변 음성을 만들지 못했어요")만 내려가므로, 이 로그가 없으면 429 미만
+     * (예: 401/403/400 - 잘못된 키, voice 값, 요청 형식)로 실패했는지조차 운영 중엔 알 방법이 없다.
+     * API 키는 헤더에만 실리고 본문에는 없으므로 응답 본문을 그대로 남겨도 새지 않는다.
+     */
+    private void logTtsFailure(String context, int statusCode, byte[] responseBody) {
+        String bodySnippet = new String(responseBody, StandardCharsets.UTF_8);
+        if (bodySnippet.length() > FAILURE_BODY_LOG_LIMIT) {
+            bodySnippet = bodySnippet.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)";
+        }
+        log.warn(
+                "openrouter-tts.failed context={} status={} retryable={} responseBody={}",
+                context, statusCode, statusCode >= 429, bodySnippet);
     }
 
     /**
