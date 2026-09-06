@@ -118,14 +118,23 @@ public class GeminiTtsClient {
         }
     }
 
-    /** 응답 JSON({"interaction":{"output_audio":{"data":"<base64 pcm>"}}})에서 raw PCM을 뽑는다. */
+    /**
+     * 응답 JSON에서 raw PCM(base64)을 뽑는다 - 실제 프로덕션 로그로 확인한 구조는
+     * {"steps":[{"content":[{"data":"<base64 pcm>"}]}]} 다(문서 요약만 보고 처음 짐작했던
+     * interaction.output_audio.data는 틀렸었다 - 매번 200에 오디오는 빈 값으로 실패한 원인).
+     * steps/content 둘 다 배열이라 첫 번째 항목만 보지 않고 data가 채워진 첫 항목을 찾는다.
+     */
     private byte[] decodeAudioData(byte[] responseBody) throws Exception {
         JsonNode payload = objectMapper.readTree(responseBody);
-        String base64 = payload.path("interaction").path("output_audio").path("data").asText(null);
-        if (base64 == null || base64.isBlank()) {
-            return new byte[0];
+        for (JsonNode step : payload.path("steps")) {
+            for (JsonNode content : step.path("content")) {
+                String base64 = content.path("data").asText(null);
+                if (base64 != null && !base64.isBlank()) {
+                    return Base64.getDecoder().decode(base64);
+                }
+            }
         }
-        return Base64.getDecoder().decode(base64);
+        return new byte[0];
     }
 
     private HttpRequest buildSpeechHttpRequest(String text, String voice, RequestDeadline deadline) {
@@ -144,14 +153,10 @@ public class GeminiTtsClient {
     }
 
     /**
-     * 2xx가 아닌 실패의 실제 원인을 서버 로그에 남긴다 - OpenRouterClient.logProviderHttpFailure와
-     * 같은 이유(사용자에게는 고정 안전 문구만 내려가므로, 이 로그가 없으면 401/400 같은 설정
-     * 오류인지조차 운영 중엔 알 수 없다). API 키는 헤더에만 실리므로 본문을 그대로 남겨도 새지 않는다.
-     */
-    /**
-     * 200인데도 decodeAudioData()가 오디오를 못 찾았을 때 실제 응답 구조를 남긴다 - interaction/
-     * output_audio/data라는 필드 경로는 문서 요약만으로 추정한 것이라 실제 스키마와 다를 수 있고,
-     * 이 로그 없이는 어느 필드가 잘못됐는지 알 방법이 없다. base64 오디오 값 자체가 길 수 있어
+     * 200인데도 decodeAudioData()가 오디오를 못 찾았을 때 실제 응답 구조를 남긴다 - steps/content
+     * 배열이 비어 있거나 예상 밖 형태로 바뀌는 경우를 대비한 안전망이다(처음 이 클라이언트를 만들
+     * 때는 이 로그 덕분에 잘못 짐작했던 필드 경로 interaction.output_audio.data를 실제 구조
+     * steps[].content[].data로 바로잡을 수 있었다). base64 오디오 값 자체가 길 수 있어
      * FAILURE_BODY_LOG_LIMIT보다 넉넉하게 남긴다 - 필드 이름/구조를 보는 게 목적이라.
      */
     private void logEmptyAudio(String context, int statusCode, byte[] responseBody) {
@@ -165,6 +170,11 @@ public class GeminiTtsClient {
                 context, statusCode, bodySnippet);
     }
 
+    /**
+     * 2xx가 아닌 실패의 실제 원인을 서버 로그에 남긴다 - OpenRouterClient.logProviderHttpFailure와
+     * 같은 이유(사용자에게는 고정 안전 문구만 내려가므로, 이 로그가 없으면 401/400 같은 설정
+     * 오류인지조차 운영 중엔 알 수 없다). API 키는 헤더에만 실리므로 본문을 그대로 남겨도 새지 않는다.
+     */
     private void logProviderHttpFailure(String context, int statusCode, byte[] responseBody) {
         String bodySnippet = new String(responseBody, StandardCharsets.UTF_8);
         if (bodySnippet.length() > FAILURE_BODY_LOG_LIMIT) {
