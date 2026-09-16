@@ -46,7 +46,11 @@ spring:
         format_sql: false
 
 qstory:
-  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006,https://q-story-f07-pilot.kaangaa.chatgpt.site,http://localhost:5173,http://127.0.0.1:5173,https://qstory.ai.kr,https://www.qstory.ai.kr,https://start.qstory.ai.kr,https://play.qstory.ai.kr,https://dev.qstory.ai.kr,https://demo.qstory.ai.kr,https://demo.api.qstory.ai.kr}
+  # 마지막 두 개(https://localhost, capacitor://localhost)는 태블릿 네이티브 셸(fe/q-story-web의
+  # Capacitor 앱)의 WebView 출처다 - Android는 https://localhost, iOS는 capacitor://localhost로
+  # 백엔드를 직접 부른다(네이티브 셸엔 Vercel 프록시가 없다). 배포 환경에서 ALLOWED_ORIGINS
+  # 환경변수로 이 기본값을 덮어쓴다면 그 값에도 두 출처를 포함해야 한다.
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006,https://q-story-f07-pilot.kaangaa.chatgpt.site,http://localhost:5173,http://127.0.0.1:5173,https://qstory.ai.kr,https://www.qstory.ai.kr,https://start.qstory.ai.kr,https://play.qstory.ai.kr,https://dev.qstory.ai.kr,https://demo.qstory.ai.kr,https://demo.api.qstory.ai.kr,https://localhost,capacitor://localhost}
   max-audio-bytes: ${MAX_AUDIO_BYTES:2621440}
   request-timeout-ms: ${REQUEST_TIMEOUT_MS:40000}
   ffmpeg-path: ${FFMPEG_PATH:ffmpeg}
