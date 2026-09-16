@@ -1,6 +1,8 @@
 # Set SPRING_PROFILES_ACTIVE=prod on the deployed instance (e.g. Railway) to activate this.
 qstory:
-  allowed-origins: ${ALLOWED_ORIGINS:https://qstory.ai.kr,https://www.qstory.ai.kr,https://start.qstory.ai.kr,https://play.qstory.ai.kr,https://demo.qstory.ai.kr}
+  # https://localhost / capacitor://localhost = 태블릿 네이티브 셸(Capacitor) WebView 출처.
+  # Railway 등에서 ALLOWED_ORIGINS를 직접 설정했다면 그 값에도 넣어야 앱에서 API가 열린다.
+  allowed-origins: ${ALLOWED_ORIGINS:https://qstory.ai.kr,https://www.qstory.ai.kr,https://start.qstory.ai.kr,https://play.qstory.ai.kr,https://demo.qstory.ai.kr,https://localhost,capacitor://localhost}
 
 logging:
   level:
