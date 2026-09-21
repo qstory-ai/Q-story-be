@@ -1,0 +1,8 @@
+# cp terraform.tfvars.example terraform.tfvars 후 실제 값 채우기 - terraform.tfvars는 .gitignore에
+# 있어 커밋되지 않는다.
+
+grafana_url         = "https://<stack>.grafana.net"
+grafana_auth        = "glc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+loki_datasource_uid = "<connections-data-sources-loki-details에서-확인>"
+slack_webhook_url   = "https://hooks.slack.com/services/T000/B000/xxxxxxxxxxxxxxxxxxxxxxxx"
+app_env             = "production"
