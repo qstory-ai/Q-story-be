@@ -6,23 +6,29 @@
 
 ## 뭘 감시하나
 
-`alert_rules.tf`의 `local.log_alerts`에 다섯 개 규칙이 있다. 각각 5분 창에서 특정 로그 패턴이
+`alert_rules.tf`의 `local.log_alerts`에 일곱 개 규칙이 있다. 각각 5분 창에서 특정 로그 패턴이
 threshold(변수, `variables.tf`)를 넘으면 Slack으로 알린다.
 
-| 규칙 | 로그 태그 | 어디서 나는지 |
-|---|---|---|
-| `error-log-rate-spike` | `\|= "ERROR"` | 전체 ERROR 레벨 로그 |
-| `openrouter-provider-failure` | `openrouter-http.failed` | `OpenRouterClient.java` (TTS/채팅완성/이미지 공용) |
-| `gemini-tts-failure` | `gemini-http.failed`, `gemini-tts.empty-audio` | `GeminiTtsClient.java` |
-| `uncaught-5xx` | `request.failed` | `GlobalExceptionHandler.java` (미처리 예외가 5xx로 응답할 때) |
-| `db-pool-exhaustion` | `Connection is not available` | HikariCP 기본 타임아웃 경고 |
+| 규칙 | severity | 로그 태그 | 어디서 나는지 |
+|---|---|---|---|
+| `error-log-rate-spike` | warning | `\|= "ERROR"` | 전체 ERROR 레벨 로그 |
+| `openrouter-provider-failure` | warning | `openrouter-http.failed` | `OpenRouterClient.java` (TTS/채팅완성/이미지 공용) |
+| `gemini-tts-failure` | **critical** | `gemini-http.failed`, `gemini-tts.empty-audio` | `GeminiTtsClient.java` (실장애 이력) |
+| `rtzr-stt-failure` | warning | `rtzr-http.failed`, `rtzr-transcription.failed` | `RtzrSttClient.java` (인증/제출/폴링 실패 + status="failed") |
+| `uncaught-5xx` | **critical** | `request.failed` | `GlobalExceptionHandler.java` (미처리 예외가 5xx로 응답할 때) |
+| `db-pool-exhaustion` | **critical** | `Connection is not available` | HikariCP 기본 타임아웃 경고 |
+| `companion-retention-failure` | warning | `companion-chat-retention.failed` | `CompanionChatRetentionScheduler.java` (일일 정리 실패) |
 
 로그 태그는 실제 소스에서 그대로 가져온 것들이다(추측 아님) - 태그 문자열이 바뀌면 이 파일도
 같이 고쳐야 한다.
 
-**커버 안 되는 것**: STT(Rtzr) 실패는 아직 커스텀 로그 태그가 없어서(`RtzrSttClient.java`에
-`log.warn`/`log.error` 호출 자체가 없음) 여기 포함하지 못했다. 필요하면 로깅을 먼저 추가하는
-후속 이슈로 남긴다.
+**severity 라벨**은 실제 파급도 기준:
+- `critical` — 이용자에게 5xx가 나가거나 시스템 전체가 흔들리는 실패. 즉시 대응.
+- `warning` — 개별 요청 실패지만 상위가 폴백/재시도로 흡수. 반복되면 원인 확인.
+
+지금은 단일 Slack contact point로 모두 라우팅되지만, severity별 채널·@channel 처리는 이후
+`grafana_notification_policy`를 추가하면 된다. Slack 메시지에는 firing/resolved 요약, description,
+Grafana Explore 링크, 런북 링크가 함께 실린다(`contact_points.tf` 템플릿 참고).
 
 ## 사전 준비
 
@@ -49,8 +55,11 @@ CI에서 반복 적용할 계획이면 원격 백엔드(S3, Terraform Cloud 등)
 
 ## 알려진 한계
 
-- 이 PR을 작성한 환경엔 실제 Grafana Cloud 스택 접근 권한(토큰)이 없어서, `terraform validate`로
-  문법/스키마만 확인했고 `terraform plan`/`apply`로 실제 스택에 적용해보지는 못했다. 리뷰어가
-  실제 자격증명으로 `terraform plan`을 한 번 더 돌려보고 머지하는 걸 권장한다.
+- 이 코드를 작성한 환경엔 실제 Grafana Cloud 스택 접근 권한(토큰)이 없어서, `terraform validate`로
+  문법/스키마만 확인했고 `terraform plan`/`apply`로 실제 스택에 적용해보지는 못했다. 실제 자격증명으로
+  `terraform plan`을 한 번 돌려보고 apply하는 걸 권장한다.
 - threshold 기본값(`variables.tf`)은 실제 트래픽 데이터 없이 잡은 시작값이다 - 적용 후 알림이
   너무 자주/드물게 온다면 조정한다.
+- **critical 규칙과 warning 규칙이 같은 채널로 감** — severity 라벨은 메시지 안에서만 구분됨.
+  별도 채널이나 @channel 태그가 필요하면 `grafana_notification_policy` 리소스를 추가하되, Grafana
+  Cloud UI에서 이미 설정한 기본 정책과 충돌하지 않게 주의.

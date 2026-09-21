@@ -29,9 +29,16 @@ public class CompanionChatRetentionScheduler {
     @Scheduled(cron = "0 45 18 * * *", zone = "UTC")
     @Transactional
     public void deleteExpiredTurns() {
-        int deleted = repository.deleteAllWithOccurredAtBefore(Instant.now().minus(RETENTION));
-        if (deleted > 0) {
-            log.info("companion-chat-retention.deleted count={}", deleted);
+        try {
+            int deleted = repository.deleteAllWithOccurredAtBefore(Instant.now().minus(RETENTION));
+            if (deleted > 0) {
+                log.info("companion-chat-retention.deleted count={}", deleted);
+            }
+        } catch (Exception error) {
+            // 스케줄러 예외를 삼키지 않고 로그로 남긴다 - Spring이 자동 재시도를 하지 않으므로 이 태그가
+            // 없으면 하루 지나 다시 돌 때까지 실패가 조용히 묻힌다. 며칠 이어지면 90일 보존 원칙이 깨진다.
+            log.error("companion-chat-retention.failed reason={}", error.toString(), error);
+            throw error;
         }
     }
 }

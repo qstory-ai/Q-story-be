@@ -54,3 +54,15 @@ variable "db_pool_exhaustion_threshold" {
   type        = number
   default     = 3
 }
+
+variable "rtzr_failure_threshold" {
+  description = "5분 창 안에서 이 건수를 넘는 Rtzr STT 실패(rtzr-http.failed 또는 rtzr-transcription.failed)가 쌓이면 알림. STT는 아이 발화당 1회씩만 호출되므로 트래픽 대비 실패율이 provider보다 훨씬 낮음."
+  type        = number
+  default     = 5
+}
+
+variable "retention_failure_threshold" {
+  description = "companion-chat 일일 정리 실패 알림 임계. 스케줄러는 하루에 한 번 도는데 실패 한 번은 하루 밀리는 것뿐이라 warning으로 두되, 반복되면 며칠 안에 눈에 들어오도록 낮게 잡음."
+  type        = number
+  default     = 1
+}
