@@ -97,6 +97,16 @@ public class StoryCompletion {
     @Column(nullable = false, columnDefinition = "jsonb")
     private List<Map<String, Object>> outcomes;
 
+    /**
+     * 상시 대화(companion-chat) 태그 집계 스냅샷 - 완주 시점의 conversationId에 해당하는
+     * companion_chat_turn 행들을 topic/tone/value/turnCount로 접어 넣은 결과다. 리포트
+     * 조회마다 다시 계산하지 않는 이유는 046-story-completion-companion-summary.sql 헤더 참고.
+     * 상시 대화 없이 진행한 세션이나 legacy 기록에서는 null.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "companion_chat_summary", columnDefinition = "jsonb")
+    private Map<String, Object> companionChatSummary;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 }

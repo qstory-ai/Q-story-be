@@ -2,6 +2,8 @@ package com.qstory.backend.storyreport.service;
 
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.companionchat.entity.CompanionChatTurn;
+import com.qstory.backend.companionchat.repository.CompanionChatTurnRepository;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
@@ -16,7 +18,11 @@ import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.entity.TutorStudent;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -32,16 +38,19 @@ public class StoryCompletionService {
     private final TutorStudentRepository tutorStudentRepository;
     private final ChildRepository childRepository;
     private final NotificationPublisher notificationPublisher;
+    private final CompanionChatTurnRepository companionChatTurnRepository;
 
     public StoryCompletionService(
             StoryCompletionRepository repository, AppUserRepository userRepository,
             TutorStudentRepository tutorStudentRepository, ChildRepository childRepository,
-            NotificationPublisher notificationPublisher) {
+            NotificationPublisher notificationPublisher,
+            CompanionChatTurnRepository companionChatTurnRepository) {
         this.repository = repository;
         this.userRepository = userRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.childRepository = childRepository;
         this.notificationPublisher = notificationPublisher;
+        this.companionChatTurnRepository = companionChatTurnRepository;
     }
 
     @Transactional
@@ -64,6 +73,7 @@ public class StoryCompletionService {
                 ? null
                 : childRepository.findByIdAndParent_Id(request.childId(), caller.userId())
                         .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
+        Map<String, Object> companionChatSummary = summarizeCompanionChat(request.companionConversationId());
         StoryCompletion completion = repository.save(StoryCompletion.builder()
                 .user(user)
                 .organization(user.getOrganization())
@@ -74,6 +84,7 @@ public class StoryCompletionService {
                 .completedAt(Instant.now())
                 .durationSeconds(request.durationSeconds())
                 .outcomes(request.outcomes() == null ? List.of() : request.outcomes())
+                .companionChatSummary(companionChatSummary)
                 .createdAt(Instant.now())
                 .build());
         // 튜터 세션의 완주 기록은 부모(=linkedParentUser)에게 새 리포트가 도착했다고 알린다.
@@ -133,5 +144,45 @@ public class StoryCompletionService {
             throw ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404);
         }
         return StoryCompletionDetail.of(completion);
+    }
+
+    /**
+     * conversationId에 해당하는 companion_chat_turn 행들을 topic/tone/value 라벨별 빈도와
+     * 전체 턴 수로 접어 넣는다. 리포트 화면(ReportContent)이 그대로 렌더할 수 있게 정렬된 배열 형태.
+     * conversationId가 null이거나 대응 턴이 없으면 null - 실시간 리포트가 이 필드로 렌더 여부를 결정.
+     */
+    Map<String, Object> summarizeCompanionChat(UUID conversationId) {
+        if (conversationId == null) {
+            return null;
+        }
+        List<CompanionChatTurn> turns = companionChatTurnRepository.findByConversationId(conversationId);
+        if (turns.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("turnCount", turns.size());
+        summary.put("topics", labelCounts(turns, CompanionChatTurn::getTopicTag));
+        summary.put("tones", labelCounts(turns, CompanionChatTurn::getToneTag));
+        summary.put("values", labelCounts(turns, CompanionChatTurn::getValueTag));
+        return summary;
+    }
+
+    private static List<Map<String, Object>> labelCounts(
+            List<CompanionChatTurn> turns, java.util.function.Function<CompanionChatTurn, String> extractor) {
+        Map<String, Integer> counts = new TreeMap<>();
+        for (CompanionChatTurn turn : turns) {
+            String label = extractor.apply(turn);
+            if (label == null || label.isBlank()) continue;
+            counts.merge(label, 1, Integer::sum);
+        }
+        return counts.entrySet().stream()
+                .sorted(Comparator.<Map.Entry<String, Integer>>comparingInt(Map.Entry::getValue).reversed())
+                .map(entry -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("label", entry.getKey());
+                    row.put("count", entry.getValue());
+                    return row;
+                })
+                .toList();
     }
 }

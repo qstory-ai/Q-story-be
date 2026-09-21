@@ -17,4 +17,8 @@ public record RecordStoryCompletionRequest(
         Integer durationSeconds,
         List<Map<String, Object>> outcomes,
         UUID tutorStudentId,
-        UUID childId) {}
+        UUID childId,
+        // 이 세션에서 사용한 companion-chat conversationId - 있으면 서비스가 그 대화의
+        // 태그 집계를 companion_chat_summary 컬럼으로 스냅샷 저장한다. 상시 대화를 열지 않은
+        // 세션이거나 아이가 한 번도 말을 걸지 않았으면 생략.
+        UUID companionConversationId) {}
