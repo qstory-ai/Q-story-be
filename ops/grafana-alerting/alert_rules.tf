@@ -16,8 +16,8 @@
 #              uncaught-5xx, db-pool-exhaustion
 #   warning  - 개별 요청 실패지만 상위 파이프라인이 폴백/재시도로 흡수 가능: openrouter/rtzr 프로바이더 실패,
 #              ERROR 급증(전조), retention 스케줄러(하루 지연 허용).
-# 라우팅은 아직 단일 Slack contact point이지만, severity 라벨을 붙여두면 이후 notification policy로 채널을
-# 나누기 쉽다(critical만 @channel 붙이기 등).
+# 라우팅은 아직 단일 Discord contact point이지만, severity 라벨을 붙여두면 이후 notification policy로 채널을
+# 나누기 쉽다(critical만 @everyone 붙이기 등).
 locals {
   log_alerts = {
     error-log-rate-spike = {
@@ -160,7 +160,7 @@ resource "grafana_rule_group" "backend_failures" {
       }
 
       notification_settings {
-        contact_point = grafana_contact_point.slack.name
+        contact_point = grafana_contact_point.discord.name
       }
     }
   }

@@ -4,5 +4,5 @@
 grafana_url         = "https://<stack>.grafana.net"
 grafana_auth        = "glc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 loki_datasource_uid = "<connections-data-sources-loki-details에서-확인>"
-slack_webhook_url   = "https://hooks.slack.com/services/T000/B000/xxxxxxxxxxxxxxxxxxxxxxxx"
+discord_webhook_url = "https://discord.com/api/webhooks/000000000000000000/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 app_env             = "production"

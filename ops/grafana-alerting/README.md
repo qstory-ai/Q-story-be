@@ -7,7 +7,7 @@
 ## 뭘 감시하나
 
 `alert_rules.tf`의 `local.log_alerts`에 일곱 개 규칙이 있다. 각각 5분 창에서 특정 로그 패턴이
-threshold(변수, `variables.tf`)를 넘으면 Slack으로 알린다.
+threshold(변수, `variables.tf`)를 넘으면 Discord로 알린다.
 
 | 규칙 | severity | 로그 태그 | 어디서 나는지 |
 |---|---|---|---|
@@ -26,8 +26,8 @@ threshold(변수, `variables.tf`)를 넘으면 Slack으로 알린다.
 - `critical` — 이용자에게 5xx가 나가거나 시스템 전체가 흔들리는 실패. 즉시 대응.
 - `warning` — 개별 요청 실패지만 상위가 폴백/재시도로 흡수. 반복되면 원인 확인.
 
-지금은 단일 Slack contact point로 모두 라우팅되지만, severity별 채널·@channel 처리는 이후
-`grafana_notification_policy`를 추가하면 된다. Slack 메시지에는 firing/resolved 요약, description,
+지금은 단일 Discord contact point로 모두 라우팅되지만, severity별 채널·@everyone 처리는 이후
+`grafana_notification_policy`를 추가하면 된다. Discord 메시지에는 firing/resolved 요약, description,
 Grafana Explore 링크, 런북 링크가 함께 실린다(`contact_points.tf` 템플릿 참고).
 
 ## 자동화
@@ -43,14 +43,14 @@ main push →  terraform apply -auto-approve (실제 Grafana Cloud에 반영)
 state는 Terraform Cloud(무료 티어) 워크스페이스에 보관하되 실행은 GH Actions 러너에서 한다
 (워크스페이스 Execution Mode = **Local**). "state는 관리되고, 로그·시크릿은 GitHub 안"이라는 절충.
 
-### 1회성 세팅 (Grafana/TFC 콘솔에서)
+### 1회성 세팅 (Grafana/TFC/Discord 콘솔에서)
 
 1. **Grafana Cloud Access Policy 토큰**: Cloud Portal → Access Policies → 새 정책 생성,
    스코프는 `alerting:write`, `alerting.notifications:write`, `alerting-provisioning:write`,
    `folders:write`.
 2. **Loki 데이터소스 UID**: Grafana Cloud 콘솔 → Connections → Data sources → Loki → Details.
    `logback-spring.xml`이 이미 쓰고 있는 그 데이터소스와 같은 UID여야 한다 - 새로 만들지 않는다.
-3. **Slack Incoming Webhook URL**: 알림 받을 채널에 Incoming Webhook 앱 연결.
+3. **Discord Webhook URL**: 알림 받을 서버 → 채널 설정 → **연동(Integrations)** → **웹후크(Webhooks)** → 새 웹후크 → 이름·아바타 지정 → **웹후크 URL 복사**. `https://discord.com/api/webhooks/<id>/<token>` 형태.
 4. **Terraform Cloud 워크스페이스**: [app.terraform.io](https://app.terraform.io) 가입 → org 생성
    → 워크스페이스 생성(예: `qstory-alerting`) → 설정에서 **Execution Mode = Local**로 변경
    (그래야 TFC가 실행 안 하고 state만 잡는다).
@@ -64,11 +64,11 @@ state는 Terraform Cloud(무료 티어) 워크스페이스에 보관하되 실�
 - `TF_VAR_APP_ENV` — Loki 로그 label의 `env` 값. `logback-spring.xml`의 `spring.profiles.active`와 맞춘다 (기본 `production`)
 
 **Secrets** (암호화):
-- `TF_API_TOKEN` — 4번에서 만든 TFC 토큰
+- `TF_API_TOKEN` — 5번에서 만든 TFC 토큰
 - `TF_VAR_GRAFANA_URL` — 예: `https://<stack>.grafana.net`
 - `TF_VAR_GRAFANA_AUTH` — 1번의 Access Policy 토큰
 - `TF_VAR_LOKI_DATASOURCE_UID` — 2번의 UID
-- `TF_VAR_SLACK_WEBHOOK_URL` — 3번의 Slack Webhook URL
+- `TF_VAR_DISCORD_WEBHOOK_URL` — 3번의 Discord Webhook URL
 
 ### 첫 apply
 
@@ -87,7 +87,7 @@ export TF_WORKSPACE=qstory-alerting
 export TF_VAR_grafana_url=...        # 아래 4개도 같은 방식으로
 export TF_VAR_grafana_auth=...
 export TF_VAR_loki_datasource_uid=...
-export TF_VAR_slack_webhook_url=...
+export TF_VAR_discord_webhook_url=...
 # ~/.terraformrc:
 #   credentials "app.terraform.io" { token = "<TFC 토큰>" }
 terraform -chdir=ops/grafana-alerting init

@@ -47,7 +47,7 @@ jobs:
       TF_VAR_grafana_url: ${{ secrets.TF_VAR_GRAFANA_URL }}
       TF_VAR_grafana_auth: ${{ secrets.TF_VAR_GRAFANA_AUTH }}
       TF_VAR_loki_datasource_uid: ${{ secrets.TF_VAR_LOKI_DATASOURCE_UID }}
-      TF_VAR_slack_webhook_url: ${{ secrets.TF_VAR_SLACK_WEBHOOK_URL }}
+      TF_VAR_discord_webhook_url: ${{ secrets.TF_VAR_DISCORD_WEBHOOK_URL }}
       TF_VAR_app_env: ${{ vars.TF_VAR_APP_ENV }}
 
     steps:

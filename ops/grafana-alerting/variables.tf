@@ -19,8 +19,8 @@ variable "loki_datasource_uid" {
   type        = string
 }
 
-variable "slack_webhook_url" {
-  description = "알림을 받을 Slack Incoming Webhook URL."
+variable "discord_webhook_url" {
+  description = "알림을 받을 Discord Incoming Webhook URL. Discord 서버 → 채널 설정 → 연동(Integrations) → 웹후크에서 발급."
   type        = string
   sensitive   = true
 }
