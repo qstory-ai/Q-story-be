@@ -1,0 +1,75 @@
+# Grafana Cloud 알림 규칙 파이프라인 - Railway가 굴리는 앱 배포와는 완전히 독립.
+# 이 워크플로는 `ops/grafana-alerting/**`가 바뀔 때만 돌고, Grafana Cloud API를 호출해
+# 알림 규칙/컨택트 포인트를 조정한다. 앱 코드/DB 마이그레이션과 서로 재배포를 유발하지 않는다.
+#
+# 실행 흐름:
+#   PR → terraform plan을 Actions 로그에 출력 (변경 미리보기, apply는 안 함)
+#   main push → terraform apply -auto-approve (실제 Grafana Cloud에 반영)
+#
+# state는 Terraform Cloud 무료 티어 워크스페이스에 보관 (실행은 여전히 이 러너에서 - TFC를
+# state-only로 씀). 이유는 ops/grafana-alerting/README.md '자동화' 절 참고.
+name: grafana-alerting
+
+on:
+  pull_request:
+    paths:
+      - 'ops/grafana-alerting/**'
+      - '.github/workflows/grafana-alerting.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ops/grafana-alerting/**'
+      - '.github/workflows/grafana-alerting.yml'
+
+# 같은 브랜치에서 워크플로 여러 개가 동시에 apply를 시도하면 TFC state lock으로 실패한다 -
+# 최신 커밋만 살리고 이전 실행은 취소한다. PR에서는 취소가 손실이 아니고, main에서도
+# 실패한 run을 그대로 두는 것보다 최신 상태를 반영하는 게 낫다.
+concurrency:
+  group: grafana-alerting-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ops/grafana-alerting
+    env:
+      # TFC 워크스페이스 좌표는 코드에 하드코딩하지 않고 여기서 넣는다 - 조직 이름이 바뀌거나
+      # 다른 워크스페이스로 마이그레이션할 때 코드 수정 없이 값만 바꿀 수 있게. main.tf의
+      # `cloud {}` 빈 블록이 이 두 값을 자동으로 소비한다.
+      TF_CLOUD_ORGANIZATION: ${{ vars.TF_CLOUD_ORGANIZATION }}
+      TF_WORKSPACE: ${{ vars.TF_WORKSPACE }}
+      # 실제 provider·리소스 변수. TFC UI가 아니라 GitHub Secrets에서 관리해서 값 변경/회전을
+      # GitHub 한 곳에서 처리한다(TFC는 state 전용).
+      TF_VAR_grafana_url: ${{ secrets.TF_VAR_GRAFANA_URL }}
+      TF_VAR_grafana_auth: ${{ secrets.TF_VAR_GRAFANA_AUTH }}
+      TF_VAR_loki_datasource_uid: ${{ secrets.TF_VAR_LOKI_DATASOURCE_UID }}
+      TF_VAR_slack_webhook_url: ${{ secrets.TF_VAR_SLACK_WEBHOOK_URL }}
+      TF_VAR_app_env: ${{ vars.TF_VAR_APP_ENV }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          # TFC state 백엔드에 붙는 토큰 - Access Token(user token 또는 team token). ~/.terraformrc가
+          # 이 값을 물고 있어야 `terraform init`이 원격 state를 잡는다.
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - run: terraform fmt -check -diff
+      - run: terraform init -input=false
+      - run: terraform validate
+
+      # PR: plan만. -detailed-exitcode로 변경 유무를 노출하지만 실패 처리는 안 한다(변경 있으면
+      # exit 2인데, 그건 PR의 존재 이유이므로 성공으로 봄).
+      - name: terraform plan
+        if: github.event_name == 'pull_request'
+        run: terraform plan -input=false -no-color
+
+      # main push: apply. TFC state에 lock 걸리면 최대 5분 대기 후 재시도(-lock-timeout).
+      - name: terraform apply
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: terraform apply -input=false -auto-approve -lock-timeout=5m
