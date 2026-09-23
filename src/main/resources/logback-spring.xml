@@ -5,9 +5,13 @@
   통째로 건너뛰어져서 콘솔 로그만 남는 지금까지의 동작과 완전히 동일하다 - 로컬 개발 경험은
   바뀌지 않는다.
 
-  Grafana Cloud에서 LOKI_URL/LOKI_USERNAME/LOKI_API_KEY 얻는 법: Grafana Cloud 콘솔 ->
-  Connections -> Data sources -> Loki -> Details 탭에 셋 다 나온다(url은 .../loki/api/v1/push
-  까지 붙여야 함). Railway 백엔드 서비스의 환경변수로 등록하면 다음 배포부터 바로 전송 시작.
+  Grafana Cloud에서 LOKI_URL/LOKI_USERNAME 얻는 법: Grafana Cloud 콘솔 -> Connections ->
+  Data sources -> Loki -> Details 탭(url은 .../loki/api/v1/push 까지 붙여야 함).
+  LOKI_API_KEY는 Cloud Portal -> Access Policies 에서 만든 토큰이어야 하고, 스코프에 반드시
+  logs:write 가 있어야 한다 - Details 탭 옆에 보이는 "read" 정책 토큰을 넣으면 push가 전부
+  401 {"error":"authentication error: invalid scope requested"} 로 조용히 버려진다(2026-09 실제로
+  그랬고, 그동안 알림 규칙은 데이터를 한 줄도 받지 못했다). Railway 백엔드 서비스의 환경변수로
+  등록하면 다음 배포부터 바로 전송 시작.
 -->
 <configuration>
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
