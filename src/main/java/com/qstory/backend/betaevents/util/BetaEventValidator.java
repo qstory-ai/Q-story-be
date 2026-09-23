@@ -165,8 +165,11 @@ public class BetaEventValidator {
         keys.put(EventName.QUESTION_SKIPPED, Set.of("anchor_id", "scene_id", "skip_reason"));
         keys.put(EventName.QUESTION_STARTED, Set.of("anchor_id", "input_mode"));
         keys.put(EventName.CHOICE_SELECTED, Set.of("anchor_id", "scene_id", "option_id", "family_id"));
+        // scene_id·fail_reason·family_ids는 실시간 분기 폴링(fe use-live-branch-polling.ts)이
+        // live_branch_failed / live_branch_ready 결과에 함께 보내는 키.
         keys.put(EventName.QUESTION_RESULT, Set.of(
-                "anchor_id", "route", "result", "failure_stage", "failure_code", "retryable", "attempt_count",
+                "anchor_id", "scene_id", "route", "result", "fail_reason", "family_ids",
+                "failure_stage", "failure_code", "retryable", "attempt_count",
                 "latency_ms", "stt_ms", "route_ms", "first_audio_ms", "branch_playback_ms", "stt_attempt_count",
                 "first_pass_accepted", "transcript_corrected", "switched_input", "coverage_status",
                 "uncovered_intent", "question_text", "question_intent", "family_id", "model_id", "prompt_version"));

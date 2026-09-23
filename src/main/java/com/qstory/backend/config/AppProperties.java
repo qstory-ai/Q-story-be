@@ -6,6 +6,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "qstory")
 public record AppProperties(
         List<String> allowedOrigins,
+        /**
+         * 태블릿·폰 네이티브 앱(fe/q-story-web을 Capacitor로 감싼 것)의 WebView 출처. allowedOrigins와
+         * 분리한 이유: 프로필별 application-*.yml과 ALLOWED_ORIGINS 환경변수가 allowedOrigins를 통째로
+         * 덮어쓰므로, 거기에 끼워 넣으면 네 파일과 배포 환경변수를 전부 손으로 맞춰야 한다. 이 목록은
+         * application.yml에서만 정하고 SecurityConfig가 allowedOrigins에 더한다.
+         */
+        List<String> nativeOrigins,
         long maxAudioBytes,
         long requestTimeoutMs,
         String ffmpegPath,
