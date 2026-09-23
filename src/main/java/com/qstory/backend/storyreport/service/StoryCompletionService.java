@@ -73,6 +73,12 @@ public class StoryCompletionService {
                 ? null
                 : childRepository.findByIdAndParent_Id(request.childId(), caller.userId())
                         .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
+        // 선생님 세션은 childId를 보내지 않지만, 부모가 초대를 수락하며 연결한 아이 프로필이 학생에
+        // 붙어 있으면 그 아이의 기록으로 남긴다 - 부모 홈의 아이별 리포트와 선생님 리포트가 같은
+        // 아이를 가리키게 된다.
+        if (child == null && tutorStudent != null && tutorStudent.getChild() != null) {
+            child = tutorStudent.getChild();
+        }
         Map<String, Object> companionChatSummary = summarizeCompanionChat(request.companionConversationId());
         StoryCompletion completion = repository.save(StoryCompletion.builder()
                 .user(user)

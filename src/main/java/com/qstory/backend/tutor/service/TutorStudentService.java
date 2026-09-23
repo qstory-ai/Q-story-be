@@ -16,6 +16,8 @@ import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.notification.service.NotificationPublisher;
+import com.qstory.backend.parent.child.entity.Child;
+import com.qstory.backend.parent.child.repository.ChildRepository;
 import com.qstory.backend.tutor.TutorStudentStatus;
 import com.qstory.backend.tutor.Weekday;
 import com.qstory.backend.tutor.dto.AcceptTutorInviteRequest;
@@ -56,6 +58,9 @@ public class TutorStudentService {
 
     private static final Duration INVITE_TTL = Duration.ofDays(14);
 
+    /** fe entities/child/model/avatars.ts CHILD_AVATARS[0].key와 동일. */
+    private static final String DEFAULT_CHILD_AVATAR_KEY = "fox";
+
     private final TutorStudentRepository tutorStudentRepository;
     private final TutorScheduleRepository tutorScheduleRepository;
     private final TutorInviteRepository tutorInviteRepository;
@@ -66,13 +71,14 @@ public class TutorStudentService {
     private final SecureTokenGenerator tokenGenerator;
     private final JoinCodeGenerator joinCodeGenerator;
     private final NotificationPublisher notificationPublisher;
+    private final ChildRepository childRepository;
 
     public TutorStudentService(
             TutorStudentRepository tutorStudentRepository, TutorScheduleRepository tutorScheduleRepository,
             TutorInviteRepository tutorInviteRepository, AppUserRepository userRepository,
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
             SecureTokenGenerator tokenGenerator, JoinCodeGenerator joinCodeGenerator,
-            NotificationPublisher notificationPublisher) {
+            NotificationPublisher notificationPublisher, ChildRepository childRepository) {
         this.tutorStudentRepository = tutorStudentRepository;
         this.tutorScheduleRepository = tutorScheduleRepository;
         this.tutorInviteRepository = tutorInviteRepository;
@@ -83,6 +89,7 @@ public class TutorStudentService {
         this.tokenGenerator = tokenGenerator;
         this.joinCodeGenerator = joinCodeGenerator;
         this.notificationPublisher = notificationPublisher;
+        this.childRepository = childRepository;
     }
 
     @Transactional
@@ -258,14 +265,31 @@ public class TutorStudentService {
 
     private AuthResponse consumeInvite(
             Optional<CurrentUser> callerOrNull, TutorInvite invite, AcceptTutorInviteRequest request) {
+        TutorStudent student = invite.getTutorStudent();
         AppUser parent = callerOrNull.isPresent() ? existingParent(callerOrNull.get()) : newParent(request);
 
-        invite.setUsedAt(Instant.now());
-        tutorInviteRepository.save(invite);
+        // 이미 다른 보호자가 연결된 학생을 두 번째 초대로 조용히 덮어쓰지 않는다 - 예전엔 학생당 미사용
+        // 초대가 여러 장 살아 있어서 나중에 수락한 쪽이 linkedParentUser를 가로챘다.
+        AppUser alreadyLinked = student.getLinkedParentUser();
+        if (student.getStatus() == TutorStudentStatus.CONFIRMED
+                && alreadyLinked != null && !alreadyLinked.getId().equals(parent.getId())) {
+            throw ApiException.contractError(
+                    ErrorCode.INVALID_INVITE, "이 학생은 이미 다른 보호자 계정과 연결되어 있어요.", 409);
+        }
 
-        TutorStudent student = invite.getTutorStudent();
+        Instant now = Instant.now();
+        invite.setUsedAt(now);
+        tutorInviteRepository.save(invite);
+        for (TutorInvite open : tutorInviteRepository.findByTutorStudent_IdAndUsedAtIsNull(student.getId())) {
+            open.setUsedAt(now);
+            tutorInviteRepository.save(open);
+        }
+
         student.setLinkedParentUser(parent);
         student.setStatus(TutorStudentStatus.CONFIRMED);
+        // 부모 쪽 아이 프로필까지 연결해야 "수락"이 완결된다 - 이 행이 없으면 부모 홈의 아이 목록에
+        // 아무것도 없고, 선생님 세션의 완주 기록도 아이에게 이어지지 않는다.
+        student.setChild(resolveChild(parent, student, request == null ? null : request.childId()));
         tutorStudentRepository.save(student);
 
         // 학생을 등록한 튜터에게 "부모 연결이 완료됐다" 알림. href는 학생 상세로 - 튜터가 곧바로
@@ -283,6 +307,56 @@ public class TutorStudentService {
 
         CurrentUser currentUser = new CurrentUser(parent.getId(), Role.PARENT, null, null);
         return new AuthResponse(jwtService.issue(currentUser), UserSummary.of(parent));
+    }
+
+    /**
+     * 초대 수락 시 학생에 붙일 아이 프로필. (1) 부모가 childId를 지정했으면 본인 소유인지 확인해 그 아이,
+     * (2) 아니면 같은 이름(공백·대소문자 무시)의 기존 아이, (3) 그것도 없으면 초대에 실린 이름·연령대로
+     * 새 아이를 만든다. 새로 만드는 경우 아바타는 프론트 프리셋 첫 번째('fox')와 같은 기본값이라
+     * 부모가 프로필에서 바꿀 수 있다. 이미 이 학생에 아이가 붙어 있으면(같은 부모의 재수락) 그대로 둔다.
+     */
+    private Child resolveChild(AppUser parent, TutorStudent student, UUID requestedChildId) {
+        if (requestedChildId != null) {
+            return childRepository.findByIdAndParent_Id(requestedChildId, parent.getId())
+                    .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
+        }
+        if (student.getChild() != null && student.getChild().getParent().getId().equals(parent.getId())) {
+            return student.getChild();
+        }
+        String wanted = normalizeName(student.getName());
+        for (Child existing : childRepository.findByParent_IdOrderByCreatedAtAsc(parent.getId())) {
+            if (normalizeName(existing.getName()).equals(wanted)) {
+                return existing;
+            }
+        }
+        Instant now = Instant.now();
+        return childRepository.save(Child.builder()
+                .parent(parent)
+                .name(student.getName())
+                .ageBand(childAgeBandFor(student.getAgeBand()))
+                .avatarKey(DEFAULT_CHILD_AVATAR_KEY)
+                .createdAt(now)
+                .updatedAt(now)
+                .build());
+    }
+
+    private static String normalizeName(String name) {
+        return name == null ? "" : name.replaceAll("\\s+", "").toLowerCase();
+    }
+
+    /**
+     * 선생님 쪽 학생 연령대는 "7세"처럼 한 살 단위, 부모 쪽 아이 프로필은 "6-7" 같은 구간이다
+     * (fe entities/child/model/age-band.ts의 ageBandFromLabel과 같은 규칙). 숫자가 없으면 "6-7".
+     */
+    static String childAgeBandFor(String tutorAgeBand) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\d+").matcher(tutorAgeBand == null ? "" : tutorAgeBand);
+        if (!matcher.find()) return "6-7";
+        int age = Integer.parseInt(matcher.group());
+        if (age <= 5) return "4-5";
+        if (age <= 7) return "6-7";
+        if (age <= 9) return "8-9";
+        if (age <= 11) return "10-11";
+        return "12+";
     }
 
     private TutorInvite requireInviteByToken(String rawToken) {
