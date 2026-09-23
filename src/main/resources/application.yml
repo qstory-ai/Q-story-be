@@ -86,11 +86,12 @@ qstory:
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
     voice-research-bucket: ${SUPABASE_VOICE_RESEARCH_BUCKET:qstory-voice-research}
     shadow-assets-bucket: ${SUPABASE_SHADOW_ASSETS_BUCKET:qstory-shadow-assets}
-    # Narration re-rendered from an edited line. Separate from the build's static audio, which is
-    # immutable once shipped - these files are written after release and replace clips in place.
+    # 임포트된 정적 내레이션/브릿지 오디오(`<slug>/audio/x.mp3`, fe `npm run assets:upload`가 올림)와
+    # 편집된 문장에서 재렌더링된 내레이션(`<storyId>/<segmentId>.mp3`)이 함께 사는 공개 버킷.
+    # GET /v1/stories/{id}/content의 asset.url은 여기 공개 URL이다(StoryContentAssemblyService.assetUrl).
     story-audio-bucket: ${SUPABASE_STORY_AUDIO_BUCKET:qstory-story-audio}
-    # LiveBranchExecutionWorker가 실시간으로 생성한 분기 삽화 - storyAudioBucket과 동일하게 공개
-    # 버킷이어야 한다(NarrationRerenderService.rerender()와 같은 방식으로 절대 URL을 그대로 저장한다).
+    # 임포트된 정적 삽화(`<slug>/illustrations/x.jpg`)와 LiveBranchExecutionWorker가 실시간으로 생성한
+    # 분기 삽화가 함께 사는 공개 버킷. 역시 asset.url이 여기를 가리킨다.
     story-image-bucket: ${SUPABASE_STORY_IMAGE_BUCKET:qstory-story-images}
     profile-image-bucket: ${SUPABASE_PROFILE_IMAGE_BUCKET:qstory-profile-images}
     voice-research-cleanup-token: ${QSTORY_RESEARCH_CLEANUP_TOKEN:}

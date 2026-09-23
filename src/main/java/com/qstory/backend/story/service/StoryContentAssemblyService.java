@@ -52,6 +52,7 @@ public class StoryContentAssemblyService implements ApplicationRunner {
     private final StoryRegistry storyRegistry;
 
     private final StoryAssetRepository assetRepository;
+    private final StoryAssetUrls assetUrls;
 
     private volatile Map<String, ObjectNode> assembledByStoryId = Map.of();
 
@@ -60,7 +61,8 @@ public class StoryContentAssemblyService implements ApplicationRunner {
             StorySceneRepository sceneRepository, StorySegmentRepository segmentRepository,
             StoryActionFamilyRepository familyRepository,
             StoryFallbackSegmentRepository fallbackSegmentRepository,
-            StoryAssetRepository assetRepository, StoryRegistry storyRegistry) {
+            StoryAssetRepository assetRepository, StoryRegistry storyRegistry,
+            StoryAssetUrls assetUrls) {
         this.objectMapper = objectMapper;
         this.storyRepository = storyRepository;
         this.sceneRepository = sceneRepository;
@@ -69,6 +71,7 @@ public class StoryContentAssemblyService implements ApplicationRunner {
         this.fallbackSegmentRepository = fallbackSegmentRepository;
         this.assetRepository = assetRepository;
         this.storyRegistry = storyRegistry;
+        this.assetUrls = assetUrls;
     }
 
     @Override
@@ -94,17 +97,9 @@ public class StoryContentAssemblyService implements ApplicationRunner {
         return assembledByStoryId.get(storyId);
     }
 
-    /**
-     * 앱이 이 asset을 가져와야 할 위치. 런타임에 재렌더링된 파일(narration 재렌더링 파이프라인 참고)은
-     * 원격에 저장되어 절대 URL을 가지며, 그 외 나머지는 여전히 프론트엔드 정적 루트 아래의 경로로,
-     * 사이트 루트에서 서빙된다.
-     */
+    /** 앱이 이 asset을 가져와야 할 위치 - 규칙은 {@link StoryAssetUrls} 한 곳에 있다. */
     private String assetUrl(Story story, StoryAsset asset) {
-        String file = asset.getFile();
-        if (file.startsWith("http://") || file.startsWith("https://")) return file;
-        // 프론트엔드는 정적 스토리 파일을 사이트 루트에서 서빙하므로, "illustrations/x.jpg"로 저장된
-        // asset은 "/story/<slug>/illustrations/x.jpg"에서 가져오게 된다.
-        return "/story/" + story.getSlug() + "/" + file;
+        return assetUrls.forAsset(story.getSlug(), asset.getCategory(), asset.getFile());
     }
 
     private ObjectNode assemble(Story story, List<StoryScene> scenes) {

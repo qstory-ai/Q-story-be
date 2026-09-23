@@ -7,9 +7,9 @@ alter table if exists public.story
 alter table if exists public.story
     add column if not exists category varchar(64);
 
--- cover_image_url은 프론트엔드(fe/q-story-web)의 public/ 폴더에 상대적인 경로다. 백엔드나 CDN이
--- 호스팅하는 자산이 아니다 - story-assets.generated.ts의 기존 삽화 참조 방식과 동일한 규칙을
--- 그대로 재사용한 것으로, 아직 이 제품엔 이미지 업로드/CDN 파이프라인이 없다.
+-- cover_image_url은 이 파일이 쓰일 당시 프론트엔드(fe/q-story-web) public/ 폴더 기준 경로였다.
+-- 지금은 삽화가 Supabase 공개 버킷에서 서빙되고, StoryAssetUrls.forCover()가 이 "/story/<slug>/..."
+-- 접두사를 알아보고 버킷 URL로 바꿔 내려주므로 저장된 값은 그대로 둔다(재마이그레이션 불필요).
 update public.story
 set cover_image_url = '/story/hansel-gretel/illustrations/hg-art-08-candy-house-reveal.jpg',
     description = '길을 잃은 남매가 서로에게 묻고 답하며 숲을 되돌아 나오는 이야기예요.',

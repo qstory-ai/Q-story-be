@@ -17,10 +17,13 @@ public class StoryCatalogService {
 
     private final StoryRegistry registry;
     private final EntitlementService entitlementService;
+    private final StoryAssetUrls assetUrls;
 
-    public StoryCatalogService(StoryRegistry registry, EntitlementService entitlementService) {
+    public StoryCatalogService(
+            StoryRegistry registry, EntitlementService entitlementService, StoryAssetUrls assetUrls) {
         this.registry = registry;
         this.entitlementService = entitlementService;
+        this.assetUrls = assetUrls;
     }
 
     /**
@@ -33,7 +36,7 @@ public class StoryCatalogService {
     public List<StoryCatalogEntry> list() {
         return registry.all().stream()
                 .filter(story -> !StoryAvailability.RETIRED.equals(story.availability()))
-                .map(StoryCatalogService::toEntry)
+                .map(this::toEntry)
                 .sorted(Comparator.comparing(StoryCatalogEntry::storyId))
                 .toList();
     }
@@ -48,11 +51,12 @@ public class StoryCatalogService {
         return toEntry(story);
     }
 
-    private static StoryCatalogEntry toEntry(StoryManifest story) {
+    /** 커버 이미지는 DB의 예전 public/ 경로가 아니라 삽화 버킷의 공개 URL로 내려간다(StoryAssetUrls.forCover). */
+    private StoryCatalogEntry toEntry(StoryManifest story) {
         return new StoryCatalogEntry(
                 story.storyId(), story.slug(), story.title(), story.availability(),
                 story.contentVersion(), story.castVersion(),
-                story.coverImageUrl(), story.description(), story.category(),
+                assetUrls.forCover(story.slug(), story.coverImageUrl()), story.description(), story.category(),
                 story.requiresEntitlement());
     }
 }
