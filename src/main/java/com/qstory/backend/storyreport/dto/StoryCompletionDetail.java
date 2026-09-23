@@ -13,7 +13,9 @@ public record StoryCompletionDetail(
         Integer durationSeconds,
         UUID childId,
         List<Map<String, Object>> outcomes,
-        Map<String, Object> companionChatSummary) {
+        Map<String, Object> companionChatSummary,
+        UUID tutorStudentId,
+        UUID lessonId) {
 
     public static StoryCompletionDetail of(StoryCompletion completion) {
         return new StoryCompletionDetail(
@@ -23,6 +25,8 @@ public record StoryCompletionDetail(
                 completion.getDurationSeconds(),
                 completion.getChild() == null ? null : completion.getChild().getId(),
                 completion.getOutcomes(),
-                completion.getCompanionChatSummary());
+                completion.getCompanionChatSummary(),
+                completion.getTutorStudent() == null ? null : completion.getTutorStudent().getId(),
+                completion.getLesson() == null ? null : completion.getLesson().getId());
     }
 }

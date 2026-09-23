@@ -21,4 +21,10 @@ public record RecordStoryCompletionRequest(
         // 이 세션에서 사용한 companion-chat conversationId - 있으면 서비스가 그 대화의
         // 태그 집계를 companion_chat_summary 컬럼으로 스냅샷 저장한다. 상시 대화를 열지 않은
         // 세션이거나 아이가 한 번도 말을 걸지 않았으면 생략.
-        UUID companionConversationId) {}
+        UUID companionConversationId,
+        /**
+         * 수업 상세에서 시작한 세션이면 그 수업 id(caller가 소유한 수업이어야 한다). 있으면 수업의
+         * 참여 학생 전원에게 완주 기록이 하나씩 남고, tutorStudentId는 응답으로 돌려줄 "대표" 기록을
+         * 고르는 데만 쓰인다.
+         */
+        UUID lessonId) {}

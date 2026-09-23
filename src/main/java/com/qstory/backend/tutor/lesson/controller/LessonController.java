@@ -8,7 +8,9 @@ import com.qstory.backend.tutor.lesson.LessonStatus;
 import com.qstory.backend.tutor.lesson.dto.CreateLessonRequest;
 import com.qstory.backend.tutor.lesson.dto.LessonResponse;
 import com.qstory.backend.tutor.lesson.dto.UpdateLessonRequest;
+import com.qstory.backend.storyreport.dto.StoryCompletionSummary;
 import com.qstory.backend.tutor.lesson.service.LessonService;
+import com.qstory.backend.tutor.service.TutorReportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
@@ -29,11 +31,20 @@ import org.springframework.web.bind.annotation.RestController;
 public class LessonController {
 
     private final LessonService service;
+    private final TutorReportService reportService;
     private final CurrentUserResolver currentUserResolver;
 
-    public LessonController(LessonService service, CurrentUserResolver currentUserResolver) {
+    public LessonController(LessonService service, TutorReportService reportService, CurrentUserResolver currentUserResolver) {
         this.service = service;
+        this.reportService = reportService;
         this.currentUserResolver = currentUserResolver;
+    }
+
+    @Operation(summary = "List a lesson's story completions (one row per participating student)",
+            description = "TUTOR only. Must own the lesson. Rows carry tutorStudentId - join with the lesson's students for names.")
+    @GetMapping("/v1/tutor-lessons/{lessonId}/completions")
+    public List<StoryCompletionSummary> completions(@PathVariable UUID lessonId) {
+        return reportService.listLessonCompletions(currentUserResolver.requireRole(Role.TUTOR), lessonId);
     }
 
     @Operation(summary = "List my lessons",

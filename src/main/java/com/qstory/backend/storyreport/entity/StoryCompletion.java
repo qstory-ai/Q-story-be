@@ -5,6 +5,7 @@ import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.parent.child.entity.Child;
 import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.tutor.lesson.entity.Lesson;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -83,6 +84,14 @@ public class StoryCompletion {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "child_id")
     private Child child;
+
+    /**
+     * 수업 상세에서 시작한 세션이면 그 수업(050). 한 번의 반 수업 세션은 참여 학생 수만큼 완주 기록을
+     * 남기고 모두 같은 lesson_id를 가진다. 수업이 삭제되면 null로 남는다.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "lesson_id")
+    private Lesson lesson;
 
     @Column(name = "story_id", nullable = false)
     private String storyId;

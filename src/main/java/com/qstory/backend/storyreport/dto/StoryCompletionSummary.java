@@ -19,7 +19,11 @@ public record StoryCompletionSummary(
         Instant completedAt,
         Integer durationSeconds,
         UUID childId,
-        Map<String, Object> companionChatSummary) {
+        Map<String, Object> companionChatSummary,
+        /** 선생님 세션이면 어느 학생의 기록인지(id만 - 이름은 수업의 students로 조인). 가정 세션은 null. */
+        UUID tutorStudentId,
+        /** 수업 상세에서 시작한 세션이면 그 수업 id. */
+        UUID lessonId) {
 
     public static StoryCompletionSummary of(StoryCompletion completion) {
         return new StoryCompletionSummary(
@@ -28,6 +32,8 @@ public record StoryCompletionSummary(
                 completion.getCompletedAt(),
                 completion.getDurationSeconds(),
                 completion.getChild() == null ? null : completion.getChild().getId(),
-                completion.getCompanionChatSummary());
+                completion.getCompanionChatSummary(),
+                completion.getTutorStudent() == null ? null : completion.getTutorStudent().getId(),
+                completion.getLesson() == null ? null : completion.getLesson().getId());
     }
 }

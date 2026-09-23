@@ -6,6 +6,7 @@ import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.storyreport.dto.StoryCompletionSummary;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.dto.TutorReportSummary;
+import com.qstory.backend.tutor.lesson.repository.LessonRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.util.List;
 import java.util.UUID;
@@ -23,10 +24,24 @@ public class TutorReportService {
 
     private final StoryCompletionRepository storyCompletionRepository;
     private final TutorStudentRepository tutorStudentRepository;
+    private final LessonRepository lessonRepository;
 
-    public TutorReportService(StoryCompletionRepository storyCompletionRepository, TutorStudentRepository tutorStudentRepository) {
+    public TutorReportService(
+            StoryCompletionRepository storyCompletionRepository, TutorStudentRepository tutorStudentRepository,
+            LessonRepository lessonRepository) {
         this.storyCompletionRepository = storyCompletionRepository;
         this.tutorStudentRepository = tutorStudentRepository;
+        this.lessonRepository = lessonRepository;
+    }
+
+    /** 수업 하나의 완주 기록(참여 학생별 한 행) - 소유하지 않은 수업 id면 404. */
+    @Transactional(readOnly = true)
+    public List<StoryCompletionSummary> listLessonCompletions(CurrentUser caller, UUID lessonId) {
+        lessonRepository.findByIdAndTutor_Id(lessonId, caller.userId())
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "수업을 찾을 수 없어요.", 404));
+        return storyCompletionRepository.findByLesson_IdOrderByCompletedAtDesc(lessonId).stream()
+                .map(StoryCompletionSummary::of)
+                .toList();
     }
 
     /** 선생님 자신이 등록한 학생 하나에 대한 세션 기록 - 소유하지 않은 학생 id면 404. */

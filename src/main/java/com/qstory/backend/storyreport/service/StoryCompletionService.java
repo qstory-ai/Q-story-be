@@ -16,10 +16,14 @@ import com.qstory.backend.storyreport.dto.StoryCompletionSummary;
 import com.qstory.backend.storyreport.entity.StoryCompletion;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.tutor.lesson.LessonStatus;
+import com.qstory.backend.tutor.lesson.entity.Lesson;
+import com.qstory.backend.tutor.lesson.repository.LessonRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -39,18 +43,21 @@ public class StoryCompletionService {
     private final ChildRepository childRepository;
     private final NotificationPublisher notificationPublisher;
     private final CompanionChatTurnRepository companionChatTurnRepository;
+    private final LessonRepository lessonRepository;
 
     public StoryCompletionService(
             StoryCompletionRepository repository, AppUserRepository userRepository,
             TutorStudentRepository tutorStudentRepository, ChildRepository childRepository,
             NotificationPublisher notificationPublisher,
-            CompanionChatTurnRepository companionChatTurnRepository) {
+            CompanionChatTurnRepository companionChatTurnRepository,
+            LessonRepository lessonRepository) {
         this.repository = repository;
         this.userRepository = userRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.childRepository = childRepository;
         this.notificationPublisher = notificationPublisher;
         this.companionChatTurnRepository = companionChatTurnRepository;
+        this.lessonRepository = lessonRepository;
     }
 
     @Transactional
@@ -73,40 +80,88 @@ public class StoryCompletionService {
                 ? null
                 : childRepository.findByIdAndParent_Id(request.childId(), caller.userId())
                         .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
-        // 선생님 세션은 childId를 보내지 않지만, 부모가 초대를 수락하며 연결한 아이 프로필이 학생에
-        // 붙어 있으면 그 아이의 기록으로 남긴다 - 부모 홈의 아이별 리포트와 선생님 리포트가 같은
-        // 아이를 가리키게 된다.
-        if (child == null && tutorStudent != null && tutorStudent.getChild() != null) {
-            child = tutorStudent.getChild();
-        }
+        // 수업에서 시작한 세션 - caller가 소유한 수업이어야 한다. 반 수업이면 참여 학생 전원에게 기록이
+        // 남는다(예전엔 프론트가 students[0]만 넘겨 첫 학생에게만 남았다).
+        Lesson lesson = request.lessonId() == null
+                ? null
+                : lessonRepository.findByIdAndTutor_Id(request.lessonId(), caller.userId())
+                        .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "수업을 찾을 수 없어요.", 404));
         Map<String, Object> companionChatSummary = summarizeCompanionChat(request.companionConversationId());
-        StoryCompletion completion = repository.save(StoryCompletion.builder()
+        Instant now = Instant.now();
+
+        List<TutorStudent> participants = new ArrayList<>();
+        if (lesson != null && !lesson.getStudents().isEmpty()) {
+            participants.addAll(lesson.getStudents());
+            // 수업 학생 목록에 없는 tutorStudentId가 함께 왔으면(수업 편집 전에 시작한 세션 등) 그 학생도 포함.
+            if (tutorStudent != null && participants.stream().noneMatch(p -> p.getId().equals(tutorStudent.getId()))) {
+                participants.add(tutorStudent);
+            }
+        } else if (tutorStudent != null) {
+            participants.add(tutorStudent);
+        }
+
+        // 수업이 아직 예정 상태였다면 이야기를 실제로 시작한 것이므로 진행 중으로 올린다.
+        if (lesson != null && lesson.getStatus() == LessonStatus.SCHEDULED) {
+            lesson.setStatus(LessonStatus.IN_PROGRESS);
+            lesson.setStartedAt(now);
+            lesson.setUpdatedAt(now);
+            lessonRepository.save(lesson);
+        }
+
+        if (participants.isEmpty()) {
+            // 가정 세션(부모/반 계정) 또는 학생이 없는 수업 - 기록 하나.
+            return StoryCompletionSummary.of(
+                    saveCompletion(user, lesson, null, child, request, companionChatSummary, now));
+        }
+        StoryCompletion primary = null;
+        for (TutorStudent participant : participants) {
+            // 선생님 세션은 childId를 보내지 않지만, 부모가 초대를 수락하며 연결한 아이 프로필이 학생에
+            // 붙어 있으면 그 아이의 기록으로 남긴다 - 부모 홈의 아이별 리포트와 선생님 리포트가 같은
+            // 아이를 가리키게 된다.
+            Child participantChild = participant.getChild() != null ? participant.getChild() : child;
+            StoryCompletion completion = saveCompletion(
+                    user, lesson, participant, participantChild, request, companionChatSummary, now);
+            notifyLinkedParent(participant, completion);
+            boolean isRequested = tutorStudent != null && participant.getId().equals(tutorStudent.getId());
+            if (primary == null || isRequested) primary = completion;
+        }
+        return StoryCompletionSummary.of(primary);
+    }
+
+    private StoryCompletion saveCompletion(
+            AppUser user, Lesson lesson, TutorStudent tutorStudent, Child child,
+            RecordStoryCompletionRequest request, Map<String, Object> companionChatSummary, Instant now) {
+        return repository.save(StoryCompletion.builder()
                 .user(user)
                 .organization(user.getOrganization())
                 .classGroup(user.getClassGroup())
                 .tutorStudent(tutorStudent)
                 .child(child)
+                .lesson(lesson)
                 .storyId(request.storyId())
-                .completedAt(Instant.now())
+                .completedAt(now)
                 .durationSeconds(request.durationSeconds())
                 .outcomes(request.outcomes() == null ? List.of() : request.outcomes())
                 .companionChatSummary(companionChatSummary)
-                .createdAt(Instant.now())
+                .createdAt(now)
                 .build());
-        // 튜터 세션의 완주 기록은 부모(=linkedParentUser)에게 새 리포트가 도착했다고 알린다.
-        // linkedParentUser가 null이면(=아직 부모 초대 수락 전 상태) 알림을 만들 대상이 없어 건너뛴다.
-        // dedupKey는 completion.id로 안정화 - 트랜잭션 재시도로 record()가 두 번 호출돼도 알림은 하나만.
-        if (tutorStudent != null && tutorStudent.getLinkedParentUser() != null) {
-            AppUser parent = tutorStudent.getLinkedParentUser();
-            notificationPublisher.publish(
-                    parent.getId(),
-                    "tutor-report",
-                    tutorStudent.getName() + " 선생님 수업 기록이 도착했어요",
-                    tutorStudent.getName() + "의 오늘 이야기 세션을 리포트로 확인해 보세요.",
-                    "/reports/" + completion.getId(),
-                    "tutor-report:" + completion.getId());
-        }
-        return StoryCompletionSummary.of(completion);
+    }
+
+    /**
+     * 튜터 세션의 완주 기록은 부모(=linkedParentUser)에게 새 리포트가 도착했다고 알린다.
+     * linkedParentUser가 null이면(=아직 부모 초대 수락 전 상태) 알림을 만들 대상이 없어 건너뛴다.
+     * dedupKey는 completion.id로 안정화 - 트랜잭션 재시도로 record()가 두 번 호출돼도 알림은 하나만.
+     */
+    private void notifyLinkedParent(TutorStudent tutorStudent, StoryCompletion completion) {
+        if (tutorStudent.getLinkedParentUser() == null) return;
+        AppUser parent = tutorStudent.getLinkedParentUser();
+        notificationPublisher.publish(
+                parent.getId(),
+                "tutor-report",
+                tutorStudent.getName() + " 선생님 수업 기록이 도착했어요",
+                tutorStudent.getName() + "의 오늘 이야기 세션을 리포트로 확인해 보세요.",
+                "/reports/" + completion.getId(),
+                "tutor-report:" + completion.getId());
     }
 
     /**

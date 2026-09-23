@@ -23,6 +23,9 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
 
     Optional<StoryCompletion> findByIdAndUser_Id(UUID id, UUID userId);
 
+    /** 수업 하나의 완주 기록(참여 학생별로 한 행씩) - LessonController가 수업 소유를 먼저 확인한 뒤 호출한다. */
+    List<StoryCompletion> findByLesson_IdOrderByCompletedAtDesc(UUID lessonId);
+
     /** 선생님 자신이 진행한, 특정 학생과의 세션들 - TutorController가 그 학생을 소유했는지 먼저 확인한 뒤 호출한다. */
     List<StoryCompletion> findByTutorStudent_IdOrderByCompletedAtDesc(UUID tutorStudentId);
 
