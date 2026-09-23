@@ -5,6 +5,7 @@ import com.qstory.backend.story.StoryContext;
 import com.qstory.backend.story.StoryManifest;
 import com.qstory.backend.story.StoryVersions;
 import com.qstory.backend.story.CastEntry;
+import com.qstory.backend.story.CompanionPersona;
 import com.qstory.backend.story.Anchor;
 
 import com.qstory.backend.common.enums.StoryAvailability;
@@ -24,10 +25,13 @@ public class StoryRegistryService {
 
     private final StoryRegistry registry;
     private final EntitlementService entitlementService;
+    private final CompanionPersonaRegistry personaRegistry;
 
-    public StoryRegistryService(StoryRegistry registry, EntitlementService entitlementService) {
+    public StoryRegistryService(
+            StoryRegistry registry, EntitlementService entitlementService, CompanionPersonaRegistry personaRegistry) {
         this.registry = registry;
         this.entitlementService = entitlementService;
+        this.personaRegistry = personaRegistry;
     }
 
     public record ResolvedQuestionContext(
@@ -57,9 +61,17 @@ public class StoryRegistryService {
             List<String> allowedSpeakerIds,
             List<String> forbiddenKnowledge,
             List<String> sttKeywords,
-            StoryVersions versions) {}
+            StoryVersions versions,
+            /** story_persona에서 온 primarySpeakerId의 페르소나 시트. 임포트되지 않은 스토리면 null. */
+            CompanionPersona persona) {}
 
-    public ResolvedCompanionContext resolveCompanionChatContext(String storyId, String sceneId, CurrentUser callerOrNull) {
+    /**
+     * {@code requestedSpeakerId}는 프론트가 대화 상대로 고른 캐릭터(fe companion-character.ts - 헨젤 또는
+     * 그레텔). 이 값이 오면 그 캐릭터가 primary/allowed speaker가 되어 페르소나·TTS 보이스가 화면의
+     * 아바타와 일치한다. 없으면(구버전 클라이언트) 예전처럼 scene의 anchor 화자나 내레이터로 정한다.
+     */
+    public ResolvedCompanionContext resolveCompanionChatContext(
+            String storyId, String sceneId, String requestedSpeakerId, CurrentUser callerOrNull) {
         StoryManifest story = registry.get(storyId);
         if (story == null) {
             throw ApiException.contractError(ErrorCode.STORY_NOT_REGISTERED, "요청한 작품이 등록되어 있지 않아요.");
@@ -77,7 +89,16 @@ public class StoryRegistryService {
                 .orElse(null);
         String primarySpeakerId;
         List<String> allowedSpeakerIds;
-        if (sceneAnchor != null) {
+        if (requestedSpeakerId != null && !requestedSpeakerId.isBlank()) {
+            boolean registered = story.cast().values().stream()
+                    .anyMatch(entry -> entry.speakerId().equals(requestedSpeakerId));
+            if (!registered) {
+                throw ApiException.contractError(
+                        ErrorCode.STORY_CONTEXT_NOT_ALLOWED, "이 작품에 없는 등장인물과는 대화할 수 없어요.");
+            }
+            primarySpeakerId = requestedSpeakerId;
+            allowedSpeakerIds = List.of(requestedSpeakerId);
+        } else if (sceneAnchor != null) {
             primarySpeakerId = sceneAnchor.primarySpeakerId();
             allowedSpeakerIds = sceneAnchor.allowedSpeakerIds();
         } else {
@@ -107,7 +128,8 @@ public class StoryRegistryService {
                 story.routePromptVersion(), story.contentVersion(), story.routePolicyVersion(),
                 story.responseTextNormalizationVersion());
         return new ResolvedCompanionContext(
-                story, sceneId, primarySpeakerId, allowedSpeakerIds, forbiddenKnowledge, sttKeywords, versions);
+                story, sceneId, primarySpeakerId, allowedSpeakerIds, forbiddenKnowledge, sttKeywords, versions,
+                personaRegistry.find(storyId, primarySpeakerId));
     }
 
     public ResolvedQuestionContext resolveStoryQuestionContext(

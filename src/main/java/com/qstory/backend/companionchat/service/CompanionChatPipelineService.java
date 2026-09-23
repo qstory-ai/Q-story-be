@@ -111,8 +111,8 @@ public class CompanionChatPipelineService {
     private Map<String, Object> respondToTranscript(
             ResolvedCompanionContext context, UUID conversationId, String transcript, RequestDeadline deadline) {
         OpenRouterClient.CompanionRequest request = new OpenRouterClient.CompanionRequest(
-                transcript, context.versions().promptVersion(), context.primarySpeakerId(),
-                context.allowedSpeakerIds(), context.forbiddenKnowledge());
+                transcript, context.versions().promptVersion(), context.story().title(), context.primarySpeakerId(),
+                context.allowedSpeakerIds(), context.forbiddenKnowledge(), context.persona());
         OpenRouterClient.CompanionReply reply = openRouterClient.generateCompanionReply(request, deadline);
 
         turnRepository.save(CompanionChatTurn.builder()

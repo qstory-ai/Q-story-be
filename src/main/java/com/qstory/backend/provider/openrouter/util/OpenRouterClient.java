@@ -24,6 +24,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
+import com.qstory.backend.story.CompanionPersona;
+import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -300,9 +302,12 @@ public class OpenRouterClient {
     public record CompanionRequest(
             String transcript,
             String promptVersion,
+            String storyTitle,
             String primarySpeakerId,
             List<String> allowedSpeakerIds,
-            List<String> forbiddenKnowledge) {}
+            List<String> forbiddenKnowledge,
+            /** story_persona(personas.yaml)에서 온 primarySpeakerId의 시트. 임포트 전이면 null. */
+            CompanionPersona persona) {}
 
     public record CompanionReply(
             String interactionMode, String responseText, String speakerId,
@@ -396,7 +401,7 @@ public class OpenRouterClient {
         ArrayNode messages = root.putArray("messages");
         ObjectNode systemMessage = messages.addObject();
         systemMessage.put("role", "system");
-        systemMessage.put("content", companionSystemPrompt(request.promptVersion()));
+        systemMessage.put("content", companionSystemPrompt(request));
 
         ObjectNode userMessage = messages.addObject();
         userMessage.put("role", "user");
@@ -467,30 +472,82 @@ public class OpenRouterClient {
     }
 
     /**
-     * v1 잠정(provisional) 컴패니언 페르소나 설정 - 라우팅 시스템 프롬프트처럼 route_prompt에
-     * 작성되어 있지 않은데, 이는 라우팅 의사결정 트리가 아니기 때문이다; 안전 규칙 블록만 공유된다.
+     * 컴패니언 챗 시스템 프롬프트. 캐릭터 성격은 여기 Java 문자열이 아니라 story_persona 테이블
+     * (fe personas.yaml → POST /v1/admin/stories/import → CompanionPersonaRegistry)에서 온
+     * {@link CompanionPersona}로 채운다 - 예전엔 헨젤/그레텔 성격이 이 메서드에 따로 적혀 있어
+     * personas.yaml과 어긋날 수 있었다. 라우팅 시스템 프롬프트(route_prompt)와는 안전 규칙 블록만
+     * 공유한다(라우팅 의사결정 트리가 아니기 때문).
      *
-     * <p>primarySpeakerId(user payload)로 헨젤/그레텔 성격을 분화한다 - 두 캐릭터가 똑같이
-     * 반응하면 아이가 "왜 그레텔한테 물어봤는지" 이유가 사라지고 채팅 자체의 재미도 준다.
-     * 이야기 세계관 안에서 반응하도록(오두막, 마녀에게서 도망친 뒤 등) 캐릭터의 시점을 유지하고,
-     * 대화가 이어지도록 자연스러운 순간에 짧은 되질문을 던지게 한다 - 규칙이 아니라 성향이다.
+     * <p>페르소나 시트의 지식 경계(아는 것/모르는 것/먼저 말하지 않는 것)를 그대로 지시로 옮긴다 -
+     * 상시 대화가 결말·반전을 미리 말하지 않게 하는 근거다. 이야기 세계관 안에서 반응하고, 대화가
+     * 이어지도록 자연스러운 순간에 짧은 되질문을 던지게 한다 - 규칙이 아니라 성향이다.
      */
-    private String companionSystemPrompt(String promptVersion) {
-        String safetyFragment = routePromptService.requirePrompt(promptVersion).companionSafetyFragment();
-        return String.join(" ",
-                "너는 6~9세 아이와 한국어 동화 '헨젤과 그레텔' 속 등장인물로서 대화하는 친구다.",
-                "primarySpeakerId가 HG-SPK-HANSEL이면 헨젤(오빠) - 용감하고 실용적이고 장난기 있는 말투로 답한다.",
-                "primarySpeakerId가 HG-SPK-GRETEL이면 그레텔(여동생) - 다정하고 관찰력 있고 감정을 잘 알아주는 말투로 답한다.",
-                "이야기 세계관 안에서 대답한다 - 오두막, 숲, 빵조각, 마녀의 과자집처럼 이야기 안 물건과 장면을 자연스럽게 언급하면서, 캐릭터가 실제로 겪은 것처럼 짧게 회상하듯 말한다.",
-                "아이가 무슨 말을 하든 1~3문장으로 반말로 답한다 - 지루한 요약 대신 그 캐릭터가 실제로 할 법한 감정·감탄·궁금증을 담는다.",
-                "대화가 이어지도록 답 끝에 짧은 되질문을 자주(항상은 아님) 덧붙인다 - '너는 어때?', '왜 그렇게 생각했어?' 처럼 아이가 답하기 쉬운 열린 질문 한 개면 충분하다.",
-                "새로운 분기나 선택지를 만들지 않는다 - 오직 대화일 뿐, 이야기 진행에는 영향을 주지 않는다.",
-                "forbiddenKnowledge에 있는 내용은 사실·추측·가능성 형태로도 절대 언급하지 않는다 - 아직 일어나지 않은 이야기의 전개를 미리 알려주지 않는다.",
-                safetyFragment != null ? safetyFragment : "",
-                "위 규칙에 해당하면 interactionMode를 GENTLE_REDIRECT로 하고, 위험을 짧게 막은 뒤 안전한 화제로 부드럽게 돌아온다.",
-                "그 외에는 interactionMode를 ANSWER로 한다.",
-                "topicTag/toneTag/valueTag는 아이의 말에서 뚜렷하게 드러날 때만 고르고, 확신이 없으면 null로 둔다 - 아이 말을 그대로 반복하거나 확대 해석하지 않는다.",
-                "응답을 반환하기 전에 한국어 맞춤법·띄어쓰기와 캐릭터 말투 일치를 한 번 확인한다.");
+    private String companionSystemPrompt(CompanionRequest request) {
+        String safetyFragment = routePromptService.requirePrompt(request.promptVersion()).companionSafetyFragment();
+        String storyTitle = request.storyTitle() == null || request.storyTitle().isBlank()
+                ? "이 동화" : "'" + request.storyTitle() + "'";
+        List<String> lines = new ArrayList<>();
+        lines.add("너는 6~9세 아이와 한국어 동화 " + storyTitle + " 속 등장인물로서 대화하는 친구다.");
+        lines.add("너는 primarySpeakerId가 가리키는 등장인물이며, 이 인물의 시점과 말투를 끝까지 유지한다.");
+        lines.addAll(personaLines(request.persona()));
+        lines.add("이야기 세계관 안에서 대답한다 - 이야기 안 물건과 장면을 자연스럽게 언급하면서, 캐릭터가 실제로 겪은 것처럼 짧게 회상하듯 말한다.");
+        lines.add("아이가 무슨 말을 하든 1~3문장으로 반말로 답한다 - 지루한 요약 대신 그 캐릭터가 실제로 할 법한 감정·감탄·궁금증을 담는다.");
+        lines.add("대화가 이어지도록 답 끝에 짧은 되질문을 자주(항상은 아님) 덧붙인다 - '너는 어때?', '왜 그렇게 생각했어?' 처럼 아이가 답하기 쉬운 열린 질문 한 개면 충분하다.");
+        lines.add("새로운 분기나 선택지를 만들지 않는다 - 오직 대화일 뿐, 이야기 진행에는 영향을 주지 않는다.");
+        lines.add("forbiddenKnowledge에 있는 내용은 사실·추측·가능성 형태로도 절대 언급하지 않는다 - 아직 일어나지 않은 이야기의 전개를 미리 알려주지 않는다.");
+        if (safetyFragment != null && !safetyFragment.isBlank()) {
+            lines.add(safetyFragment);
+        }
+        lines.add("위 규칙에 해당하면 interactionMode를 GENTLE_REDIRECT로 하고, 위험을 짧게 막은 뒤 안전한 화제로 부드럽게 돌아온다.");
+        lines.add("그 외에는 interactionMode를 ANSWER로 한다.");
+        lines.add("topicTag/toneTag/valueTag는 아이의 말에서 뚜렷하게 드러날 때만 고르고, 확신이 없으면 null로 둔다 - 아이 말을 그대로 반복하거나 확대 해석하지 않는다.");
+        lines.add("응답을 반환하기 전에 한국어 맞춤법·띄어쓰기와 캐릭터 말투 일치를 한 번 확인한다.");
+        return String.join(" ", lines);
+    }
+
+    /**
+     * personas.yaml 한 장을 프롬프트 문장으로 옮긴다. 시트가 없으면(아직 임포트되지 않은 스토리)
+     * 성격을 지어내지 않고 "따뜻한 친구" 한 줄만 준다 - 없는 설정을 만들어 내지 않기 위해서다.
+     */
+    static List<String> personaLines(CompanionPersona persona) {
+        if (persona == null) {
+            return List.of("이 인물의 페르소나 시트가 없으므로, 따뜻하고 다정한 친구의 말투로 답한다.");
+        }
+        List<String> lines = new ArrayList<>();
+        lines.add("인물: " + persona.castTag() + " (" + persona.ageBand() + "). " + persona.oneLiner() + ".");
+        if (!persona.traits().isEmpty()) {
+            lines.add("성격: " + String.join(", ", persona.traits()) + ".");
+        }
+        if (!persona.speechEndings().isEmpty()) {
+            lines.add("말끝은 " + String.join(", ", persona.speechEndings()) + " 처럼 맺는다.");
+        }
+        if (!persona.catchphrases().isEmpty()) {
+            lines.add("가끔 쓰는 말: " + String.join(" / ", persona.catchphrases()) + ".");
+        }
+        lines.add("문장 길이 성향: " + sentenceLengthHint(persona.sentenceLengthBias()) + ".");
+        if (!persona.emotionAllowed().isEmpty()) {
+            lines.add("표현해도 되는 감정: " + String.join(", ", persona.emotionAllowed()) + ". "
+                    + persona.emotionCapNote() + ".");
+        }
+        if (!persona.knows().isEmpty()) {
+            lines.add("이 인물이 아는 것: " + String.join("; ", persona.knows()) + ".");
+        }
+        if (!persona.doesNotKnow().isEmpty()) {
+            lines.add("이 인물이 모르는 것(모르는 척이 아니라 정말 모른다): " + String.join("; ", persona.doesNotKnow()) + ".");
+        }
+        if (!persona.neverRevealsFirst().isEmpty()) {
+            lines.add("아이가 물어도 먼저 말하지 않는 것: " + String.join("; ", persona.neverRevealsFirst()) + ".");
+        }
+        return lines;
+    }
+
+    private static String sentenceLengthHint(String bias) {
+        if (bias == null) return "짧고 또렷하게";
+        return switch (bias.toUpperCase()) {
+            case "SHORT" -> "짧고 또렷하게(한 문장 10~20자)";
+            case "LONG" -> "조금 길어도 되지만 한 문장 36자를 넘기지 않게";
+            default -> "보통 길이(한 문장 10~28자)";
+        };
     }
 
     /**

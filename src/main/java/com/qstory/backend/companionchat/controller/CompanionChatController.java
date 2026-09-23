@@ -68,7 +68,10 @@ public class CompanionChatController {
     @Operation(
             summary = "Send one companion-chat message",
             description = "Anchor-independent free chat with the story's character - never branches the story. "
-                    + "Body: {storyId, sceneId, conversationId, transcript}. The transcript is never persisted; "
+                    + "Body: {storyId, sceneId, conversationId, transcript, speakerId?}. speakerId is the cast "
+                    + "member the child is talking to (e.g. HG-SPK-GRETEL) - its persona sheet (story_persona, "
+                    + "imported from personas.yaml) and voice are used; omitted, the scene's anchor speaker or the "
+                    + "narrator is used. The transcript is never persisted; "
                     + "only a derived topic/tone/value tag set is (see CompanionChatTurn).")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "In-character reply plus its synthesized audio"),
@@ -80,7 +83,7 @@ public class CompanionChatController {
                     content = @Content(schema = @Schema(implementation = FailureBody.class)))
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            description = "{storyId, sceneId, conversationId, transcript}", required = true)
+            description = "{storyId, sceneId, conversationId, transcript, speakerId?}", required = true)
     @PostMapping("/v1/companion-chat/messages")
     public void sendMessage(HttpServletRequest request, HttpServletResponse response) throws IOException {
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
@@ -88,6 +91,7 @@ public class CompanionChatController {
         String sceneId = requireText(body, "sceneId");
         UUID conversationId = requireUuid(body, "conversationId");
         String transcript = requireText(body, "transcript");
+        String speakerId = body.path("speakerId").isTextual() ? body.path("speakerId").asText() : null;
 
         long recentTurns = turnRepository.countByConversationIdAndOccurredAtAfter(
                 conversationId, Instant.now().minus(RATE_LIMIT_WINDOW));
@@ -97,7 +101,7 @@ public class CompanionChatController {
         }
 
         ResolvedCompanionContext context = storyRegistryService.resolveCompanionChatContext(
-                storyId, sceneId, currentUserResolver.currentOrNull());
+                storyId, sceneId, speakerId, currentUserResolver.currentOrNull());
         Map<String, Object> result = pipeline.respond(
                 context, conversationId, transcript, RequestDeadline.startingNow(config.requestTimeoutMs()));
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
@@ -126,7 +130,7 @@ public class CompanionChatController {
         QuestionContractValidator.CompanionAudioContext header =
                 contractValidator.parseCompanionAudioContextFromBody(decoded.body(), decoded.mimeType());
         ResolvedCompanionContext context = storyRegistryService.resolveCompanionChatContext(
-                header.storyId(), header.sceneId(), currentUserResolver.currentOrNull());
+                header.storyId(), header.sceneId(), null, currentUserResolver.currentOrNull());
         Map<String, Object> result = pipeline.transcribe(
                 context, header.sourceMimeType(), decoded.audio(), RequestDeadline.startingNow(config.requestTimeoutMs()));
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
