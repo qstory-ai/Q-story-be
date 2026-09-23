@@ -19,4 +19,6 @@ public record CreateLessonRequest(
         Instant scheduledAt,
         List<UUID> studentIds,
         List<String> storyIds,
-        UUID seriesId) {}
+        UUID seriesId,
+        /** 반 수업이면 반 id. studentIds가 비어 있으면 그 반의 학생이 참여 학생으로 채워진다. */
+        UUID classGroupId) {}

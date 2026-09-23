@@ -13,7 +13,9 @@ import com.qstory.backend.tutor.lesson.dto.LessonResponse;
 import com.qstory.backend.tutor.lesson.dto.UpdateLessonRequest;
 import com.qstory.backend.tutor.lesson.entity.Lesson;
 import com.qstory.backend.tutor.lesson.repository.LessonRepository;
+import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
+import com.qstory.backend.tutor.service.TutorClassService;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -39,16 +41,19 @@ public class LessonService {
     private final TutorStudentRepository tutorStudentRepository;
     private final AppUserRepository userRepository;
     private final NotificationPublisher notificationPublisher;
+    private final TutorClassService tutorClassService;
 
     public LessonService(
             LessonRepository lessonRepository,
             TutorStudentRepository tutorStudentRepository,
             AppUserRepository userRepository,
-            NotificationPublisher notificationPublisher) {
+            NotificationPublisher notificationPublisher,
+            TutorClassService tutorClassService) {
         this.lessonRepository = lessonRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.userRepository = userRepository;
         this.notificationPublisher = notificationPublisher;
+        this.tutorClassService = tutorClassService;
     }
 
     @Transactional(readOnly = true)
@@ -70,7 +75,12 @@ public class LessonService {
         Instant now = Instant.now();
         AppUser tutor = userRepository.getReferenceById(caller.userId());
 
-        var students = resolveOwnedStudents(caller, request.studentIds());
+        // 반 수업: 반은 선생님이 볼 수 있는 것이어야 하고, 학생을 따로 고르지 않았으면 그 반의 학생이 참여한다.
+        ClassGroup classGroup = request.classGroupId() == null
+                ? null : tutorClassService.requireVisible(caller, request.classGroupId());
+        var students = (classGroup != null && (request.studentIds() == null || request.studentIds().isEmpty()))
+                ? classStudents(caller, classGroup)
+                : resolveOwnedStudents(caller, request.studentIds());
         var storyIds = normalizeStoryIds(request.storyIds());
 
         Lesson saved = lessonRepository.save(Lesson.builder()
@@ -79,6 +89,7 @@ public class LessonService {
                 .goal(trimOrNull(request.goal()))
                 .scheduledAt(request.scheduledAt())
                 .status(LessonStatus.SCHEDULED)
+                .classGroup(classGroup)
                 .students(students)
                 .storyIds(storyIds)
                 .seriesId(request.seriesId())
@@ -109,6 +120,12 @@ public class LessonService {
         // goal은 빈 문자열로 "지우기"를 허용 - 클라이언트가 명시적으로 ""을 보내면 null로 저장.
         if (request.goal() != null) lesson.setGoal(trimOrNull(request.goal()));
         if (request.scheduledAt() != null) lesson.setScheduledAt(request.scheduledAt());
+        if (request.classGroupId() != null) {
+            ClassGroup classGroup = tutorClassService.requireVisible(caller, request.classGroupId());
+            lesson.setClassGroup(classGroup);
+            // 반을 바꾸면서 학생을 따로 지정하지 않았으면 새 반의 학생으로 참여 학생을 다시 채운다.
+            if (request.studentIds() == null) lesson.setStudents(classStudents(caller, classGroup));
+        }
         if (request.studentIds() != null) {
             lesson.setStudents(resolveOwnedStudents(caller, request.studentIds()));
         }
@@ -116,6 +133,11 @@ public class LessonService {
             lesson.setStoryIds(normalizeStoryIds(request.storyIds()));
         }
         lesson.setUpdatedAt(Instant.now());
+    }
+
+    private LinkedHashSet<TutorStudent> classStudents(CurrentUser caller, ClassGroup classGroup) {
+        return new LinkedHashSet<>(
+                tutorStudentRepository.findByClassGroup_IdAndTutor_IdOrderByCreatedAtAsc(classGroup.getId(), caller.userId()));
     }
 
     /**
@@ -144,6 +166,10 @@ public class LessonService {
             if (request.name() != null) sibling.setName(request.name().trim());
             if (request.goal() != null) sibling.setGoal(trimOrNull(request.goal()));
             if (delta != null) sibling.setScheduledAt(sibling.getScheduledAt().plus(delta));
+            if (request.classGroupId() != null) {
+                sibling.setClassGroup(anchor.getClassGroup());
+                if (request.studentIds() == null) sibling.setStudents(new LinkedHashSet<>(anchor.getStudents()));
+            }
             if (request.studentIds() != null) {
                 sibling.setStudents(resolveOwnedStudents(caller, request.studentIds()));
             }

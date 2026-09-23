@@ -18,6 +18,8 @@ import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.parent.child.entity.Child;
 import com.qstory.backend.parent.child.repository.ChildRepository;
+import com.qstory.backend.org.entity.ClassGroup;
+import com.qstory.backend.tutor.TutorLessonType;
 import com.qstory.backend.tutor.TutorStudentStatus;
 import com.qstory.backend.tutor.Weekday;
 import com.qstory.backend.tutor.dto.AcceptTutorInviteRequest;
@@ -72,13 +74,15 @@ public class TutorStudentService {
     private final JoinCodeGenerator joinCodeGenerator;
     private final NotificationPublisher notificationPublisher;
     private final ChildRepository childRepository;
+    private final TutorClassService tutorClassService;
 
     public TutorStudentService(
             TutorStudentRepository tutorStudentRepository, TutorScheduleRepository tutorScheduleRepository,
             TutorInviteRepository tutorInviteRepository, AppUserRepository userRepository,
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
             SecureTokenGenerator tokenGenerator, JoinCodeGenerator joinCodeGenerator,
-            NotificationPublisher notificationPublisher, ChildRepository childRepository) {
+            NotificationPublisher notificationPublisher, ChildRepository childRepository,
+            TutorClassService tutorClassService) {
         this.tutorStudentRepository = tutorStudentRepository;
         this.tutorScheduleRepository = tutorScheduleRepository;
         this.tutorInviteRepository = tutorInviteRepository;
@@ -90,6 +94,7 @@ public class TutorStudentService {
         this.joinCodeGenerator = joinCodeGenerator;
         this.notificationPublisher = notificationPublisher;
         this.childRepository = childRepository;
+        this.tutorClassService = tutorClassService;
     }
 
     @Transactional
@@ -100,6 +105,17 @@ public class TutorStudentService {
         if (isBlank(request.ageBand())) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "연령대를 선택해 주세요.");
         }
+        TutorLessonType lessonType = TutorLessonType.parseOrDefault(request.lessonType());
+        if (lessonType == null) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "수업 형태는 INDIVIDUAL 또는 CLASS여야 해요.");
+        }
+        ClassGroup classGroup = null;
+        if (lessonType == TutorLessonType.CLASS) {
+            if (request.classGroupId() == null) {
+                throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "반 수업이면 반을 선택해 주세요.");
+            }
+            classGroup = tutorClassService.requireVisible(caller, request.classGroupId());
+        }
         AppUser tutor = userRepository.getReferenceById(caller.userId());
         TutorStudent student = tutorStudentRepository.save(TutorStudent.builder()
                 .tutor(tutor)
@@ -107,6 +123,8 @@ public class TutorStudentService {
                 .ageBand(request.ageBand().trim())
                 .classType(request.classType())
                 .prepNote(request.prepNote())
+                .lessonType(lessonType)
+                .classGroup(classGroup)
                 .createdAt(Instant.now())
                 .build());
         return TutorStudentResponse.of(student);
@@ -128,6 +146,26 @@ public class TutorStudentService {
         if (request.prepNote() != null) {
             String trimmed = request.prepNote().trim();
             student.setPrepNote(trimmed.isEmpty() ? null : trimmed);
+        }
+        // 수업 형태/반: classGroupId만 와도 CLASS로 간주. INDIVIDUAL로 바꾸면 반 연결을 지운다.
+        if (request.lessonType() != null || request.classGroupId() != null) {
+            TutorLessonType lessonType = request.lessonType() == null
+                    ? TutorLessonType.CLASS : TutorLessonType.parseOrDefault(request.lessonType());
+            if (lessonType == null) {
+                throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "수업 형태는 INDIVIDUAL 또는 CLASS여야 해요.");
+            }
+            if (lessonType == TutorLessonType.INDIVIDUAL) {
+                student.setClassGroup(null);
+            } else {
+                UUID classGroupId = request.classGroupId() != null
+                        ? request.classGroupId()
+                        : student.getClassGroup() == null ? null : student.getClassGroup().getId();
+                if (classGroupId == null) {
+                    throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "반 수업이면 반을 선택해 주세요.");
+                }
+                student.setClassGroup(tutorClassService.requireVisible(caller, classGroupId));
+            }
+            student.setLessonType(lessonType);
         }
         return TutorStudentResponse.of(tutorStudentRepository.save(student));
     }

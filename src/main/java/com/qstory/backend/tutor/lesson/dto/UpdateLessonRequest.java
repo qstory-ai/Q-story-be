@@ -21,4 +21,6 @@ public record UpdateLessonRequest(
         Instant scheduledAt,
         List<UUID> studentIds,
         List<String> storyIds,
-        Boolean applyToFutureInSeries) {}
+        Boolean applyToFutureInSeries,
+        /** null이면 그대로. 반을 바꾸면서 studentIds를 안 보내면 새 반의 학생으로 참여 학생을 다시 채운다. */
+        UUID classGroupId) {}

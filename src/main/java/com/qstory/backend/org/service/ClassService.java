@@ -216,10 +216,23 @@ public class ClassService {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "반 코드 또는 초대 링크가 필요해요.");
         }
         if (hasInvite) {
-            return resolveByInvite(inviteToken.trim());
+            return requireOrganizationClass(resolveByInvite(inviteToken.trim()));
         }
-        return classGroupRepository.findByJoinCode(classCode.trim().toUpperCase())
-                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_JOIN_CODE, "반 코드를 다시 확인해 주세요.", 404));
+        return requireOrganizationClass(classGroupRepository.findByJoinCode(classCode.trim().toUpperCase())
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_JOIN_CODE, "반 코드를 다시 확인해 주세요.", 404)));
+    }
+
+    /**
+     * 부모 가입(코드/초대)은 기관 반에서만 - 선생님 개인 반(organization null, 049 이후 가능)에 부모가
+     * 가입하면 parent.organization이 비어 기관 리포트·이용권 판정이 전부 어긋난다. 그런 반의 학생은
+     * 선생님의 부모 초대(tutor_invite)로 연결된다.
+     */
+    private static ClassGroup requireOrganizationClass(ClassGroup classGroup) {
+        if (classGroup.getOrganization() == null) {
+            throw ApiException.contractError(
+                    ErrorCode.INVALID_JOIN_CODE, "이 반은 선생님 개인 반이라 반 코드로 가입할 수 없어요. 선생님의 초대로 연결해 주세요.", 404);
+        }
+        return classGroup;
     }
 
     /** 새 가입/기존 계정 연결 모두에서 같은 기관 관리자 알림을 발행한다. */
@@ -250,6 +263,7 @@ public class ClassService {
         ClassGroup classGroup = classGroupRepository.findById(classId)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
         boolean isOwningOrganizationOwner = caller.role() == Role.DIRECTOR
+                && classGroup.getOrganization() != null
                 && classGroup.getOrganization().getId().equals(caller.orgId());
         boolean isThisClassAccount = caller.role() == Role.CLASS_ACCOUNT && classId.equals(caller.classId());
         if (!isOwningOrganizationOwner && !isThisClassAccount) {

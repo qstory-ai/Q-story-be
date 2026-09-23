@@ -1,6 +1,7 @@
 package com.qstory.backend.tutor.lesson.entity;
 
 import com.qstory.backend.identity.entity.AppUser;
+import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.tutor.entity.TutorStudent;
 import com.qstory.backend.tutor.lesson.LessonStatus;
 import jakarta.persistence.CascadeType;
@@ -83,6 +84,11 @@ public class Lesson {
 
     @Column(name = "completed_at")
     private Instant completedAt;
+
+    /** 반 수업이면 어느 반인지(049). 개인 레슨·여러 학생을 직접 고른 수업은 null. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "class_group_id")
+    private ClassGroup classGroup;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

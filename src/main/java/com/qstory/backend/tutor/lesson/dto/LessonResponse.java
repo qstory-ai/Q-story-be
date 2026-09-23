@@ -24,7 +24,10 @@ public record LessonResponse(
         Instant createdAt,
         Instant updatedAt,
         /** null이면 단발성 - 클라이언트는 이 값의 존재 여부로 "향후 모든 수업 수정" 선택지를 보여준다. */
-        UUID seriesId) {
+        UUID seriesId,
+        /** 반 수업이면 반 id/이름. 개인 레슨은 null. */
+        UUID classGroupId,
+        String classGroupName) {
 
     public record StudentSummary(UUID id, String name, String ageBand, String status) {
         public static StudentSummary of(TutorStudent student) {
@@ -48,6 +51,8 @@ public record LessonResponse(
                 stories,
                 lesson.getCreatedAt(),
                 lesson.getUpdatedAt(),
-                lesson.getSeriesId());
+                lesson.getSeriesId(),
+                lesson.getClassGroup() == null ? null : lesson.getClassGroup().getId(),
+                lesson.getClassGroup() == null ? null : lesson.getClassGroup().getName());
     }
 }

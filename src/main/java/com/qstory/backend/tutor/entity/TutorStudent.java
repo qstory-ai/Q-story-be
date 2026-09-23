@@ -2,6 +2,8 @@ package com.qstory.backend.tutor.entity;
 
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.parent.child.entity.Child;
+import com.qstory.backend.org.entity.ClassGroup;
+import com.qstory.backend.tutor.TutorLessonType;
 import com.qstory.backend.tutor.TutorStudentStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -58,6 +60,17 @@ public class TutorStudent {
 
     @Column(name = "prep_note")
     private String prepNote;
+
+    /** 개인 레슨인지 반 수업인지. CLASS면 classGroup이 채워진다(049). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "lesson_type", nullable = false)
+    @Builder.Default
+    private TutorLessonType lessonType = TutorLessonType.INDIVIDUAL;
+
+    /** lessonType이 CLASS일 때 속한 반. 반이 삭제되면 null로 돌아가고 lessonType은 그대로 남는다. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "class_group_id")
+    private ClassGroup classGroup;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
