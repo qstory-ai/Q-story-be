@@ -2,6 +2,7 @@ package com.qstory.backend.tutor.service;
 
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.common.util.ChildAge;
 import com.qstory.backend.common.util.DigestUtil;
 import com.qstory.backend.common.util.SecureTokenGenerator;
 import com.qstory.backend.common.util.TokenValidation;
@@ -102,8 +103,10 @@ public class TutorStudentService {
         if (isBlank(request.name())) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "아이 이름 또는 별명을 입력해 주세요.");
         }
-        if (isBlank(request.ageBand())) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "연령대를 선택해 주세요.");
+        // 출생연도가 오면 "N세"는 계산한다. 예전 클라이언트가 연령대 라벨만 보내면 그대로 받는다.
+        Integer birthYear = ChildAge.validateBirthYear(request.birthYear());
+        if (birthYear == null && isBlank(request.ageBand())) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "아이의 출생연도를 골라 주세요.");
         }
         TutorLessonType lessonType = TutorLessonType.parseOrDefault(request.lessonType());
         if (lessonType == null) {
@@ -120,7 +123,8 @@ public class TutorStudentService {
         TutorStudent student = tutorStudentRepository.save(TutorStudent.builder()
                 .tutor(tutor)
                 .name(request.name().trim())
-                .ageBand(request.ageBand().trim())
+                .ageBand(birthYear != null ? ChildAge.tutorLabel(birthYear) : request.ageBand().trim())
+                .birthYear(birthYear)
                 .classType(request.classType())
                 .prepNote(request.prepNote())
                 .lessonType(lessonType)
@@ -146,6 +150,11 @@ public class TutorStudentService {
         if (request.prepNote() != null) {
             String trimmed = request.prepNote().trim();
             student.setPrepNote(trimmed.isEmpty() ? null : trimmed);
+        }
+        if (request.birthYear() != null) {
+            Integer birthYear = ChildAge.validateBirthYear(request.birthYear());
+            student.setBirthYear(birthYear);
+            student.setAgeBand(ChildAge.tutorLabel(birthYear));
         }
         // 수업 형태/반: classGroupId만 와도 CLASS로 간주. INDIVIDUAL로 바꾸면 반 연결을 지운다.
         if (request.lessonType() != null || request.classGroupId() != null) {
@@ -281,7 +290,8 @@ public class TutorStudentService {
 
     private static TutorInvitePreviewResponse previewOf(TutorInvite invite) {
         TutorStudent student = invite.getTutorStudent();
-        return new TutorInvitePreviewResponse(student.getName(), student.getAgeBand(), student.getTutor().getDisplayName());
+        return new TutorInvitePreviewResponse(
+                student.getName(), student.currentAgeBand(), student.getTutor().getDisplayName(), student.getBirthYear());
     }
 
     /**
@@ -371,7 +381,10 @@ public class TutorStudentService {
         return childRepository.save(Child.builder()
                 .parent(parent)
                 .name(student.getName())
-                .ageBand(childAgeBandFor(student.getAgeBand()))
+                .ageBand(student.getBirthYear() != null
+                        ? ChildAge.parentBand(student.getBirthYear())
+                        : childAgeBandFor(student.getAgeBand()))
+                .birthYear(student.getBirthYear())
                 .avatarKey(DEFAULT_CHILD_AVATAR_KEY)
                 .createdAt(now)
                 .updatedAt(now)

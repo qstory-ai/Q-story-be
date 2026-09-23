@@ -31,7 +31,7 @@ public record LessonResponse(
 
     public record StudentSummary(UUID id, String name, String ageBand, String status) {
         public static StudentSummary of(TutorStudent student) {
-            return new StudentSummary(student.getId(), student.getName(), student.getAgeBand(), student.getStatus().name());
+            return new StudentSummary(student.getId(), student.getName(), student.currentAgeBand(), student.getStatus().name());
         }
     }
 

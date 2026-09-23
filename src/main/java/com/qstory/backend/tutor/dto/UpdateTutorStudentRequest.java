@@ -11,4 +11,7 @@ import java.util.UUID;
  * lessonType/classGroupId: 둘 다 null이면 그대로. lessonType=INDIVIDUAL이면 반 연결을 지운다.
  * lessonType=CLASS면 classGroupId(또는 이미 붙어 있는 반)가 필요하다. classGroupId만 보내면 CLASS로 간주.
  */
-public record UpdateTutorStudentRequest(String classType, String prepNote, String lessonType, UUID classGroupId) {}
+public record UpdateTutorStudentRequest(
+        String classType, String prepNote, String lessonType, UUID classGroupId,
+        /** ~년생을 바꾸면 ageBand도 다시 계산된다. */
+        Integer birthYear) {}

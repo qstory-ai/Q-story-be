@@ -1,5 +1,6 @@
 package com.qstory.backend.tutor.entity;
 
+import com.qstory.backend.common.util.ChildAge;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.parent.child.entity.Child;
 import com.qstory.backend.org.entity.ClassGroup;
@@ -52,8 +53,13 @@ public class TutorStudent {
     @Column(nullable = false)
     private String name;
 
+    /** 저장 시점의 "N세" 라벨. birthYear가 있으면 {@link #currentAgeBand()}가 매번 다시 계산한다. */
     @Column(name = "age_band", nullable = false)
     private String ageBand;
+
+    /** ~년생(051). 예전 행은 null이라 그때는 저장된 ageBand를 그대로 쓴다. */
+    @Column(name = "birth_year")
+    private Integer birthYear;
 
     @Column(name = "class_type")
     private String classType;
@@ -94,4 +100,8 @@ public class TutorStudent {
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
+
+    public String currentAgeBand() {
+        return birthYear == null ? ageBand : ChildAge.tutorLabel(birthYear);
+    }
 }

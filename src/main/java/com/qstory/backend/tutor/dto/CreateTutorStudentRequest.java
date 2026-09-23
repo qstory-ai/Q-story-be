@@ -7,4 +7,6 @@ import java.util.UUID;
  * @param classGroupId 선생님이 볼 수 있는 반(GET /v1/tutor-classes)의 id.
  */
 public record CreateTutorStudentRequest(
-        String name, String ageBand, String classType, String prepNote, String lessonType, UUID classGroupId) {}
+        String name, String ageBand, String classType, String prepNote, String lessonType, UUID classGroupId,
+        /** ~년생. 있으면 ageBand("N세")는 서버가 계산한다. 둘 다 없으면 400. */
+        Integer birthYear) {}

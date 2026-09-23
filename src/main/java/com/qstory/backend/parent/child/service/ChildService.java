@@ -2,6 +2,7 @@ package com.qstory.backend.parent.child.service;
 
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.common.util.ChildAge;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
@@ -47,7 +48,11 @@ public class ChildService {
     @Transactional
     public ChildResponse create(CurrentUser caller, CreateChildRequest request) {
         String name = requireField(request.name(), MAX_NAME_LENGTH, "아이 이름 또는 별명을 입력해 주세요.");
-        String ageBand = requireField(request.ageBand(), MAX_AGE_BAND_LENGTH, "연령대를 선택해 주세요.");
+        // 출생연도가 오면 연령대는 계산한다. 예전 클라이언트가 연령대만 보내면 그대로 받는다.
+        Integer birthYear = ChildAge.validateBirthYear(request.birthYear());
+        String ageBand = birthYear != null
+                ? ChildAge.parentBand(birthYear)
+                : requireField(request.ageBand(), MAX_AGE_BAND_LENGTH, "아이의 출생연도를 골라 주세요.");
         String avatarKey = requireField(request.avatarKey(), MAX_AVATAR_KEY_LENGTH, "아바타를 선택해 주세요.");
         String gender = optionalField(request.gender(), MAX_GENDER_LENGTH, "성별 값이 올바르지 않아요.");
 
@@ -57,6 +62,7 @@ public class ChildService {
                 .parent(parent)
                 .name(name)
                 .ageBand(ageBand)
+                .birthYear(birthYear)
                 .avatarKey(avatarKey)
                 .gender(gender)
                 .createdAt(now)
@@ -69,7 +75,13 @@ public class ChildService {
     public ChildResponse update(CurrentUser caller, UUID childId, UpdateChildRequest request) {
         Child child = requireOwn(caller, childId);
         if (request.name() != null) child.setName(requireField(request.name(), MAX_NAME_LENGTH, "아이 이름 또는 별명을 입력해 주세요."));
-        if (request.ageBand() != null) child.setAgeBand(requireField(request.ageBand(), MAX_AGE_BAND_LENGTH, "연령대를 선택해 주세요."));
+        if (request.birthYear() != null) {
+            Integer birthYear = ChildAge.validateBirthYear(request.birthYear());
+            child.setBirthYear(birthYear);
+            child.setAgeBand(ChildAge.parentBand(birthYear));
+        } else if (request.ageBand() != null) {
+            child.setAgeBand(requireField(request.ageBand(), MAX_AGE_BAND_LENGTH, "연령대를 선택해 주세요."));
+        }
         if (request.avatarKey() != null) child.setAvatarKey(requireField(request.avatarKey(), MAX_AVATAR_KEY_LENGTH, "아바타를 선택해 주세요."));
         // gender는 빈 문자열로 "지우기"를 허용한다 - null이 온 경우는 "값 미포함(그대로)"으로 해석.
         if (request.gender() != null) child.setGender(optionalField(request.gender(), MAX_GENDER_LENGTH, "성별 값이 올바르지 않아요."));

@@ -1,5 +1,6 @@
 package com.qstory.backend.parent.child.entity;
 
+import com.qstory.backend.common.util.ChildAge;
 import com.qstory.backend.identity.entity.AppUser;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -48,8 +49,16 @@ public class Child {
     @Column(nullable = false)
     private String name;
 
+    /**
+     * 저장 시점에 계산된 연령대 구간. birthYear가 있으면 응답마다 {@link #currentAgeBand()}로 다시
+     * 계산하므로 해가 바뀌어도 낡지 않는다. 출생연도가 없는 예전 행만 이 값을 그대로 쓴다.
+     */
     @Column(name = "age_band", nullable = false)
     private String ageBand;
+
+    /** ~년생(051). 나이는 ChildAge가 연 나이로 계산한다. 예전 행은 null. */
+    @Column(name = "birth_year")
+    private Integer birthYear;
 
     /**
      * 프리셋 아바타 식별자 - 프리셋 파일들은 FE에 상수로 존재하고 서버는 해당 키만 저장한다.
@@ -66,4 +75,8 @@ public class Child {
 
     @Column(nullable = false)
     private Instant updatedAt;
+
+    public String currentAgeBand() {
+        return birthYear == null ? ageBand : ChildAge.parentBand(birthYear);
+    }
 }
