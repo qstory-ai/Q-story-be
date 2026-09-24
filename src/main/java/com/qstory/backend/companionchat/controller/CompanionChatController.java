@@ -13,6 +13,9 @@ import com.qstory.backend.companionchat.repository.CompanionChatTurnRepository;
 import com.qstory.backend.companionchat.service.CompanionChatPipelineService;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.security.CurrentUserResolver;
+import com.qstory.backend.common.enums.ConversationInputMode;
+import com.qstory.backend.conversationrecord.ConversationAttribution;
+import com.qstory.backend.conversationrecord.util.ConversationAttributionParser;
 import com.qstory.backend.question.util.QuestionContractValidator;
 import com.qstory.backend.story.service.StoryRegistryService;
 import com.qstory.backend.story.service.StoryRegistryService.ResolvedCompanionContext;
@@ -51,11 +54,13 @@ public class CompanionChatController {
     private final CompanionChatPipelineService pipeline;
     private final CompanionChatTurnRepository turnRepository;
     private final CurrentUserResolver currentUserResolver;
+    private final ConversationAttributionParser attributionParser;
 
     public CompanionChatController(
             AppProperties config, ObjectMapper objectMapper, QuestionContractValidator contractValidator,
             StoryRegistryService storyRegistryService, CompanionChatPipelineService pipeline,
-            CompanionChatTurnRepository turnRepository, CurrentUserResolver currentUserResolver) {
+            CompanionChatTurnRepository turnRepository, CurrentUserResolver currentUserResolver,
+            ConversationAttributionParser attributionParser) {
         this.config = config;
         this.objectMapper = objectMapper;
         this.contractValidator = contractValidator;
@@ -63,6 +68,7 @@ public class CompanionChatController {
         this.pipeline = pipeline;
         this.turnRepository = turnRepository;
         this.currentUserResolver = currentUserResolver;
+        this.attributionParser = attributionParser;
     }
 
     @Operation(
@@ -71,8 +77,8 @@ public class CompanionChatController {
                     + "Body: {storyId, sceneId, conversationId, transcript, speakerId?}. speakerId is the cast "
                     + "member the child is talking to (e.g. HG-SPK-GRETEL) - its persona sheet (story_persona, "
                     + "imported from personas.yaml) and voice are used; omitted, the scene's anchor speaker or the "
-                    + "narrator is used. The transcript is never persisted; "
-                    + "only a derived topic/tone/value tag set is (see CompanionChatTurn).")
+                    + "narrator is used. Besides the derived topic/tone/value tags (CompanionChatTurn), the transcript "
+                    + "and reply are appended to the write-only conversation_record log (db/schema/052).")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "In-character reply plus its synthesized audio"),
             @ApiResponse(responseCode = "400", description = "Malformed body",
@@ -83,7 +89,7 @@ public class CompanionChatController {
                     content = @Content(schema = @Schema(implementation = FailureBody.class)))
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            description = "{storyId, sceneId, conversationId, transcript, speakerId?}", required = true)
+            description = "{storyId, sceneId, conversationId, transcript, speakerId?, childId?, tutorStudentId?, lessonId?, inputMode?}", required = true)
     @PostMapping("/v1/companion-chat/messages")
     public void sendMessage(HttpServletRequest request, HttpServletResponse response) throws IOException {
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
@@ -100,10 +106,12 @@ public class CompanionChatController {
                     ErrorCode.COMPANION_CHAT_RATE_LIMITED, "지금은 대화를 너무 많이 나눴어요. 잠시 후 다시 말을 걸어주세요.");
         }
 
+        var caller = currentUserResolver.currentOrNull();
         ResolvedCompanionContext context = storyRegistryService.resolveCompanionChatContext(
-                storyId, sceneId, speakerId, currentUserResolver.currentOrNull());
+                storyId, sceneId, speakerId, caller);
+        ConversationAttribution attribution = attributionParser.fromBody(body, ConversationInputMode.TEXT, caller);
         Map<String, Object> result = pipeline.respond(
-                context, conversationId, transcript, RequestDeadline.startingNow(config.requestTimeoutMs()));
+                context, conversationId, transcript, RequestDeadline.startingNow(config.requestTimeoutMs()), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
 
@@ -129,10 +137,12 @@ public class CompanionChatController {
                 HttpBodyReader.readBase64AudioBody(request, objectMapper, config.maxAudioBytes());
         QuestionContractValidator.CompanionAudioContext header =
                 contractValidator.parseCompanionAudioContextFromBody(decoded.body(), decoded.mimeType());
+        var caller = currentUserResolver.currentOrNull();
         ResolvedCompanionContext context = storyRegistryService.resolveCompanionChatContext(
-                header.storyId(), header.sceneId(), null, currentUserResolver.currentOrNull());
+                header.storyId(), header.sceneId(), null, caller);
+        ConversationAttribution attribution = attributionParser.fromBody(decoded.body(), ConversationInputMode.VOICE, caller);
         Map<String, Object> result = pipeline.transcribe(
-                context, header.sourceMimeType(), decoded.audio(), RequestDeadline.startingNow(config.requestTimeoutMs()));
+                context, header.sourceMimeType(), decoded.audio(), RequestDeadline.startingNow(config.requestTimeoutMs()), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
 

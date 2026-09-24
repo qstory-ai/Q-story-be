@@ -20,7 +20,11 @@ public record AppProperties(
         Supabase supabase,
         Admin admin,
         Auth auth,
-        Payments payments) {
+        Payments payments,
+        ConversationRecord conversationRecord) {
+
+    /** 대화 원장(conversation_record) 보존 일수. 0 이하면 만료 삭제를 하지 않는다. */
+    public record ConversationRecord(int retentionDays) {}
 
     public record Payments(Toss toss) {}
 

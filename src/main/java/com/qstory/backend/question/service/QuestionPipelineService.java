@@ -4,6 +4,8 @@ import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
+import com.qstory.backend.conversationrecord.ConversationAttribution;
+import com.qstory.backend.conversationrecord.service.ConversationRecordService;
 import com.qstory.backend.provider.ProviderReadiness;
 import com.qstory.backend.provider.audio.service.AudioNormalizer;
 import com.qstory.backend.provider.audio.NormalizedAudio;
@@ -41,30 +43,35 @@ public class QuestionPipelineService {
     private final GeminiTtsClient geminiTtsClient;
     private final QuestionRoutingService questionRoutingService;
     private final VoiceCastService voiceCastService;
+    private final ConversationRecordService conversationRecordService;
 
     public QuestionPipelineService(
             AppProperties config, AudioNormalizer normalizer, RtzrSttClient sttClient,
             GeminiTtsClient geminiTtsClient, QuestionRoutingService questionRoutingService,
-            VoiceCastService voiceCastService) {
+            VoiceCastService voiceCastService, ConversationRecordService conversationRecordService) {
         this.config = config;
         this.normalizer = normalizer;
         this.sttClient = sttClient;
         this.geminiTtsClient = geminiTtsClient;
         this.questionRoutingService = questionRoutingService;
         this.voiceCastService = voiceCastService;
+        this.conversationRecordService = conversationRecordService;
     }
 
-    public Map<String, Object> transcribe(ResolvedQuestionContext context, byte[] audio, RequestDeadline deadline) {
-        return transcribeRecording(context, audio, deadline, System.nanoTime());
+    public Map<String, Object> transcribe(
+            ResolvedQuestionContext context, byte[] audio, RequestDeadline deadline, ConversationAttribution attribution) {
+        return transcribeRecording(context, audio, deadline, System.nanoTime(), attribution);
     }
 
-    public Map<String, Object> route(ResolvedQuestionContext context, String transcript, RequestDeadline deadline) {
-        return routeTranscript(context, transcript, "ko", "text/plain", newDiagnostics(transcript), deadline, false, System.nanoTime());
+    public Map<String, Object> route(
+            ResolvedQuestionContext context, String transcript, RequestDeadline deadline, ConversationAttribution attribution) {
+        return routeTranscript(context, transcript, "ko", "text/plain", newDiagnostics(transcript), deadline, false, System.nanoTime(), attribution);
     }
 
-    public Map<String, Object> process(ResolvedQuestionContext context, byte[] audio, RequestDeadline deadline) {
+    public Map<String, Object> process(
+            ResolvedQuestionContext context, byte[] audio, RequestDeadline deadline, ConversationAttribution attribution) {
         long startedAt = System.nanoTime();
-        Map<String, Object> transcription = transcribeRecording(context, audio, deadline, startedAt);
+        Map<String, Object> transcription = transcribeRecording(context, audio, deadline, startedAt, attribution);
         if (Boolean.FALSE.equals(transcription.get("ok"))) {
             ProviderReadiness readiness = ProviderReadiness.of(config);
             Object failure = transcription.get("failure");
@@ -83,11 +90,12 @@ public class QuestionPipelineService {
         SpeechResult speech = (SpeechResult) transcription.get("speech");
         return routeTranscript(
                 context, speech.transcript(), speech.locale(), speech.normalizedMimeType(),
-                (Map<String, Object>) transcription.get("diagnostics"), deadline, true, startedAt);
+                (Map<String, Object>) transcription.get("diagnostics"), deadline, true, startedAt, attribution);
     }
 
-    public Map<String, Object> processText(ResolvedQuestionContext context, String transcript, RequestDeadline deadline) {
-        return routeTranscript(context, transcript, "ko", "text/plain", newDiagnostics(transcript), deadline, false, System.nanoTime());
+    public Map<String, Object> processText(
+            ResolvedQuestionContext context, String transcript, RequestDeadline deadline, ConversationAttribution attribution) {
+        return routeTranscript(context, transcript, "ko", "text/plain", newDiagnostics(transcript), deadline, false, System.nanoTime(), attribution);
     }
 
     private Map<String, Object> newDiagnostics(String transcript) {
@@ -102,7 +110,8 @@ public class QuestionPipelineService {
     }
 
     private Map<String, Object> transcribeRecording(
-            ResolvedQuestionContext context, byte[] audio, RequestDeadline deadline, long startedAtNanos) {
+            ResolvedQuestionContext context, byte[] audio, RequestDeadline deadline, long startedAtNanos,
+            ConversationAttribution attribution) {
         if (!ProviderReadiness.of(config).stt()) {
             return failureEnvelope(
                     ProviderErrorCode.STT_PROVIDER_NOT_CONFIGURED, "stt", false,
@@ -120,6 +129,11 @@ public class QuestionPipelineService {
                         ProviderErrorCode.NO_SPEECH_DETECTED, "stt", true,
                         "이번에는 말소리를 문장으로 확인하지 못했어요.", context.storyContext());
             }
+            // STT 결과를 원장에 남긴다 - 아이가 이 문장을 확인하고 라우팅까지 가지 않아도(취소·재녹음)
+            // "무슨 말을 했는지"는 남는다. 라우팅되면 QUESTION_ROUTE 행이 따로 추가된다.
+            conversationRecordService.recordQuestionTranscript(
+                    context.storyId(), context.sceneId(), context.anchorId(), context.questionRound(),
+                    speech.transcript(), speech.locale(), normalized.mimeType(), attribution);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("ok", true);
             result.put("speech", SpeechResult.of(speech.transcript(), speech.locale(), normalized.mimeType()));
@@ -139,7 +153,8 @@ public class QuestionPipelineService {
 
     private Map<String, Object> routeTranscript(
             ResolvedQuestionContext context, String transcript, String locale, String normalizedMimeType,
-            Map<String, Object> diagnostics, RequestDeadline deadline, boolean includeAudio, long startedAtNanos) {
+            Map<String, Object> diagnostics, RequestDeadline deadline, boolean includeAudio, long startedAtNanos,
+            ConversationAttribution attribution) {
         ProviderReadiness readiness = ProviderReadiness.of(config);
         if (!readiness.llm() || (includeAudio && !readiness.tts())) {
             return failureEnvelope(
@@ -147,7 +162,7 @@ public class QuestionPipelineService {
                     "질문 답변 공급자가 아직 연결되지 않았어요.", context.storyContext());
         }
         try {
-            return respondToTranscript(context, transcript, locale, normalizedMimeType, includeAudio, diagnostics, deadline, startedAtNanos);
+            return respondToTranscript(context, transcript, locale, normalizedMimeType, includeAudio, diagnostics, deadline, startedAtNanos, attribution);
         } catch (Exception error) {
             return failedResult(error, context.storyContext(), "response");
         }
@@ -155,7 +170,8 @@ public class QuestionPipelineService {
 
     private Map<String, Object> respondToTranscript(
             ResolvedQuestionContext context, String transcript, String locale, String normalizedMimeType,
-            boolean includeAudio, Map<String, Object> priorDiagnostics, RequestDeadline deadline, long startedAtNanos) {
+            boolean includeAudio, Map<String, Object> priorDiagnostics, RequestDeadline deadline, long startedAtNanos,
+            ConversationAttribution attribution) {
         StoryContext storyContext = context.storyContext();
         long responseStartedAtNanos = System.nanoTime();
 
@@ -180,6 +196,9 @@ public class QuestionPipelineService {
         }
         long plannedAtNanos = System.nanoTime();
         RoutePlan plan = RoutePlan.of(decision);
+        conversationRecordService.recordQuestionRoute(
+                context.storyId(), context.sceneId(), context.anchorId(), context.questionRound(),
+                transcript, locale, normalizedMimeType, decision, attribution);
 
         SynthesizedAudio generatedAudio = null;
         String ttsFailureCode = null;

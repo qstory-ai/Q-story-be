@@ -6,6 +6,8 @@ import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.companionchat.entity.CompanionChatTurn;
 import com.qstory.backend.companionchat.repository.CompanionChatTurnRepository;
+import com.qstory.backend.conversationrecord.ConversationAttribution;
+import com.qstory.backend.conversationrecord.service.ConversationRecordService;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.provider.ProviderReadiness;
 import com.qstory.backend.provider.audio.NormalizedAudio;
@@ -39,11 +41,12 @@ public class CompanionChatPipelineService {
     private final GeminiTtsClient geminiTtsClient;
     private final VoiceCastService voiceCastService;
     private final CompanionChatTurnRepository turnRepository;
+    private final ConversationRecordService conversationRecordService;
 
     public CompanionChatPipelineService(
             AppProperties config, AudioNormalizer normalizer, RtzrSttClient sttClient,
             OpenRouterClient openRouterClient, GeminiTtsClient geminiTtsClient, VoiceCastService voiceCastService,
-            CompanionChatTurnRepository turnRepository) {
+            CompanionChatTurnRepository turnRepository, ConversationRecordService conversationRecordService) {
         this.config = config;
         this.normalizer = normalizer;
         this.sttClient = sttClient;
@@ -51,6 +54,7 @@ public class CompanionChatPipelineService {
         this.geminiTtsClient = geminiTtsClient;
         this.voiceCastService = voiceCastService;
         this.turnRepository = turnRepository;
+        this.conversationRecordService = conversationRecordService;
     }
 
     /**
@@ -59,7 +63,8 @@ public class CompanionChatPipelineService {
      * 없기 때문에(클래스 상단 주석 참고) 실패 시에도 이 클래스의 단순 failureEnvelope만 반환한다.
      */
     public Map<String, Object> transcribe(
-            ResolvedCompanionContext context, String sourceMimeType, byte[] audio, RequestDeadline deadline) {
+            ResolvedCompanionContext context, String sourceMimeType, byte[] audio, RequestDeadline deadline,
+            ConversationAttribution attribution) {
         if (!ProviderReadiness.of(config).stt()) {
             return failureEnvelope(
                     ProviderErrorCode.STT_PROVIDER_NOT_CONFIGURED, "stt", false,
@@ -75,6 +80,9 @@ public class CompanionChatPipelineService {
                         ProviderErrorCode.NO_SPEECH_DETECTED, "stt", true,
                         "이번에는 말소리를 문장으로 확인하지 못했어요.");
             }
+            conversationRecordService.recordCompanionTranscript(
+                    context.story().storyId(), context.sceneId(), speech.transcript(), speech.locale(),
+                    normalized.mimeType(), attribution);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("ok", true);
             result.put("transcript", speech.transcript());
@@ -94,7 +102,8 @@ public class CompanionChatPipelineService {
     }
 
     public Map<String, Object> respond(
-            ResolvedCompanionContext context, UUID conversationId, String transcript, RequestDeadline deadline) {
+            ResolvedCompanionContext context, UUID conversationId, String transcript, RequestDeadline deadline,
+            ConversationAttribution attribution) {
         ProviderReadiness readiness = ProviderReadiness.of(config);
         if (!readiness.llm() || !readiness.tts()) {
             return failureEnvelope(
@@ -102,14 +111,15 @@ public class CompanionChatPipelineService {
                     "대화 공급자가 아직 연결되지 않았어요.");
         }
         try {
-            return respondToTranscript(context, conversationId, transcript, deadline);
+            return respondToTranscript(context, conversationId, transcript, deadline, attribution);
         } catch (Exception error) {
             return failedResult(error);
         }
     }
 
     private Map<String, Object> respondToTranscript(
-            ResolvedCompanionContext context, UUID conversationId, String transcript, RequestDeadline deadline) {
+            ResolvedCompanionContext context, UUID conversationId, String transcript, RequestDeadline deadline,
+            ConversationAttribution attribution) {
         OpenRouterClient.CompanionRequest request = new OpenRouterClient.CompanionRequest(
                 transcript, context.versions().promptVersion(), context.story().title(), context.primarySpeakerId(),
                 context.allowedSpeakerIds(), context.forbiddenKnowledge(), context.persona());
@@ -126,6 +136,10 @@ public class CompanionChatPipelineService {
                 .toneTag(reply.toneTag())
                 .valueTag(reply.valueTag())
                 .build());
+        // 태그만 남기는 위 행과 별개로, 아이의 말과 캐릭터의 답 원문을 대화 원장에 남긴다(db/schema/052).
+        conversationRecordService.recordCompanionTurn(
+                context.story().storyId(), context.sceneId(), conversationId, transcript, reply,
+                context.versions().promptVersion(), attribution);
 
         SynthesizedAudio generatedAudio = null;
         String ttsFailureCode = null;

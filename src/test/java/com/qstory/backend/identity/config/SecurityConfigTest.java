@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class SecurityConfigTest {
 
     private static AppProperties properties(List<String> allowed, List<String> nativeOrigins) {
-        return new AppProperties(allowed, nativeOrigins, 0, 0, null, null, null, null, null, null);
+        return new AppProperties(allowed, nativeOrigins, 0, 0, null, null, null, null, null, null, null);
     }
 
     @Test

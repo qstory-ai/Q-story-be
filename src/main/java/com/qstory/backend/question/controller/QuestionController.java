@@ -12,6 +12,9 @@ import com.qstory.backend.common.util.HttpBodyReader;
 import com.qstory.backend.common.util.HttpJsonWriter;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.identity.security.CurrentUserResolver;
+import com.qstory.backend.common.enums.ConversationInputMode;
+import com.qstory.backend.conversationrecord.ConversationAttribution;
+import com.qstory.backend.conversationrecord.util.ConversationAttributionParser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
@@ -43,17 +46,19 @@ public class QuestionController {
     private final StoryRegistryService storyRegistryService;
     private final QuestionPipelineService pipeline;
     private final CurrentUserResolver currentUserResolver;
+    private final ConversationAttributionParser attributionParser;
 
     public QuestionController(
             AppProperties config, ObjectMapper objectMapper, QuestionContractValidator contractValidator,
             StoryRegistryService storyRegistryService, QuestionPipelineService pipeline,
-            CurrentUserResolver currentUserResolver) {
+            CurrentUserResolver currentUserResolver, ConversationAttributionParser attributionParser) {
         this.config = config;
         this.objectMapper = objectMapper;
         this.contractValidator = contractValidator;
         this.storyRegistryService = storyRegistryService;
         this.pipeline = pipeline;
         this.currentUserResolver = currentUserResolver;
+        this.attributionParser = attributionParser;
     }
 
     @Operation(
@@ -75,8 +80,10 @@ public class QuestionController {
             @Parameter(hidden = true) HttpServletRequest request, HttpServletResponse response) throws IOException {
         QuestionContractValidator.HeaderContext header = contractValidator.parseQuestionContext(request);
         byte[] audio = HttpBodyReader.readAudioBody(request, config.maxAudioBytes());
-        ResolvedQuestionContext context = resolveContext(header, List.of(), false, currentUserResolver.currentOrNull());
-        Map<String, Object> result = pipeline.transcribe(context, audio, deadline());
+        var caller = currentUserResolver.currentOrNull();
+        ResolvedQuestionContext context = resolveContext(header, List.of(), false, caller);
+        ConversationAttribution attribution = attributionParser.fromHeaders(request, ConversationInputMode.VOICE, caller);
+        Map<String, Object> result = pipeline.transcribe(context, audio, deadline(), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
 
@@ -103,8 +110,10 @@ public class QuestionController {
                 HttpBodyReader.readBase64AudioBody(request, objectMapper, config.maxAudioBytes());
         QuestionContractValidator.HeaderContext header =
                 contractValidator.parseQuestionContextFromBody(decoded.body(), decoded.mimeType());
-        ResolvedQuestionContext context = resolveContext(header, List.of(), false, currentUserResolver.currentOrNull());
-        Map<String, Object> result = pipeline.transcribe(context, decoded.audio(), deadline());
+        var caller = currentUserResolver.currentOrNull();
+        ResolvedQuestionContext context = resolveContext(header, List.of(), false, caller);
+        ConversationAttribution attribution = attributionParser.fromBody(decoded.body(), ConversationInputMode.VOICE, caller);
+        Map<String, Object> result = pipeline.transcribe(context, decoded.audio(), deadline(), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
 
@@ -133,8 +142,10 @@ public class QuestionController {
             @Parameter(hidden = true) HttpServletRequest request, HttpServletResponse response) throws IOException {
         QuestionContractValidator.HeaderContext header = contractValidator.parseQuestionContext(request);
         byte[] audio = HttpBodyReader.readAudioBody(request, config.maxAudioBytes());
-        ResolvedQuestionContext context = resolveContext(header, List.of(), false, currentUserResolver.currentOrNull());
-        Map<String, Object> result = pipeline.process(context, audio, deadline());
+        var caller = currentUserResolver.currentOrNull();
+        ResolvedQuestionContext context = resolveContext(header, List.of(), false, caller);
+        ConversationAttribution attribution = attributionParser.fromHeaders(request, ConversationInputMode.VOICE, caller);
+        Map<String, Object> result = pipeline.process(context, audio, deadline(), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
 
@@ -157,8 +168,12 @@ public class QuestionController {
     public void questionRoute(HttpServletRequest request, HttpServletResponse response) throws IOException {
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
         QuestionContractValidator.TextQuestion parsed = contractValidator.parseTextQuestionRequest(body);
-        ResolvedQuestionContext context = resolveContext(parsed, currentUserResolver.currentOrNull());
-        Map<String, Object> result = pipeline.route(context, parsed.transcript(), deadline());
+        var caller = currentUserResolver.currentOrNull();
+        ResolvedQuestionContext context = resolveContext(parsed, caller);
+        // 이 라우트는 STT를 거친 문장도, 글로 쓴 문장도 받는다 - 프론트가 inputMode로 구분해 보내고,
+        // 안 보내면 TEXT로 둔다.
+        ConversationAttribution attribution = attributionParser.fromBody(body, ConversationInputMode.TEXT, caller);
+        Map<String, Object> result = pipeline.route(context, parsed.transcript(), deadline(), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
 
@@ -180,8 +195,10 @@ public class QuestionController {
     public void textQuestion(HttpServletRequest request, HttpServletResponse response) throws IOException {
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
         QuestionContractValidator.TextQuestion parsed = contractValidator.parseTextQuestionRequest(body);
-        ResolvedQuestionContext context = resolveContext(parsed, currentUserResolver.currentOrNull());
-        Map<String, Object> result = pipeline.processText(context, parsed.transcript(), deadline());
+        var caller = currentUserResolver.currentOrNull();
+        ResolvedQuestionContext context = resolveContext(parsed, caller);
+        ConversationAttribution attribution = attributionParser.fromBody(body, ConversationInputMode.TEXT, caller);
+        Map<String, Object> result = pipeline.processText(context, parsed.transcript(), deadline(), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
 
