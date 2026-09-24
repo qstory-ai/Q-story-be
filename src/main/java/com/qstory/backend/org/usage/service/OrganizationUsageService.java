@@ -50,20 +50,23 @@ public class OrganizationUsageService {
     public OrganizationUsageResponse read(CurrentUser caller, UUID organizationId) {
         requireOwnedByCaller(caller, organizationId);
 
-        long tutorCount = organizationTutorRepository.countByOrganization_Id(organizationId);
+        long tutorCount = organizationTutorRepository.countByOrganization_IdAndTutor_DeletedAtIsNull(organizationId);
         long classCount = classGroupRepository.countByOrganization_Id(organizationId);
         long parentCount = userRepository.countByOrganization_IdAndRoleAndDeletedAtIsNull(organizationId, Role.PARENT);
         long classAccountCount = userRepository.countByOrganization_IdAndRoleAndDeletedAtIsNull(organizationId, Role.CLASS_ACCOUNT);
-        long completionCount = completionRepository.countByUser_Organization_Id(organizationId);
-
+        // 완주는 저장 시점에 스냅샷된 organization_id 기준 - /reports와 같은 기준이라 두 화면이 어긋나지
+        // 않고, 선생님의 기관 반 수업(사용자 소속이 비어 있는)도 포함된다.
+        long completionCount = completionRepository.countByOrganization_Id(organizationId);
         List<OrganizationUsageResponse.RecentActivity> recent = completionRepository
-                .findByUser_Organization_IdOrderByCompletedAtDesc(
+                .findByOrganization_IdOrderByCompletedAtDesc(
                         organizationId, PageRequest.of(0, RECENT_ACTIVITY_LIMIT))
                 .stream()
                 .map(completion -> new OrganizationUsageResponse.RecentActivity(
                         completion.getId(),
                         completion.getStoryId(),
-                        completion.getUser().getDisplayName(),
+                        completion.getTutorStudent() != null
+                                ? completion.getTutorStudent().getName()
+                                : completion.getUser().getDisplayName(),
                         completion.getCompletedAt()))
                 .toList();
 

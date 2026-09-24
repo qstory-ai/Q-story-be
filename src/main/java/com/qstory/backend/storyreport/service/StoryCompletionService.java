@@ -1,5 +1,7 @@
 package com.qstory.backend.storyreport.service;
 
+import com.qstory.backend.org.entity.Organization;
+import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.companionchat.entity.CompanionChatTurn;
@@ -71,7 +73,7 @@ public class StoryCompletionService {
         // 끼워 넣어 부모 쪽 공유 리스트에 끼어드는 걸 막는다.
         TutorStudent tutorStudent = request.tutorStudentId() == null
                 ? null
-                : tutorStudentRepository.findByIdAndTutor_Id(request.tutorStudentId(), caller.userId())
+                : tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(request.tutorStudentId(), caller.userId())
                         .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
         // childId도 마찬가지 - caller(=부모)가 소유한 아이 프로필일 때만 인정. 선생님의 세션은
         // childId를 보내지 않는 것이 관례이지만, 만약 함께 왔다면 그건 이 부모 계정의 아이가 아니라
@@ -86,9 +88,22 @@ public class StoryCompletionService {
                 ? null
                 : lessonRepository.findByIdAndTutor_Id(request.lessonId(), caller.userId())
                         .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "수업을 찾을 수 없어요.", 404));
+        // 멱등 저장(053) - 같은 세션(conversationId)의 기록이 이미 있으면 새로 만들지 않고 그것을 돌려준다.
+        // 클라이언트 재시도로 record()가 두 번 오면 기록과 부모 알림이 두 배로 늘던 문제.
+        if (request.companionConversationId() != null) {
+            List<StoryCompletion> existing = repository.findBySessionIdAndUser_IdOrderByCreatedAtAsc(
+                    request.companionConversationId(), caller.userId());
+            if (!existing.isEmpty()) {
+                StoryCompletion match = existing.stream()
+                        .filter(c -> tutorStudent != null && c.getTutorStudent() != null
+                                && c.getTutorStudent().getId().equals(tutorStudent.getId()))
+                        .findFirst()
+                        .orElse(existing.get(0));
+                return StoryCompletionSummary.of(match);
+            }
+        }
         Map<String, Object> companionChatSummary = summarizeCompanionChat(request.companionConversationId());
         Instant now = Instant.now();
-
         List<TutorStudent> participants = new ArrayList<>();
         if (lesson != null && !lesson.getStudents().isEmpty()) {
             participants.addAll(lesson.getStudents());
@@ -108,8 +123,14 @@ public class StoryCompletionService {
             lessonRepository.save(lesson);
         }
 
+        if (lesson != null && participants.isEmpty()) {
+            // 참여 학생이 없는 수업의 기록은 선생님 계정에만 남아 어느 부모·기관도 볼 수 없다 - 저장을 거절해
+            // 선생님이 학생을 먼저 넣게 한다.
+            throw ApiException.contractError(
+                    ErrorCode.VALIDATION_FAILED, "이 수업에 참여 학생이 없어요. 수업에 학생을 추가한 뒤 기록해 주세요.", 400);
+        }
         if (participants.isEmpty()) {
-            // 가정 세션(부모/반 계정) 또는 학생이 없는 수업 - 기록 하나.
+            // 가정 세션(부모/반 계정) - 기록 하나.
             return StoryCompletionSummary.of(
                     saveCompletion(user, lesson, null, child, request, companionChatSummary, now));
         }
@@ -131,10 +152,21 @@ public class StoryCompletionService {
     private StoryCompletion saveCompletion(
             AppUser user, Lesson lesson, TutorStudent tutorStudent, Child child,
             RecordStoryCompletionRequest request, Map<String, Object> companionChatSummary, Instant now) {
+        // 기관·반 스냅샷: 선생님은 app_user.organization/class_group이 항상 비어 있어 예전엔 선생님 세션이
+        // 기관 이용 현황·리포트에 전혀 잡히지 않았다. 수업의 반 → 학생의 반 → 사용자 자신의 소속 순으로 정한다.
+        ClassGroup classGroup = lesson != null && lesson.getClassGroup() != null
+                ? lesson.getClassGroup()
+                : tutorStudent != null && tutorStudent.getClassGroup() != null
+                        ? tutorStudent.getClassGroup()
+                        : user.getClassGroup();
+        Organization organization = classGroup != null && classGroup.getOrganization() != null
+                ? classGroup.getOrganization()
+                : user.getOrganization();
         return repository.save(StoryCompletion.builder()
                 .user(user)
-                .organization(user.getOrganization())
-                .classGroup(user.getClassGroup())
+                .organization(organization)
+                .classGroup(classGroup)
+                .sessionId(request.companionConversationId())
                 .tutorStudent(tutorStudent)
                 .child(child)
                 .lesson(lesson)
@@ -171,9 +203,10 @@ public class StoryCompletionService {
      * 던지지 않고 조용히 빈 목록으로 응답한다.
      */
     public List<StoryCompletionSummary> list(CurrentUser caller, UUID childId) {
+        // 아이별 조회는 연결된 선생님이 그 아이와 진행한 기록도 포함한다(findVisibleToParentByChild 참고).
         var completions = childId == null
                 ? repository.findByUser_IdOrderByCompletedAtDesc(caller.userId())
-                : repository.findByUser_IdAndChild_IdOrderByCompletedAtDesc(caller.userId(), childId);
+                : repository.findVisibleToParentByChild(caller.userId(), childId);
         return completions.stream().map(StoryCompletionSummary::of).toList();
     }
 
@@ -183,7 +216,7 @@ public class StoryCompletionService {
         var page = PageRequest.of(0, boundedLimit);
         var completions = childId == null
                 ? repository.findByUser_IdOrderByCompletedAtDesc(caller.userId(), page)
-                : repository.findByUser_IdAndChild_IdOrderByCompletedAtDesc(caller.userId(), childId, page);
+                : repository.findVisibleToParentByChild(caller.userId(), childId, page);
         return completions.stream().map(StoryCompletionDetail::of).toList();
     }
 

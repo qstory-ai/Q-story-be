@@ -17,6 +17,9 @@ public interface ClassGroupRepository extends JpaRepository<ClassGroup, UUID> {
 
     long countByOrganization_Id(UUID organizationId);
 
+    /** 기관 안에서 이 선생님이 만든 반 - 소속 해제 시 기관 소유로 넘긴다(OrganizationTutorService). */
+    List<ClassGroup> findByOrganization_IdAndTutor_Id(UUID organizationId, UUID tutorId);
+
     /** 선생님이 직접 만든 반(TutorClassService). */
     List<ClassGroup> findByTutor_IdOrderByCreatedAtAsc(UUID tutorId);
 

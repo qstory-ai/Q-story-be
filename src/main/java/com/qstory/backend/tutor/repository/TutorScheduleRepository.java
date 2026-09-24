@@ -12,5 +12,5 @@ public interface TutorScheduleRepository extends JpaRepository<TutorSchedule, UU
 
     /** TutorScheduleResponse.of()가 row마다 tutorStudent를 읽으므로, N+1을 피하려고 한 쿼리로 함께 가져온다. */
     @EntityGraph(attributePaths = "tutorStudent")
-    List<TutorSchedule> findByTutorStudent_Tutor_IdOrderByCreatedAtAsc(UUID tutorId);
+    List<TutorSchedule> findByTutorStudent_Tutor_IdAndTutorStudent_DeletedAtIsNullOrderByCreatedAtAsc(UUID tutorId);
 }

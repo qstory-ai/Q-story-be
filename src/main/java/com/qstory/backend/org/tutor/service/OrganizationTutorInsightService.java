@@ -39,7 +39,7 @@ public class OrganizationTutorInsightService {
     @Transactional(readOnly = true)
     public List<TutorStudentResponse> listStudents(CurrentUser caller, UUID organizationId, UUID tutorId) {
         requireLinkedTutor(caller, organizationId, tutorId);
-        return tutorStudentRepository.findByTutor_IdOrderByCreatedAtAsc(tutorId).stream()
+        return tutorStudentRepository.findByTutor_IdAndDeletedAtIsNullOrderByCreatedAtAsc(tutorId).stream()
                 .map(TutorStudentResponse::of)
                 .toList();
     }

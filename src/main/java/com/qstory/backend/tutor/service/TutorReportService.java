@@ -47,7 +47,7 @@ public class TutorReportService {
     /** 선생님 자신이 등록한 학생 하나에 대한 세션 기록 - 소유하지 않은 학생 id면 404. */
     @Transactional(readOnly = true)
     public List<StoryCompletionSummary> listStudentCompletions(CurrentUser caller, UUID studentId) {
-        tutorStudentRepository.findByIdAndTutor_Id(studentId, caller.userId())
+        tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(studentId, caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
         return storyCompletionRepository.findByTutorStudent_IdOrderByCompletedAtDesc(studentId).stream()
                 .map(StoryCompletionSummary::of)

@@ -1,5 +1,13 @@
 package com.qstory.backend.org.tutor.service;
 
+import com.qstory.backend.tutor.lesson.repository.LessonRepository;
+import com.qstory.backend.tutor.lesson.entity.Lesson;
+import com.qstory.backend.tutor.lesson.LessonStatus;
+import com.qstory.backend.tutor.repository.TutorStudentRepository;
+import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.tutor.TutorLessonType;
+import com.qstory.backend.org.repository.ClassGroupRepository;
+import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
@@ -49,7 +57,9 @@ public class OrganizationTutorService {
     private final SecureTokenGenerator tokenGenerator;
     private final JoinCodeGenerator joinCodeGenerator;
     private final NotificationPublisher notificationPublisher;
-
+    private final ClassGroupRepository classGroupRepository;
+    private final TutorStudentRepository tutorStudentRepository;
+    private final LessonRepository lessonRepository;
     public OrganizationTutorService(
             OrganizationTutorRepository organizationTutorRepository,
             OrganizationTutorInviteRepository organizationTutorInviteRepository,
@@ -57,7 +67,10 @@ public class OrganizationTutorService {
             AppUserRepository userRepository,
             SecureTokenGenerator tokenGenerator,
             JoinCodeGenerator joinCodeGenerator,
-            NotificationPublisher notificationPublisher) {
+            NotificationPublisher notificationPublisher,
+            ClassGroupRepository classGroupRepository,
+            TutorStudentRepository tutorStudentRepository,
+            LessonRepository lessonRepository) {
         this.organizationTutorRepository = organizationTutorRepository;
         this.organizationTutorInviteRepository = organizationTutorInviteRepository;
         this.organizationRepository = organizationRepository;
@@ -65,6 +78,9 @@ public class OrganizationTutorService {
         this.tokenGenerator = tokenGenerator;
         this.joinCodeGenerator = joinCodeGenerator;
         this.notificationPublisher = notificationPublisher;
+        this.classGroupRepository = classGroupRepository;
+        this.tutorStudentRepository = tutorStudentRepository;
+        this.lessonRepository = lessonRepository;
     }
 
     /* ---------------------------------------------------------- listings */
@@ -188,11 +204,35 @@ public class OrganizationTutorService {
 
     /* ---------------------------------------------------------- unlink */
 
+    /**
+     * 소속 해제. 링크 행만 지우면 선생님이 기관 안에 만든 반은 여전히 그 선생님에게 보여 학생·수업을 계속
+     * 붙일 수 있었다. 이제 함께 정리한다: 기관 안에서 만든 반은 기관 단독 소유로(tutor_id null), 그 기관 반에
+     * 들어 있던 이 선생님의 학생은 개인 레슨으로, 그 반에 묶인 예정 수업은 반 없는 수업으로 되돌린다.
+     * 이미 끝난 수업과 완주 기록은 건드리지 않는다.
+     */
     @Transactional
     public void unlinkTutor(CurrentUser caller, UUID organizationId, UUID tutorId) {
         requireOwnedByCaller(caller, organizationId);
-        organizationTutorRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId)
-                .ifPresent(organizationTutorRepository::delete);
+        organizationTutorRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId).ifPresent(link -> {
+            Instant now = Instant.now();
+            for (TutorStudent student : tutorStudentRepository
+                    .findByTutor_IdAndClassGroup_Organization_IdAndDeletedAtIsNull(tutorId, organizationId)) {
+                student.setClassGroup(null);
+                student.setLessonType(TutorLessonType.INDIVIDUAL);
+                tutorStudentRepository.save(student);
+            }
+            for (Lesson lesson : lessonRepository
+                    .findByTutor_IdAndClassGroup_Organization_IdAndStatus(tutorId, organizationId, LessonStatus.SCHEDULED)) {
+                lesson.setClassGroup(null);
+                lesson.setUpdatedAt(now);
+                lessonRepository.save(lesson);
+            }
+            for (ClassGroup classGroup : classGroupRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId)) {
+                classGroup.setTutor(null);
+                classGroupRepository.save(classGroup);
+            }
+            organizationTutorRepository.delete(link);
+        });
     }
 
     /* ---------------------------------------------------------- helpers */

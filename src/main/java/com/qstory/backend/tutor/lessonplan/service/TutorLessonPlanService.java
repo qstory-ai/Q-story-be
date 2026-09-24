@@ -85,7 +85,7 @@ public class TutorLessonPlanService {
     }
 
     private TutorStudent requireOwnedStudent(CurrentUser caller, UUID studentId) {
-        return tutorStudentRepository.findByIdAndTutor_Id(studentId, caller.userId())
+        return tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(studentId, caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
     }
 

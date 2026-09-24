@@ -1,5 +1,7 @@
 package com.qstory.backend.storyreport.repository;
 
+import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.Query;
 import com.qstory.backend.storyreport.entity.StoryCompletion;
 import java.util.List;
 import java.util.Optional;
@@ -37,11 +39,28 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
     @EntityGraph(attributePaths = {"tutorStudent", "tutorStudent.tutor"})
     List<StoryCompletion> findByTutorStudent_LinkedParentUser_IdOrderByCompletedAtDesc(UUID linkedParentUserId);
 
-    /** 기관 전체 완주 수 - 이용 현황 요약용. 기관에 속한 사용자(PARENT/CLASS_ACCOUNT)의 완주만. */
-    long countByUser_Organization_Id(UUID organizationId);
+    /**
+     * 부모의 아이별 조회 - 부모 자신이 가정에서 진행한 기록과, 연결된 선생님이 그 아이(학생↔아이 링크)와
+     * 진행한 기록을 함께 본다. 선생님 세션은 user_id가 선생님이라 user_id만으로는 절대 보이지 않는다.
+     * left join이어야 한다 - 암묵 조인(c.tutorStudent.linkedParentUser)은 inner join이 되어 가정 기록이 빠진다.
+     */
+    @Query("select c from StoryCompletion c left join c.tutorStudent ts left join ts.linkedParentUser lp "
+            + "where c.child.id = :childId and (c.user.id = :userId or lp.id = :userId) order by c.completedAt desc")
+    List<StoryCompletion> findVisibleToParentByChild(@Param("userId") UUID userId, @Param("childId") UUID childId);
 
-    /** 기관 전체 최근 완주 목록 - 이용 현황 최근 활동 카드용. */
-    List<StoryCompletion> findByUser_Organization_IdOrderByCompletedAtDesc(UUID organizationId, Pageable pageable);
+    @Query("select c from StoryCompletion c left join c.tutorStudent ts left join ts.linkedParentUser lp "
+            + "where c.child.id = :childId and (c.user.id = :userId or lp.id = :userId) order by c.completedAt desc")
+    List<StoryCompletion> findVisibleToParentByChild(
+            @Param("userId") UUID userId, @Param("childId") UUID childId, Pageable pageable);
+
+    /** 멱등 저장 - 같은 세션(conversationId)으로 이미 저장된 기록(053). 호출자 본인 것만. */
+    List<StoryCompletion> findBySessionIdAndUser_IdOrderByCreatedAtAsc(UUID sessionId, UUID userId);
+
+    /** 기관 전체 완주 수 - 저장 시점에 스냅샷된 organization_id 기준(선생님의 기관 반 수업 포함). */
+    long countByOrganization_Id(UUID organizationId);
+    /** 기관 전체 최근 완주 목록 - 이용 현황 최근 활동 카드용. 같은 스냅샷 기준. */
+    @EntityGraph(attributePaths = {"user", "tutorStudent"})
+    List<StoryCompletion> findByOrganization_IdOrderByCompletedAtDesc(UUID organizationId, Pageable pageable);
 
     /** Full organization aggregate report. The graph prevents one query per completion/class membership. */
     @EntityGraph(attributePaths = {"classGroup"})

@@ -81,6 +81,7 @@ public class LessonService {
         var students = (classGroup != null && (request.studentIds() == null || request.studentIds().isEmpty()))
                 ? classStudents(caller, classGroup)
                 : resolveOwnedStudents(caller, request.studentIds());
+        requireClassMembers(classGroup, students);
         var storyIds = normalizeStoryIds(request.storyIds());
 
         Lesson saved = lessonRepository.save(Lesson.builder()
@@ -132,12 +133,27 @@ public class LessonService {
         if (request.storyIds() != null) {
             lesson.setStoryIds(normalizeStoryIds(request.storyIds()));
         }
+        if (request.classGroupId() != null || request.studentIds() != null) {
+            requireClassMembers(lesson.getClassGroup(), lesson.getStudents());
+        }
         lesson.setUpdatedAt(Instant.now());
+    }
+
+    /** 반 수업의 참여 학생은 그 반의 학생이어야 한다 - 반과 명단이 따로 놀면 기관 리포트가 어긋난다. */
+    private static void requireClassMembers(ClassGroup classGroup, java.util.Set<TutorStudent> students) {
+        if (classGroup == null) return;
+        for (TutorStudent student : students) {
+            if (student.getClassGroup() == null || !student.getClassGroup().getId().equals(classGroup.getId())) {
+                throw ApiException.contractError(
+                        ErrorCode.VALIDATION_FAILED,
+                        student.getName() + " 학생은 이 반의 학생이 아니에요. 반 수업에는 그 반의 학생만 넣을 수 있어요.");
+            }
+        }
     }
 
     private LinkedHashSet<TutorStudent> classStudents(CurrentUser caller, ClassGroup classGroup) {
         return new LinkedHashSet<>(
-                tutorStudentRepository.findByClassGroup_IdAndTutor_IdOrderByCreatedAtAsc(classGroup.getId(), caller.userId()));
+                tutorStudentRepository.findByClassGroup_IdAndTutor_IdAndDeletedAtIsNullOrderByCreatedAtAsc(classGroup.getId(), caller.userId()));
     }
 
     /**
@@ -248,7 +264,7 @@ public class LessonService {
         LinkedHashSet<TutorStudent> resolved = new LinkedHashSet<>();
         if (studentIds == null || studentIds.isEmpty()) return resolved;
         for (UUID studentId : studentIds) {
-            TutorStudent student = tutorStudentRepository.findByIdAndTutor_Id(studentId, caller.userId())
+            TutorStudent student = tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(studentId, caller.userId())
                     .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
             resolved.add(student);
         }

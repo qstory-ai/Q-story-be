@@ -93,6 +93,13 @@ public class StoryCompletion {
     @JoinColumn(name = "lesson_id")
     private Lesson lesson;
 
+    /**
+     * 프론트가 이야기 세션당 하나 만드는 conversationId(053). 같은 세션의 재시도 저장을 같은 기록으로
+     * 되돌려 주기 위한 멱등 키 - 반 수업은 (session_id, tutor_student_id), 가정 세션은 session_id 단위.
+     */
+    @Column(name = "session_id")
+    private UUID sessionId;
+
     @Column(name = "story_id", nullable = false)
     private String storyId;
 

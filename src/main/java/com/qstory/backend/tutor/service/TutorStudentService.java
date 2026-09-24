@@ -1,5 +1,10 @@
 package com.qstory.backend.tutor.service;
 
+import org.springframework.dao.DataIntegrityViolationException;
+import java.util.ArrayList;
+import com.qstory.backend.tutor.lesson.repository.LessonRepository;
+import com.qstory.backend.tutor.lesson.entity.Lesson;
+import com.qstory.backend.tutor.lesson.LessonStatus;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.ChildAge;
@@ -76,14 +81,14 @@ public class TutorStudentService {
     private final NotificationPublisher notificationPublisher;
     private final ChildRepository childRepository;
     private final TutorClassService tutorClassService;
-
+    private final LessonRepository lessonRepository;
     public TutorStudentService(
             TutorStudentRepository tutorStudentRepository, TutorScheduleRepository tutorScheduleRepository,
             TutorInviteRepository tutorInviteRepository, AppUserRepository userRepository,
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
             SecureTokenGenerator tokenGenerator, JoinCodeGenerator joinCodeGenerator,
             NotificationPublisher notificationPublisher, ChildRepository childRepository,
-            TutorClassService tutorClassService) {
+            TutorClassService tutorClassService, LessonRepository lessonRepository) {
         this.tutorStudentRepository = tutorStudentRepository;
         this.tutorScheduleRepository = tutorScheduleRepository;
         this.tutorInviteRepository = tutorInviteRepository;
@@ -96,6 +101,7 @@ public class TutorStudentService {
         this.notificationPublisher = notificationPublisher;
         this.childRepository = childRepository;
         this.tutorClassService = tutorClassService;
+        this.lessonRepository = lessonRepository;
     }
 
     @Transactional
@@ -131,6 +137,7 @@ public class TutorStudentService {
                 .classGroup(classGroup)
                 .createdAt(Instant.now())
                 .build());
+        if (classGroup != null) addToScheduledClassLessons(caller, student, classGroup);
         return TutorStudentResponse.of(student);
     }
 
@@ -157,6 +164,7 @@ public class TutorStudentService {
             student.setAgeBand(ChildAge.tutorLabel(birthYear));
         }
         // 수업 형태/반: classGroupId만 와도 CLASS로 간주. INDIVIDUAL로 바꾸면 반 연결을 지운다.
+        ClassGroup previousClass = student.getClassGroup();
         if (request.lessonType() != null || request.classGroupId() != null) {
             TutorLessonType lessonType = request.lessonType() == null
                     ? TutorLessonType.CLASS : TutorLessonType.parseOrDefault(request.lessonType());
@@ -176,26 +184,66 @@ public class TutorStudentService {
             }
             student.setLessonType(lessonType);
         }
+        // 반이 바뀌면 예정된 반 수업의 참여자도 따라간다 - 예전엔 수업 생성 시점의 명단이 그대로 남아,
+        // 반을 옮긴 학생에게 옛 반 수업의 완주 기록·알림이 가고 새 반 수업에서는 빠졌다.
+        ClassGroup nextClass = student.getClassGroup();
+        UUID previousId = previousClass == null ? null : previousClass.getId();
+        UUID nextId = nextClass == null ? null : nextClass.getId();
+        if (!java.util.Objects.equals(previousId, nextId)) {
+            if (previousClass != null) removeFromScheduledClassLessons(caller, student, previousClass);
+            if (nextClass != null) addToScheduledClassLessons(caller, student, nextClass);
+        }
         return TutorStudentResponse.of(tutorStudentRepository.save(student));
     }
 
     public List<TutorStudentResponse> listStudents(CurrentUser caller) {
-        return tutorStudentRepository.findByTutor_IdOrderByCreatedAtAsc(caller.userId()).stream()
+        return tutorStudentRepository.findByTutor_IdAndDeletedAtIsNullOrderByCreatedAtAsc(caller.userId()).stream()
                 .map(TutorStudentResponse::of)
                 .toList();
     }
 
     /**
-     * 학생 hard delete. 스키마의 cascade 규칙 상 tutor_invite / tutor_schedule /
-     * tutor_lesson_plan / lesson_student 4개는 함께 삭제되고, story_completion.
-     * tutor_student_id는 set null로 남아 리포트 히스토리는 보존된다(단, "누구와 진행했는지"
-     * 라벨은 잃는다). 선생님이 명시적으로 지운 학생은 목록/일정에서 완전히 사라져야 UX가
-     * 정직하므로 soft delete 대신 hard delete를 선택.
+     * 소프트 삭제(053). 행을 지우면 story_completion.tutor_student_id가 null이 되어 부모가 이 학생의
+     * 선생님 리포트에 접근할 경로(학생↔linked_parent_user)를 전부 잃고 알림 링크가 404가 됐다. 이제
+     * deletedAt만 채운다 - 목록·일정·수업 조회는 전부 deletedAt is null로 거르고, 예정 수업 참여자에서
+     * 빼고, 열려 있던 초대는 닫는다. 이미 끝난 수업·완주 기록은 그대로 남는다.
      */
     @Transactional
     public void deleteStudent(CurrentUser caller, UUID studentId) {
         TutorStudent student = requireOwnedStudent(caller, studentId);
-        tutorStudentRepository.delete(student);
+        Instant now = Instant.now();
+        student.setDeletedAt(now);
+        for (Lesson lesson : lessonRepository.findByTutor_IdAndStatusAndStudents_Id(
+                caller.userId(), LessonStatus.SCHEDULED, student.getId())) {
+            lesson.getStudents().removeIf(participant -> participant.getId().equals(student.getId()));
+            lesson.setUpdatedAt(now);
+            lessonRepository.save(lesson);
+        }
+        tutorInviteRepository.closeOpenInvites(student.getId(), now);
+        tutorStudentRepository.save(student);
+    }
+
+    /** 반에 새로 들어온 학생을 그 반의 아직 예정(SCHEDULED)인 수업에 참여자로 넣는다. */
+    private void addToScheduledClassLessons(CurrentUser caller, TutorStudent student, ClassGroup classGroup) {
+        for (Lesson lesson : lessonRepository.findByTutor_IdAndClassGroup_IdAndStatus(
+                caller.userId(), classGroup.getId(), LessonStatus.SCHEDULED)) {
+            if (lesson.getStudents().stream().noneMatch(p -> p.getId().equals(student.getId()))) {
+                lesson.getStudents().add(student);
+                lesson.setUpdatedAt(Instant.now());
+                lessonRepository.save(lesson);
+            }
+        }
+    }
+
+    /** 반에서 나간 학생을 그 반의 예정 수업 참여자에서 뺀다. 진행 중·완료 수업은 건드리지 않는다. */
+    private void removeFromScheduledClassLessons(CurrentUser caller, TutorStudent student, ClassGroup classGroup) {
+        for (Lesson lesson : lessonRepository.findByTutor_IdAndClassGroup_IdAndStatus(
+                caller.userId(), classGroup.getId(), LessonStatus.SCHEDULED)) {
+            if (lesson.getStudents().removeIf(p -> p.getId().equals(student.getId()))) {
+                lesson.setUpdatedAt(Instant.now());
+                lessonRepository.save(lesson);
+            }
+        }
     }
 
     /**
@@ -207,7 +255,7 @@ public class TutorStudentService {
      */
     @Transactional(readOnly = true)
     public List<TutorScheduleResponse> listSchedules(CurrentUser caller) {
-        return tutorScheduleRepository.findByTutorStudent_Tutor_IdOrderByCreatedAtAsc(caller.userId()).stream()
+        return tutorScheduleRepository.findByTutorStudent_Tutor_IdAndTutorStudent_DeletedAtIsNullOrderByCreatedAtAsc(caller.userId()).stream()
                 .map(TutorScheduleResponse::of)
                 .toList();
     }
@@ -313,33 +361,44 @@ public class TutorStudentService {
 
     private AuthResponse consumeInvite(
             Optional<CurrentUser> callerOrNull, TutorInvite invite, AcceptTutorInviteRequest request) {
-        TutorStudent student = invite.getTutorStudent();
+        // 학생 행을 먼저 잠근다(select ... for update). 같은 학생의 초대를 두 보호자가 동시에 수락하면
+        // 둘 다 "아직 연결 안 됨" 검사를 통과해 아이 프로필이 두 개 생기고 마지막 쓰기가 이기던 경합을
+        // 여기서 직렬화한다 - 두 번째 트랜잭션은 잠금이 풀린 뒤 이미 CONFIRMED가 된 행을 본다.
+        TutorStudent student = tutorStudentRepository.lockById(invite.getTutorStudent().getId())
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_INVITE, "초대에 연결된 학생을 찾을 수 없어요.", 410));
+        if (student.getDeletedAt() != null) {
+            throw ApiException.contractError(
+                    ErrorCode.INVALID_INVITE, "선생님이 이 학생 등록을 삭제해서 초대를 더 이상 사용할 수 없어요.", 410);
+        }
         AppUser parent = callerOrNull.isPresent() ? existingParent(callerOrNull.get()) : newParent(request);
-
-        // 이미 다른 보호자가 연결된 학생을 두 번째 초대로 조용히 덮어쓰지 않는다 - 예전엔 학생당 미사용
-        // 초대가 여러 장 살아 있어서 나중에 수락한 쪽이 linkedParentUser를 가로챘다.
+        // 이미 다른 보호자가 연결된 학생을 두 번째 초대로 조용히 덮어쓰지 않는다. 탈퇴한 보호자는
+        // AuthService.deleteAccount가 연결을 풀고 PENDING으로 되돌리므로 여기서 영구히 막히지 않는다.
         AppUser alreadyLinked = student.getLinkedParentUser();
         if (student.getStatus() == TutorStudentStatus.CONFIRMED
                 && alreadyLinked != null && !alreadyLinked.getId().equals(parent.getId())) {
             throw ApiException.contractError(
                     ErrorCode.INVALID_INVITE, "이 학생은 이미 다른 보호자 계정과 연결되어 있어요.", 409);
         }
-
         Instant now = Instant.now();
-        invite.setUsedAt(now);
-        tutorInviteRepository.save(invite);
-        for (TutorInvite open : tutorInviteRepository.findByTutorStudent_IdAndUsedAtIsNull(student.getId())) {
-            open.setUsedAt(now);
-            tutorInviteRepository.save(open);
+        // 조건부 소진 - usedAt이 null일 때만 1행이 바뀐다. 0이면 잠금을 기다리는 사이 다른 수락이 이 초대를
+        // 먼저 썼거나(같은 초대 동시 수락) 같은 학생의 다른 초대가 수락되며 닫힌 것이다.
+        if (tutorInviteRepository.markUsed(invite.getId(), now) == 0) {
+            throw ApiException.contractError(
+                    ErrorCode.INVALID_INVITE, "이미 사용된 초대예요. 다른 보호자가 먼저 수락했을 수 있어요.", 410);
         }
-
+        tutorInviteRepository.closeOpenInvites(student.getId(), now);
         student.setLinkedParentUser(parent);
         student.setStatus(TutorStudentStatus.CONFIRMED);
         // 부모 쪽 아이 프로필까지 연결해야 "수락"이 완결된다 - 이 행이 없으면 부모 홈의 아이 목록에
         // 아무것도 없고, 선생님 세션의 완주 기록도 아이에게 이어지지 않는다.
         student.setChild(resolveChild(parent, student, request == null ? null : request.childId()));
-        tutorStudentRepository.save(student);
-
+        try {
+            tutorStudentRepository.saveAndFlush(student);
+        } catch (DataIntegrityViolationException duplicate) {
+            // 053의 (tutor_id, child_id) 유니크 인덱스 - 같은 선생님의 다른 학생 등록이 이미 이 아이를 가리킨다.
+            throw ApiException.contractError(
+                    ErrorCode.DUPLICATE_CHILD_LINK, "이 아이는 이미 같은 선생님의 다른 학생 등록에 연결되어 있어요. 선생님께 확인해 주세요.", 409);
+        }
         // 학생을 등록한 튜터에게 "부모 연결이 완료됐다" 알림. href는 학생 상세로 - 튜터가 곧바로
         // 수업 준비를 시작할 수 있게. dedupKey는 invite.id로 안정화해 중복 발행 방지.
         AppUser tutor = student.getTutor();
@@ -352,14 +411,14 @@ public class TutorStudentService {
                     "/tutor/students/" + student.getId(),
                     "tutor-invite-accepted:" + invite.getId());
         }
-
         CurrentUser currentUser = new CurrentUser(parent.getId(), Role.PARENT, null, null);
         return new AuthResponse(jwtService.issue(currentUser), UserSummary.of(parent));
     }
 
     /**
      * 초대 수락 시 학생에 붙일 아이 프로필. (1) 부모가 childId를 지정했으면 본인 소유인지 확인해 그 아이,
-     * (2) 아니면 같은 이름(공백·대소문자 무시)의 기존 아이, (3) 그것도 없으면 초대에 실린 이름·연령대로
+     * (2) 아니면 같은 이름(공백·대소문자 무시)의 기존 아이 - 여럿이면 출생연도로 좁히고 그래도 여럿이면
+     * 409 CHILD_SELECTION_REQUIRED로 부모가 childId를 고르게 한다, (3) 없으면 초대에 실린 이름·연령대로
      * 새 아이를 만든다. 새로 만드는 경우 아바타는 프론트 프리셋 첫 번째('fox')와 같은 기본값이라
      * 부모가 프로필에서 바꿀 수 있다. 이미 이 학생에 아이가 붙어 있으면(같은 부모의 재수락) 그대로 둔다.
      */
@@ -371,12 +430,25 @@ public class TutorStudentService {
         if (student.getChild() != null && student.getChild().getParent().getId().equals(parent.getId())) {
             return student.getChild();
         }
+        // 이름 매칭 - 선생님이 적은 별명이라 형제나 같은 별명의 아이와 겹칠 수 있다. 후보가 여럿이면
+        // 출생연도로 좁히고, 그래도 여럿이면 조용히 첫 아이를 고르지 않고 부모가 childId로 고르게 한다.
         String wanted = normalizeName(student.getName());
+        List<Child> matches = new ArrayList<>();
         for (Child existing : childRepository.findByParent_IdOrderByCreatedAtAsc(parent.getId())) {
-            if (normalizeName(existing.getName()).equals(wanted)) {
-                return existing;
-            }
+            if (normalizeName(existing.getName()).equals(wanted)) matches.add(existing);
         }
+        if (matches.size() > 1 && student.getBirthYear() != null) {
+            List<Child> sameYear = matches.stream()
+                    .filter(c -> student.getBirthYear().equals(c.getBirthYear()))
+                    .toList();
+            if (!sameYear.isEmpty()) matches = sameYear;
+        }
+        if (matches.size() > 1) {
+            throw ApiException.contractError(
+                    ErrorCode.CHILD_SELECTION_REQUIRED,
+                    "같은 이름의 아이가 여러 명이에요. 연결할 아이 프로필을 골라 다시 수락해 주세요.", 409);
+        }
+        if (matches.size() == 1) return matches.get(0);
         Instant now = Instant.now();
         return childRepository.save(Child.builder()
                 .parent(parent)
@@ -453,7 +525,7 @@ public class TutorStudentService {
     }
 
     private TutorStudent requireOwnedStudent(CurrentUser caller, UUID studentId) {
-        return tutorStudentRepository.findByIdAndTutor_Id(studentId, caller.userId())
+        return tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(studentId, caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
     }
 

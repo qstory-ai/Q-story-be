@@ -9,12 +9,17 @@ alter table public.story_completion
     add column if not exists organization_id uuid references public.organization(id) on delete set null;
 alter table public.story_completion
     add column if not exists class_group_id uuid references public.class_group(id) on delete set null;
+-- 이 백필은 2026-09-06 배포분 이전 기록에만 한 번 적용되어야 한다. 조건 없이 두면 부팅마다 다시
+-- 돌아, 가정에서 완주한 뒤 나중에 반에 들어간 부모의 옛 기록이 그 기관 리포트로 흘러 들어간다
+-- (organization_id가 null인 행을 사용자의 "현재" 소속으로 매번 덮어쓰기 때문). 이후 기록은
+-- StoryCompletionService가 저장 시점에 소속을 스냅샷한다.
 update public.story_completion completion
 set organization_id = user_row.organization_id,
     class_group_id = user_row.class_group_id
 from public.app_user user_row
 where completion.user_id = user_row.id
-  and completion.organization_id is null;
+  and completion.organization_id is null
+  and completion.completed_at < timestamptz '2026-09-07 00:00:00+00';
 create index if not exists story_completion_organization_completed_idx
     on public.story_completion (organization_id, completed_at desc);
 create index if not exists story_completion_class_completed_idx

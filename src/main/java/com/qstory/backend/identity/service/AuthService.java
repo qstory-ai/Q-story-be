@@ -1,5 +1,9 @@
 package com.qstory.backend.identity.service;
 
+import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
+import com.qstory.backend.tutor.repository.TutorStudentRepository;
+import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.tutor.TutorStudentStatus;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
@@ -73,13 +77,16 @@ public class AuthService {
     private final SecureTokenGenerator tokenGenerator;
     private final SupabaseStorageClient storageClient;
     private final AppProperties config;
+    private final TutorStudentRepository tutorStudentRepository;
+    private final OrganizationTutorRepository organizationTutorRepository;
 
     public AuthService(
             AppUserRepository userRepository, PasswordResetTokenRepository passwordResetTokenRepository,
             AccountDeletionFeedbackRepository accountDeletionFeedbackRepository,
             AuthValidator validator, PasswordEncoder passwordEncoder, JwtService jwtService,
             GoogleOAuthVerifier googleOAuthVerifier, KakaoOAuthVerifier kakaoOAuthVerifier,
-            SecureTokenGenerator tokenGenerator, SupabaseStorageClient storageClient, AppProperties config) {
+            SecureTokenGenerator tokenGenerator, SupabaseStorageClient storageClient, AppProperties config,
+            TutorStudentRepository tutorStudentRepository, OrganizationTutorRepository organizationTutorRepository) {
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.accountDeletionFeedbackRepository = accountDeletionFeedbackRepository;
@@ -91,6 +98,8 @@ public class AuthService {
         this.tokenGenerator = tokenGenerator;
         this.storageClient = storageClient;
         this.config = config;
+        this.tutorStudentRepository = tutorStudentRepository;
+        this.organizationTutorRepository = organizationTutorRepository;
     }
 
     @Transactional
@@ -341,6 +350,26 @@ public class AuthService {
         user.setLoginId("deleted:" + UUID.randomUUID() + ":" + user.getLoginId());
         user.setPasswordHash(null);
         userRepository.save(user);
+        releaseRelationships(user);
+    }
+
+    /**
+     * 소프트 삭제된 계정이 남기는 관계를 정리한다. 부모: 연결된 학생을 다시 초대 가능한 상태
+     * (PENDING_PARENT, 보호자·아이 링크 해제)로 되돌린다 - 그대로 두면 탈퇴 계정이 학생을 영구히
+     * 점유해 다른 보호자의 수락이 409로 막히고, 알림도 탈퇴 계정으로 계속 갔다. 선생님: 기관 소속
+     * 관계를 지워 기관의 선생님 수·목록에서 빠지게 한다.
+     */
+    private void releaseRelationships(AppUser user) {
+        if (user.getRole() == Role.PARENT) {
+            for (TutorStudent student : tutorStudentRepository.findByLinkedParentUser_Id(user.getId())) {
+                student.setLinkedParentUser(null);
+                student.setChild(null);
+                student.setStatus(TutorStudentStatus.PENDING_PARENT);
+                tutorStudentRepository.save(student);
+            }
+        } else if (user.getRole() == Role.TUTOR) {
+            organizationTutorRepository.deleteByTutor_Id(user.getId());
+        }
     }
 
     private AppUser requireActiveUser(UUID userId) {

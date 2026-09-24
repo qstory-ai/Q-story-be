@@ -232,6 +232,12 @@ public class ClassService {
             throw ApiException.contractError(
                     ErrorCode.INVALID_JOIN_CODE, "이 반은 선생님 개인 반이라 반 코드로 가입할 수 없어요. 선생님의 초대로 연결해 주세요.", 404);
         }
+        // 선생님이 기관 안에 만든 반도 가입 코드로는 막는다 - 그 반의 학생은 tutor_student로 관리되는데 부모가
+        // 코드로 들어오면 app_user.class_group_id라는 두 번째 소속이 생겨 기관 인원수와 선생님 명단이 어긋난다.
+        if (classGroup.getTutor() != null) {
+            throw ApiException.contractError(
+                    ErrorCode.INVALID_JOIN_CODE, "이 반은 선생님이 운영하는 반이라 반 코드로 가입할 수 없어요. 선생님의 초대로 연결해 주세요.", 404);
+        }
         return classGroup;
     }
 

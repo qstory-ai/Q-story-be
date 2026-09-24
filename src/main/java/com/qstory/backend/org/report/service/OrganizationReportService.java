@@ -1,5 +1,6 @@
 package com.qstory.backend.org.report.service;
 
+import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.Role;
@@ -29,16 +30,18 @@ public class OrganizationReportService {
     private final ClassGroupRepository classGroupRepository;
     private final AppUserRepository userRepository;
     private final StoryCompletionRepository completionRepository;
-
+    private final TutorStudentRepository tutorStudentRepository;
     public OrganizationReportService(
             OrganizationRepository organizationRepository,
             ClassGroupRepository classGroupRepository,
             AppUserRepository userRepository,
-            StoryCompletionRepository completionRepository) {
+            StoryCompletionRepository completionRepository,
+            TutorStudentRepository tutorStudentRepository) {
         this.organizationRepository = organizationRepository;
         this.classGroupRepository = classGroupRepository;
         this.userRepository = userRepository;
         this.completionRepository = completionRepository;
+        this.tutorStudentRepository = tutorStudentRepository;
     }
 
     @Transactional(readOnly = true)
@@ -68,7 +71,9 @@ public class OrganizationReportService {
                     return new OrganizationReportResponse.ClassSummary(
                             classGroup.getId(),
                             classGroup.getName(),
-                            userRepository.countByClassGroup_IdAndRoleAndDeletedAtIsNull(classGroup.getId(), Role.PARENT),
+                            // 반 인원 = 반 코드로 가입한 부모 + 선생님이 반에 넣은 학생(예전엔 후자가 0으로 보였다)
+                            userRepository.countByClassGroup_IdAndRoleAndDeletedAtIsNull(classGroup.getId(), Role.PARENT)
+                                    + tutorStudentRepository.countByClassGroup_IdAndDeletedAtIsNull(classGroup.getId()),
                             aggregate.completionCount,
                             aggregate.questionCount,
                             aggregate.lastActivityAt);
