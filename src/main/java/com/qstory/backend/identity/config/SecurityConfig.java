@@ -67,7 +67,9 @@ public class SecurityConfig {
         configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
                 "content-type", "authorization",
-                "x-qstory-story-id", "x-qstory-scene-id", "x-qstory-anchor-id", "x-qstory-question-round"));
+                "x-qstory-story-id", "x-qstory-scene-id", "x-qstory-anchor-id", "x-qstory-question-round",
+                "x-qstory-session-id", "x-qstory-child-id", "x-qstory-tutor-student-id",
+                "x-qstory-lesson-id", "x-qstory-input-mode"));
         // 브라우저는 cross-origin 응답에서 CORS-safelisted 헤더만 읽을 수 있다. 내레이션 스트림의 PCM
         // 포맷 헤더와 요청 ID를 노출하지 않으면 프론트엔드가 조용히 기본값(24kHz)으로 떨어진다.
         configuration.setExposedHeaders(List.of(
