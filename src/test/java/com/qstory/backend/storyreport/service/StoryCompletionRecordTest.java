@@ -89,6 +89,22 @@ class StoryCompletionRecordTest {
     }
 
     @Test
+    void classLessonIncludesClassmatesWhoJoinedLaterAndSavesEvenWhenEmpty() {
+        ClassGroup moonClass = ClassGroup.builder().id(UUID.randomUUID()).name("달님반").build();
+        Lesson emptyLesson = lesson(moonClass);
+
+        StoryCompletionSummary empty = service.record(caller, request(emptyLesson.getId()));
+        assertEquals("CLASS", empty.sessionKind());
+        assertEquals(0, empty.participantCount());
+
+        TutorStudent joinedByLink = student("하준", parent());
+        when(tutorStudentRepository.findByClassGroup_IdAndTutor_IdAndDeletedAtIsNullOrderByCreatedAtAsc(
+                moonClass.getId(), tutor.getId())).thenReturn(List.of(joinedByLink));
+        StoryCompletionSummary withJoiner = service.record(caller, request(emptyLesson.getId()));
+        assertEquals(1, withJoiner.participantCount());
+    }
+
+    @Test
     void individualLessonStaysTheStudentsRecord() {
         TutorStudent minseo = student("민서", parent());
         Lesson lesson = lesson(null, minseo);
