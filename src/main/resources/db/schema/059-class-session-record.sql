@@ -21,12 +21,14 @@ select id, tutor_student_id from public.story_completion where tutor_student_id 
 on conflict do nothing;
 
 -- 2) 한 번의 기록 요청으로 복제된 행(같은 수업·같은 선생님·같은 완료 시각)을 가장 먼저 만든 행 하나로 모은다.
+--    학생이 지워져 tutor_student_id가 비어 버린 복제본도 함께 모은다 - 남겨 두면 3)에서 같은 session_id의
+--    tutor_student_id 없는 행이 둘이 되어 053의 story_completion_session_solo_uidx에 걸린다.
 with grouped as (
     select id,
            first_value(id) over w as keep_id,
            count(*) over (partition by lesson_id, user_id, completed_at) as copies
     from public.story_completion
-    where lesson_id is not null and tutor_student_id is not null
+    where lesson_id is not null
     window w as (partition by lesson_id, user_id, completed_at order by created_at, id)
 )
 insert into public.story_completion_participant (completion_id, tutor_student_id)
@@ -42,7 +44,7 @@ with grouped as (
            first_value(id) over w as keep_id,
            count(*) over (partition by lesson_id, user_id, completed_at) as copies
     from public.story_completion
-    where lesson_id is not null and tutor_student_id is not null
+    where lesson_id is not null
     window w as (partition by lesson_id, user_id, completed_at order by created_at, id)
 )
 update public.notifications n
@@ -55,7 +57,7 @@ with grouped as (
            first_value(id) over w as keep_id,
            count(*) over (partition by lesson_id, user_id, completed_at) as copies
     from public.story_completion
-    where lesson_id is not null and tutor_student_id is not null
+    where lesson_id is not null
     window w as (partition by lesson_id, user_id, completed_at order by created_at, id)
 )
 delete from public.story_completion c
