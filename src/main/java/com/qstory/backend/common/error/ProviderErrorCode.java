@@ -15,7 +15,6 @@ public enum ProviderErrorCode {
     NARRATION_TIMEOUT("tts", true),
     STT_PROVIDER_NOT_CONFIGURED("stt", false),
     NO_SPEECH_DETECTED("stt", true),
-    SPEECH_PROVIDER_NOT_CONFIGURED("stt", false),
     RESPONSE_PROVIDER_NOT_CONFIGURED("response", false),
     OPENROUTER_RESPONSE_MISSING("response", true),
     SPEECH_PIPELINE_TIMEOUT("response", true),

@@ -11,7 +11,6 @@ import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.org.SubscriptionStatus;
 import com.qstory.backend.org.dto.CreateOrganizationRequest;
 import com.qstory.backend.org.dto.EntitlementResponse;
-import com.qstory.backend.org.dto.OrganizationResponse;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.repository.OrganizationRepository;
 import java.time.Instant;
@@ -59,10 +58,6 @@ public class OrganizationService {
         director = userRepository.save(director);
         CurrentUser refreshed = new CurrentUser(director.getId(), director.getRole(), organization.getId());
         return new AuthResponse(jwtService.issue(refreshed), userSummaryFactory.of(director));
-    }
-
-    public OrganizationResponse get(CurrentUser caller, UUID organizationId) {
-        return OrganizationResponse.of(requireOwned(caller, organizationId));
     }
 
     public EntitlementResponse entitlement(CurrentUser caller, UUID organizationId) {

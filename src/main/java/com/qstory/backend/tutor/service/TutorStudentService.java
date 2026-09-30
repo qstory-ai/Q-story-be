@@ -22,32 +22,24 @@ import com.qstory.backend.parent.child.entity.Child;
 import com.qstory.backend.parent.child.repository.ChildRepository;
 import com.qstory.backend.tutor.TutorLessonType;
 import com.qstory.backend.tutor.TutorStudentStatus;
-import com.qstory.backend.tutor.Weekday;
 import com.qstory.backend.tutor.dto.AcceptTutorInviteRequest;
 import com.qstory.backend.tutor.dto.BulkCreateTutorStudentsRequest;
 import com.qstory.backend.tutor.dto.BulkTutorStudentResult;
 import com.qstory.backend.tutor.dto.CreateTutorInviteRequest;
-import com.qstory.backend.tutor.dto.CreateTutorScheduleRequest;
 import com.qstory.backend.tutor.dto.CreateTutorStudentRequest;
 import com.qstory.backend.tutor.dto.TutorInvitePreviewResponse;
 import com.qstory.backend.tutor.dto.TutorInviteResponse;
-import com.qstory.backend.tutor.dto.TutorScheduleResponse;
 import com.qstory.backend.tutor.dto.TutorStudentResponse;
 import com.qstory.backend.tutor.dto.UpdateTutorStudentRequest;
 import com.qstory.backend.tutor.entity.TutorInvite;
-import com.qstory.backend.tutor.entity.TutorSchedule;
 import com.qstory.backend.tutor.entity.TutorStudent;
 import com.qstory.backend.tutor.lesson.LessonStatus;
 import com.qstory.backend.tutor.lesson.entity.Lesson;
 import com.qstory.backend.tutor.lesson.repository.LessonRepository;
 import com.qstory.backend.tutor.repository.TutorInviteRepository;
-import com.qstory.backend.tutor.repository.TutorScheduleRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalTime;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -75,7 +67,6 @@ public class TutorStudentService {
     private static final Pattern DIGITS = Pattern.compile("\\d+");
 
     private final TutorStudentRepository tutorStudentRepository;
-    private final TutorScheduleRepository tutorScheduleRepository;
     private final TutorInviteRepository tutorInviteRepository;
     private final AppUserRepository userRepository;
     private final AuthValidator authValidator;
@@ -90,7 +81,7 @@ public class TutorStudentService {
     private final UserSummaryFactory userSummaryFactory;
 
     public TutorStudentService(
-            TutorStudentRepository tutorStudentRepository, TutorScheduleRepository tutorScheduleRepository,
+            TutorStudentRepository tutorStudentRepository,
             TutorInviteRepository tutorInviteRepository, AppUserRepository userRepository,
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
             SecureTokenGenerator tokenGenerator, JoinCodeGenerator joinCodeGenerator,
@@ -98,7 +89,6 @@ public class TutorStudentService {
             TutorClassService tutorClassService, LessonRepository lessonRepository,
             UserSummaryFactory userSummaryFactory) {
         this.tutorStudentRepository = tutorStudentRepository;
-        this.tutorScheduleRepository = tutorScheduleRepository;
         this.tutorInviteRepository = tutorInviteRepository;
         this.userRepository = userRepository;
         this.authValidator = authValidator;
@@ -348,46 +338,6 @@ public class TutorStudentService {
         }
     }
 
-    /**
-     * 이 선생님이 등록한 모든 학생의 일정을 통틀어 - "주간 일정" 화면이 학생별로 다시 조회할 필요
-     * 없게. @Transactional(readOnly=true) 필수 - TutorScheduleResponse.of()가 지연 로딩된
-     * tutorStudent.getName()을 읽는데, 세션이 이미 닫힌 뒤(트랜잭션 밖)라면
-     * LazyInitializationException이 난다(id만 읽으면 프록시가 안 깨어나 괜찮지만, name처럼
-     * 실제 컬럼을 읽으려면 DB를 다시 쳐야 해서 열린 세션이 필요하다).
-     */
-    @Transactional(readOnly = true)
-    public List<TutorScheduleResponse> listSchedules(CurrentUser caller) {
-        return tutorScheduleRepository.findByTutorStudent_Tutor_IdAndTutorStudent_DeletedAtIsNullOrderByCreatedAtAsc(caller.userId()).stream()
-                .map(TutorScheduleResponse::of)
-                .toList();
-    }
-
-    @Transactional
-    public TutorScheduleResponse createSchedule(CurrentUser caller, UUID studentId, CreateTutorScheduleRequest request) {
-        TutorStudent student = requireOwnedStudent(caller, studentId);
-        Weekday weekday = parseWeekday(request.weekday());
-        LocalTime startTime = parseTime(request.startTime(), "시작 시간");
-        LocalTime endTime = parseTime(request.endTime(), "종료 시간");
-        if (!startTime.isBefore(endTime)) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "종료 시간은 시작 시간보다 늦어야 해요.");
-        }
-        LocalDate startDate = parseDate(request.startDate());
-        if (isBlank(request.location())) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "수업 장소를 입력해 주세요.");
-        }
-        TutorSchedule schedule = tutorScheduleRepository.save(TutorSchedule.builder()
-                .tutorStudent(student)
-                .weekday(weekday)
-                .startTime(startTime)
-                .endTime(endTime)
-                .startDate(startDate)
-                .location(request.location().trim())
-                .reminderEnabled(request.reminderEnabled() == null || request.reminderEnabled())
-                .createdAt(Instant.now())
-                .build());
-        return TutorScheduleResponse.of(schedule);
-    }
-
     @Transactional
     public TutorInviteResponse createInvite(CurrentUser caller, UUID studentId, CreateTutorInviteRequest request) {
         TutorStudent student = requireOwnedStudent(caller, studentId);
@@ -621,30 +571,6 @@ public class TutorStudentService {
     private TutorStudent requireOwnedStudent(CurrentUser caller, UUID studentId) {
         return tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(studentId, caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
-    }
-
-    private static Weekday parseWeekday(String value) {
-        try {
-            return Weekday.valueOf(value == null ? "" : value.trim().toUpperCase());
-        } catch (IllegalArgumentException invalid) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "수업 요일을 다시 확인해 주세요.");
-        }
-    }
-
-    private static LocalTime parseTime(String value, String label) {
-        try {
-            return LocalTime.parse(value);
-        } catch (DateTimeParseException | NullPointerException invalid) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, label + "을 다시 확인해 주세요.");
-        }
-    }
-
-    private static LocalDate parseDate(String value) {
-        try {
-            return LocalDate.parse(value);
-        } catch (DateTimeParseException | NullPointerException invalid) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "시작일을 다시 확인해 주세요.");
-        }
     }
 
     private static boolean isBlank(String value) {

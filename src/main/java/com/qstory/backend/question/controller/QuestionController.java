@@ -18,7 +18,6 @@ import com.qstory.backend.conversationrecord.ConversationAttribution;
 import com.qstory.backend.conversationrecord.util.ConversationAttributionParser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -33,7 +32,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 질문/전사 엔드포인트의 HTTP 배선 - 검증·컨텍스트 해석 후 QuestionPipelineService에 위임한다. */
-@Tag(name = "Questions", description = "The child's spoken/typed question pipeline: transcribe, route to a story branch, and (for the JSON routes) that in one call")
+@Tag(name = "Questions", description = "The child's spoken/typed question pipeline: transcribe, then route to a story branch")
 @RestController
 public class QuestionController {
 
@@ -62,7 +61,7 @@ public class QuestionController {
             summary = "Transcribe a raw audio recording",
             description = "Body is the raw audio bytes (Content-Type is the audio mime type, e.g. audio/webm). "
                     + "Story/scene/anchor context comes from request headers, not the body. Does not route the "
-                    + "question - see POST /v1/questions for transcribe+route in one call.")
+                    + "question - send the transcript to POST /v1/questions/route.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Transcript"),
             @ApiResponse(responseCode = "400", description = "Missing/invalid context headers, or empty audio",
@@ -115,38 +114,6 @@ public class QuestionController {
     }
 
     @Operation(
-            summary = "Transcribe and route a spoken question in one call",
-            description = "The primary child-facing endpoint: transcribes the raw audio, then routes it to a "
-                    + "story branch via the LLM (see QuestionPipelineService). Required headers: "
-                    + "x-qstory-story-id, x-qstory-scene-id, x-qstory-anchor-id, x-qstory-question-round.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Transcript plus the routed narration"),
-            @ApiResponse(responseCode = "400", description = "Missing/invalid context headers, or empty audio",
-                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
-            @ApiResponse(responseCode = "413", description = "Audio exceeds qstory.max-audio-bytes",
-                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
-            @ApiResponse(responseCode = "415", description = "Unsupported audio content type",
-                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
-            @ApiResponse(responseCode = "502", description = "STT/LLM provider call failed",
-                    content = @Content(schema = @Schema(implementation = FailureBody.class)))
-    })
-    @Parameter(in = ParameterIn.HEADER, name = "x-qstory-story-id", required = true, description = "e.g. \"HG\"")
-    @Parameter(in = ParameterIn.HEADER, name = "x-qstory-scene-id", required = true)
-    @Parameter(in = ParameterIn.HEADER, name = "x-qstory-anchor-id", required = true)
-    @Parameter(in = ParameterIn.HEADER, name = "x-qstory-question-round", required = true, schema = @Schema(type = "integer"))
-    @PostMapping("/v1/questions")
-    public void question(
-            @Parameter(hidden = true) HttpServletRequest request, HttpServletResponse response) throws IOException {
-        QuestionContractValidator.HeaderContext header = contractValidator.parseQuestionContext(request);
-        byte[] audio = HttpBodyReader.readAudioBody(request, config.maxAudioBytes());
-        var caller = currentUserResolver.currentOrNull();
-        ResolvedQuestionContext context = resolveContext(header, caller);
-        ConversationAttribution attribution = attributionParser.fromHeaders(request, ConversationInputMode.VOICE, caller);
-        Map<String, Object> result = pipeline.process(context, audio, deadline(), attribution);
-        HttpJsonWriter.writeJson(response, objectMapper, 200, result);
-    }
-
-    @Operation(
             summary = "Route an already-transcribed question",
             description = "JSON body carries storyId/sceneId/anchorId/questionRound/transcript directly (no "
                     + "audio, no context headers) plus optional priorActionFamilyIds/guaranteeAgencyChoice. Used "
@@ -171,31 +138,6 @@ public class QuestionController {
         // 안 보내면 TEXT로 둔다.
         ConversationAttribution attribution = attributionParser.fromBody(body, ConversationInputMode.TEXT, caller);
         Map<String, Object> result = pipeline.route(context, parsed.transcript(), deadline(), attribution);
-        HttpJsonWriter.writeJson(response, objectMapper, 200, result);
-    }
-
-    @Operation(
-            summary = "Route a typed question, including its narration",
-            description = "Same body shape as POST /v1/questions/route, but also synthesizes and returns the "
-                    + "routed narration's audio (the typed-input equivalent of POST /v1/questions).")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Routed narration plus synthesized audio"),
-            @ApiResponse(responseCode = "400", description = "Malformed body or invalid context",
-                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
-            @ApiResponse(responseCode = "502", description = "LLM/TTS provider call failed",
-                    content = @Content(schema = @Schema(implementation = FailureBody.class)))
-    })
-    @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            description = "{storyId, sceneId, anchorId, questionRound, transcript, priorActionFamilyIds?, guaranteeAgencyChoice?}",
-            required = true)
-    @PostMapping("/v1/text-questions")
-    public void textQuestion(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
-        QuestionContractValidator.TextQuestion parsed = contractValidator.parseTextQuestionRequest(body);
-        var caller = currentUserResolver.currentOrNull();
-        ResolvedQuestionContext context = resolveContext(parsed, caller);
-        ConversationAttribution attribution = attributionParser.fromBody(body, ConversationInputMode.TEXT, caller);
-        Map<String, Object> result = pipeline.processText(context, parsed.transcript(), deadline(), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
 

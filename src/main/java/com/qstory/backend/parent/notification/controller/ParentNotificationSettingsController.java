@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "Notification settings", description = "Per-user notification preferences")
 @RestController
-@RequestMapping({"/v1/me/notification-settings", "/v1/parents/me/notification-settings"})
+@RequestMapping("/v1/me/notification-settings")
 public class ParentNotificationSettingsController {
 
     private final NotificationSettingsService service;
