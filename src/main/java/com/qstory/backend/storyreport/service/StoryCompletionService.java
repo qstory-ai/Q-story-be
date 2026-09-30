@@ -109,15 +109,6 @@ public class StoryCompletionService {
         } else if (tutorStudent != null) {
             participants.add(tutorStudent);
         }
-        // 반 수업은 지금 반 명단 전원이 참여한다 - 수업을 만든 뒤 반 초대 링크로 들어온 아이도 빠지지 않게.
-        if (lesson != null && lesson.getClassGroup() != null) {
-            for (TutorStudent classmate : tutorStudentRepository.findByClassGroup_IdAndTutor_IdAndDeletedAtIsNullOrderByCreatedAtAsc(
-                    lesson.getClassGroup().getId(), caller.userId())) {
-                if (participants.stream().noneMatch(p -> p.getId().equals(classmate.getId()))) {
-                    participants.add(classmate);
-                }
-            }
-        }
 
         // 수업이 아직 예정 상태였다면 이야기를 실제로 시작한 것이므로 진행 중으로 올린다.
         if (lesson != null && lesson.getStatus() == LessonStatus.SCHEDULED) {
