@@ -9,4 +9,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface VoiceResearchConsentRepository extends JpaRepository<VoiceResearchConsent, UUID> {
 
     List<VoiceResearchConsent> findTop200ByExpiresAtBefore(Instant cutoff);
+
+    List<VoiceResearchConsent> findByUserId(UUID userId);
 }
