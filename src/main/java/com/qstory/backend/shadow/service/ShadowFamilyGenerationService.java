@@ -36,9 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * fe/q-story-beta-player-main/server/src/shadow-generation.mjs + scripts/generate-shadow-family.mjs를
- * Java로 포팅한 것. candidate 수집(ShadowIntentCollectionService)·사람 검수(ShadowReviewService)는
- * 이미 이식되어 있었고, 이 서비스가 빠져 있던 마지막 조각이다: 승인된 candidate로부터 실제
- * 대본·삽화·오디오 초안을 만든다.
+ * Java로 포팅한 것. candidate 수집(ShadowIntentCollectionService)·사람 검수(ShadowReviewService) 다음
+ * 단계로, 승인된 candidate로부터 실제 대본·삽화·오디오 초안을 만든다.
  *
  * <p>제품 결정: draft 자체의 검수는 사람 없이 자동 LLM 게이트(reviewDraft 동등물)만 통과하면 바로
  * APPROVED로 저장한다. candidate 승인(사람이 "이 반복 질문은 콘텐츠로 만들 가치가 있다"고 판단하는
@@ -50,6 +49,9 @@ public class ShadowFamilyGenerationService {
 
     private static final int MAX_ATTEMPTS = 3;
     private static final String PROMPT_VERSION = "QSTORY_SHADOW_FAMILY_V1_JAVA";
+    /** B 슬롯(과자집 문 앞)에서 감각 확인만으로 안전하다고 결론 내리는 문구. */
+    private static final Pattern FALSE_SAFETY_PATTERN = Pattern.compile(
+            "마음을?\\s*놓|위험하지\\s*않|안전하다고\\s*결론|위험한\\s*소리는?\\s*안|수상한\\s*소리가\\s*나지\\s*않|이상한\\s*소리가\\s*나지\\s*않");
     private static final Set<String> EXISTING_FAMILY_IDS = Set.of(
             "A_OBSERVE_BIRD", "A_SPEAK_TO_BIRD", "A_CHECK_SURROUNDINGS", "A_TRY_OTHER_PATH",
             "B_ASK_OLD_WOMAN", "B_CHECK_KEYS", "B_CHECK_HOUSE", "B_STEP_BACK_MARK_EXIT", "B_MAKE_SIBLING_SIGNAL",
@@ -108,8 +110,8 @@ public class ShadowFamilyGenerationService {
 
     @Transactional
     public ShadowFamilyDraft generateDraft(UUID candidateId) {
-        if (!ProviderReadiness.of(config).llm() || !ProviderReadiness.of(config).tts()
-                || !ProviderReadiness.of(config).image() || !config.supabase().configured()) {
+        ProviderReadiness readiness = ProviderReadiness.of(config);
+        if (!readiness.llm() || !readiness.tts() || !readiness.image() || !config.supabase().configured()) {
             throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "초안 생성 준비가 아직 끝나지 않았어요.", 500);
         }
         ShadowIntentCandidate candidate = candidateRepository.findCandidateById(candidateId)
@@ -158,12 +160,7 @@ public class ShadowFamilyGenerationService {
         var audio = geminiTtsClient.synthesize(
                 narrationText, config.providers().gemini().ttsVoice(), 1.0, freshDeadline());
 
-        String imageExtension = switch (image.mimeType()) {
-            case "image/png" -> "png";
-            case "image/jpeg" -> "jpg";
-            default -> "webp";
-        };
-        String imageObjectName = candidateId + "/draft-v1." + imageExtension;
+        String imageObjectName = candidateId + "/draft-v1." + harness.imageExtension(image.mimeType());
         String audioObjectName = candidateId + "/preview-v1.wav";
         String bucket = config.supabase().shadowAssetsBucket();
         if (!storageClient.upload(bucket, imageObjectName, image.bytes(), image.mimeType())
@@ -288,9 +285,7 @@ public class ShadowFamilyGenerationService {
             return reportSummaryIssue;
         }
         if ("B".equals(contract.slot())) {
-            String fullText = draft.toString();
-            Pattern falseSafety = Pattern.compile("마음을?\\s*놓|위험하지\\s*않|안전하다고\\s*결론|위험한\\s*소리는?\\s*안|수상한\\s*소리가\\s*나지\\s*않|이상한\\s*소리가\\s*나지\\s*않");
-            if (falseSafety.matcher(fullText).find()) {
+            if (FALSE_SAFETY_PATTERN.matcher(draft.toString()).find()) {
                 return "감각 확인만으로 안전하다고 결론 내리지 마라 - 남매는 계속 주의를 유지해야 한다.";
             }
         }

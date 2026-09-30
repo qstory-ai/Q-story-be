@@ -25,10 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 스토리를 한 번에 한 조각씩 수정한다.
  *
- * <p>지금까지 무언가를 바꾸는 유일한 방법은 스토리 전체를 교체하는 POST /v1/admin/stories/import뿐
- * 이었다 - 콘텐츠 파일이 원본이고 DB는 그 사본에 불과했던 동안에는 괜찮았지만, 내레이션 한 줄만
- * 고치고 싶어지는 순간부터는 쓸모가 없어진다. 여기서 이루어지는 모든 쓰기는
- * {@link StoryRevisionService}를 거치므로 변경 사항의 책임 소재를 알 수 있고 되돌릴 수도 있다.
+ * <p>스토리 전체를 교체하는 POST /v1/admin/stories/import와 달리 대사 한 줄 단위로 고친다. 여기서
+ * 이루어지는 모든 쓰기는 {@link StoryRevisionService}를 거치므로 책임 소재를 알 수 있고 되돌릴 수도 있다.
  */
 @Service
 public class StoryAuthoringService {
@@ -114,9 +112,7 @@ public class StoryAuthoringService {
         if (request.revision() == null) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "revision이 필요해요.", 400);
         }
-        StoryRevision target = revisionService.history(storyId).stream()
-                .filter(row -> row.getRevision().equals(request.revision()))
-                .findFirst()
+        StoryRevision target = revisionService.find(storyId, request.revision())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "그 기록을 찾지 못했어요.", 404));
         if (target.getBeforeState() == null) {
             throw ApiException.contractError(

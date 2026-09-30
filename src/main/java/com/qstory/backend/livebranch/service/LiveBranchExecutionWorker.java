@@ -56,7 +56,8 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * LiveBranchGenerationService.enqueue()가 큐에 넣은 작업을 실제로 실행한다. Phase 2부터는 family
@@ -99,6 +100,7 @@ public class LiveBranchExecutionWorker {
     private final StoryContentAssemblyService assemblyService;
     private final Executor liveBranchSubtaskExecutor;
     private final FamilyDraftHarness harness;
+    private final TransactionTemplate transactionTemplate;
 
     public LiveBranchExecutionWorker(
             LiveBranchJobRepository jobRepository, StoryRepository storyRepository,
@@ -109,7 +111,7 @@ public class LiveBranchExecutionWorker {
             StoryRegistry storyRegistry, ChoiceCopyRegistry choiceCopyRegistry,
             StoryContentAssemblyService assemblyService,
             @Qualifier("liveBranchSubtaskExecutor") Executor liveBranchSubtaskExecutor,
-            FamilyDraftHarness harness) {
+            FamilyDraftHarness harness, PlatformTransactionManager transactionManager) {
         this.jobRepository = jobRepository;
         this.storyRepository = storyRepository;
         this.anchorRepository = anchorRepository;
@@ -126,6 +128,7 @@ public class LiveBranchExecutionWorker {
         this.assemblyService = assemblyService;
         this.liveBranchSubtaskExecutor = liveBranchSubtaskExecutor;
         this.harness = harness;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     /** generateOneFamily() 성공 결과 - draft 자체는 commitAll()이 그대로 다시 읽어 쓴다. */
@@ -186,7 +189,10 @@ public class LiveBranchExecutionWorker {
             int nextDisplayOrder = existingFamilies.stream()
                     .mapToInt(StoryActionFamily::getDisplayOrder).max().orElse(-1) + 1;
             try {
-                commitAll(jobId, job.getStoryId(), anchor.getId(), nextDisplayOrder, generated, padding);
+                // commitAll()은 같은 빈 안의 호출이라 @Transactional 프록시를 거치지 않으므로 여기서 직접
+                // 트랜잭션으로 감싼다 - family id 충돌 시 이미 저장한 family/segment/asset까지 함께 롤백된다.
+                transactionTemplate.executeWithoutResult(status -> commitAll(
+                        jobId, job.getStoryId(), anchor.getId(), nextDisplayOrder, generated, padding));
             } catch (DataIntegrityViolationException conflict) {
                 for (GeneratedFamily family : generated) {
                     storageClient.delete(family.bucket(), family.objectName());
@@ -233,22 +239,15 @@ public class LiveBranchExecutionWorker {
 
             String familyId = "LIVE_" + anchor.getSlot() + "_"
                     + job.getId().toString().substring(0, 8).toUpperCase(Locale.ROOT) + "_" + subIndex;
-            // 이미지 생성은 draft/review 게이트와 달리 실패 시 지금까지는 곧바로 null 반환 - 그 자리는
-            // 상위(run)에서 기존 family로 padding됐다. 이미지 자체는 transient한 이유(OpenRouter 스로틀,
-            // 일시 네트워크 에러)로 실패하는 경우가 많아 1회 재시도만 넣어도 신선한 옵션 유지 확률이
-            // 눈에 띄게 오른다. 여전히 실패하면 기존 padding 폴백이 안전망이다.
+            // 이미지 생성은 transient한 이유(OpenRouter 스로틀, 일시 네트워크 에러)로 실패하는 경우가 많아
+            // 1회만 재시도한다. 그래도 실패하면 이 자리는 상위(run)에서 기존 family로 padding된다.
             OpenRouterClient.GeneratedImage image = generateImageWithOneRetry(
                     buildImagePrompt(visualFactsByLabel, anchor, draft), referenceBytes, job.getId(), subIndex);
             if (image == null) {
                 return null;
             }
 
-            String imageExtension = switch (image.mimeType()) {
-                case "image/png" -> "png";
-                case "image/jpeg" -> "jpg";
-                default -> "webp";
-            };
-            String objectName = job.getId() + "/branch-art-" + subIndex + "." + imageExtension;
+            String objectName = job.getId() + "/branch-art-" + subIndex + "." + harness.imageExtension(image.mimeType());
             String bucket = config.supabase().storyImageBucket();
             if (!storageClient.upload(bucket, objectName, image.bytes(), image.mimeType())) {
                 storageClient.delete(bucket, objectName);
@@ -270,10 +269,9 @@ public class LiveBranchExecutionWorker {
      * StoryAsset(이미지) 하나를 insert하고, 부족분은 기존 family를 그대로 옵션에 포함시킨다(새로
      * insert하지 않음). NARRATION/BRIDGE 카테고리 asset은 절대 만들지 않는다. reload() 세 개는 반드시
      * 마지막 statement여야 한다 - 그 뒤에 실패할 코드가 있으면 롤백 시 "유령 family"가 잠깐 서빙될 수
-     * 있다.
+     * 있다. 반드시 run()의 transactionTemplate 안에서 호출한다.
      */
-    @Transactional
-    public void commitAll(
+    private void commitAll(
             UUID jobId, String storyId, String anchorId, int startDisplayOrder,
             List<GeneratedFamily> generated, List<StoryActionFamily> padding) {
         LiveBranchJob job = jobRepository.findById(jobId).orElseThrow();
@@ -306,8 +304,8 @@ public class LiveBranchExecutionWorker {
                     .build();
             familyRepository.save(family);
             // 아래 fallback segment insert보다 먼저 family insert를 실제로 실행시켜, family id 충돌
-            // (DataIntegrityViolationException)이 여기서 곧바로 드러나게 한다 - run()이 이를 재시도
-            // 트리거로 다룬다(전체 커밋이 롤백되고 이미 업로드된 이미지는 run()이 정리한다).
+            // (DataIntegrityViolationException)이 여기서 곧바로 드러나게 한다 - 트랜잭션 전체가 롤백되고
+            // run()이 업로드된 이미지를 정리한 뒤 job을 FAMILY_ID_CONFLICT로 실패 처리한다.
             familyRepository.flush();
 
             List<StoryFallbackSegment> segments = buildSegments(family, draft, assetSlug, storyId, rejoinAnchorId);
@@ -394,7 +392,7 @@ public class LiveBranchExecutionWorker {
             for (JsonNode line : beat.path("dialogue")) {
                 Map<String, Object> dialoguePayload = new LinkedHashMap<>();
                 dialoguePayload.put("visualId", visualId);
-                // draftSchema()가 LLM 출력을 speakerId 형식으로 강제하므로(라인 626 근처의 enum 참고),
+                // draftSchema()가 LLM 출력을 speakerId 형식으로 강제하므로(dialogue.speaker enum 참고),
                 // narratorPayload의 "NARRATOR"와 같은 짧은 캐스트 태그로 맞춰준다 - 그렇지 않으면
                 // story-package.ts의 addSpeaker()가 castByTag 조회에 실패해 스토리 로드 전체가 깨진다.
                 dialoguePayload.put("speaker", normalizeCharacterLabel(line.path("speaker").asText()));
@@ -562,7 +560,7 @@ public class LiveBranchExecutionWorker {
      * 규칙으로도 프롬프트에 덧붙여 이중 보강한다. imageBrief.characters는 이 스토리의 StoryCast
      * speakerId 값(예: "HG-SPK-GRETEL")이므로, "&lt;STORY&gt;-SPK-" 접두어를 뗀 값을 팩의 label과
      * 매칭한다(StoryVisualReferencePack.label 문서 참고). 로케이션 팩은 StoryAnchor에 아직 location
-     * 필드가 없어 연결하지 않는다(열린 질문 - 최종 보고 참고).
+     * 필드가 없어 연결하지 않는다.
      */
     private String buildImagePrompt(Map<String, List<String>> visualFactsByLabel, StoryAnchor anchor, JsonNode draft) {
         JsonNode imageBrief = draft.path("imageBrief");

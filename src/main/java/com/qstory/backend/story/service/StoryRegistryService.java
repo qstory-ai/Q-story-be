@@ -15,7 +15,6 @@ import com.qstory.backend.entitlement.service.EntitlementService;
 import com.qstory.backend.identity.security.CurrentUser;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 
@@ -68,7 +67,7 @@ public class StoryRegistryService {
     /**
      * {@code requestedSpeakerId}는 프론트가 대화 상대로 고른 캐릭터(fe companion-character.ts - 헨젤 또는
      * 그레텔). 이 값이 오면 그 캐릭터가 primary/allowed speaker가 되어 페르소나·TTS 보이스가 화면의
-     * 아바타와 일치한다. 없으면(구버전 클라이언트) 예전처럼 scene의 anchor 화자나 내레이터로 정한다.
+     * 아바타와 일치한다. 없으면 scene의 anchor 화자, 그것도 없으면 내레이터로 정한다.
      */
     public ResolvedCompanionContext resolveCompanionChatContext(
             String storyId, String sceneId, String requestedSpeakerId, CurrentUser callerOrNull) {
@@ -124,11 +123,8 @@ public class StoryRegistryService {
                 .flatMap(anchor -> anchor.sttKeywords().stream())
                 .distinct()
                 .toList();
-        StoryVersions versions = new StoryVersions(
-                story.routePromptVersion(), story.contentVersion(), story.routePolicyVersion(),
-                story.responseTextNormalizationVersion());
         return new ResolvedCompanionContext(
-                story, sceneId, primarySpeakerId, allowedSpeakerIds, forbiddenKnowledge, sttKeywords, versions,
+                story, sceneId, primarySpeakerId, allowedSpeakerIds, forbiddenKnowledge, sttKeywords, versionsOf(story),
                 personaRegistry.find(storyId, primarySpeakerId));
     }
 
@@ -217,28 +213,17 @@ public class StoryRegistryService {
             concernChoice = new ConcernChoice(familyIds, anchor.concernChoice().responseText());
         }
 
-        StoryVersions versions = new StoryVersions(
-                story.routePromptVersion(), story.contentVersion(), story.routePolicyVersion(),
-                story.responseTextNormalizationVersion());
-
         return new StoryContext(
                 anchor.slot(), anchor.sceneId(), anchor.summary(), anchor.primarySpeakerId(),
                 anchor.allowedSpeakerIds(), anchor.sttKeywords(), anchor.defaultFallbackFamilyId(),
                 anchor.defaultRejoinAt(), concernChoice, anchor.forbiddenKnowledge(), actionFamilies,
-                anchorId, story.storyId(), anchor.defaultFallbackFamilyId(), anchor.defaultRejoinAt(), versions);
+                anchorId, story.storyId(), anchor.defaultFallbackFamilyId(), anchor.defaultRejoinAt(),
+                versionsOf(story));
     }
 
-    public Map<String, StoryContext> storyContextsByAnchor() {
-        // registry.reload()가 내부 맵을 통째로 스왑할 수 있으므로, 한 번만 읽어 로컬 변수에 담아
-        // 재사용한다 - 그렇지 않으면 이 세 번의 registry.get() 호출 사이에 reload가 끼어들어
-        // null과 non-null 스냅샷을 섞어 쓰다 스트림 안에서 NPE가 날 수 있다.
-        StoryManifest story = registry.get(StoryRegistry.DEFAULT_BETA_STORY_ID);
-        if (story == null) {
-            return Map.of();
-        }
-        return story.anchors().entrySet().stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        Map.Entry::getKey,
-                        entry -> normalizeStoryContext(story, entry.getKey(), entry.getValue(), List.of())));
+    private static StoryVersions versionsOf(StoryManifest story) {
+        return new StoryVersions(
+                story.routePromptVersion(), story.contentVersion(), story.routePolicyVersion(),
+                story.responseTextNormalizationVersion());
     }
 }

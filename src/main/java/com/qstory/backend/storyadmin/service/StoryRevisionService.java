@@ -9,6 +9,7 @@ import com.qstory.backend.story.repository.StoryRevisionRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -51,9 +52,8 @@ public class StoryRevisionService {
     }
 
     @Transactional(readOnly = true)
-    public List<StoryRevision> historyFor(String storyId, RevisionTarget targetType, String targetId) {
-        return repository.findByStoryIdAndTargetTypeAndTargetIdOrderByRevisionDesc(
-                storyId, targetType, targetId);
+    public Optional<StoryRevision> find(String storyId, int revision) {
+        return repository.findFirstByStoryIdAndRevision(storyId, revision);
     }
 
     /**

@@ -3,8 +3,6 @@ package com.qstory.backend.shadow.repository;
 import com.qstory.backend.common.enums.ReviewStatus;
 import com.qstory.backend.shadow.entity.ShadowIntentCandidate;
 import com.qstory.backend.shadow.entity.ShadowQuestionObservation;
-import com.qstory.backend.shadow.repository.ShadowIntentCandidateRepository;
-import com.qstory.backend.shadow.repository.ShadowQuestionObservationRepository;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
