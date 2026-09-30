@@ -83,7 +83,7 @@ public class LessonService {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "수업을 진행할 반을 골라 주세요.");
         }
         ClassGroup classGroup = tutorClassService.requireVisible(caller, request.classGroupId());
-        var students = (classGroup != null && (request.studentIds() == null || request.studentIds().isEmpty()))
+        var students = request.studentIds() == null || request.studentIds().isEmpty()
                 ? classStudents(caller, classGroup)
                 : resolveOwnedStudents(caller, request.studentIds());
         requireClassMembers(classGroup, students);
