@@ -11,7 +11,6 @@ public record UserSummary(
         String email,
         String displayName,
         UUID organizationId,
-        UUID classId,
         String subscriptionStatus,
         boolean grantsAccess,
         String childName,
@@ -22,7 +21,6 @@ public record UserSummary(
         return new UserSummary(
                 user.getId(), user.getRole().name(), user.getLoginId(), user.getEmail(), user.getDisplayName(),
                 user.getOrganization() == null ? null : user.getOrganization().getId(),
-                user.getClassGroup() == null ? null : user.getClassGroup().getId(),
                 user.getSubscriptionStatus().effectiveAt(user.getSubscriptionExpiresAt(), Instant.now()).name(),
                 user.getSubscriptionStatus().grantsAccessAt(user.getSubscriptionExpiresAt(), Instant.now()),
                 user.getChildName(),

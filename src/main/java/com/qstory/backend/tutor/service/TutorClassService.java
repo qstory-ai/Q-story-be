@@ -14,21 +14,15 @@ import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.org.util.JoinCodeGenerator;
 import com.qstory.backend.tutor.dto.CreateTutorClassRequest;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 선생님 관점의 반(class_group). 선생님이 "볼 수 있는" 반은 두 종류다:
- * (1) 자신이 만든 반(class_group.tutor_id = 나), (2) 자신이 소속된 기관이 만든 반. 학생 등록과
- * 수업 생성은 이 목록 안의 반만 가리킬 수 있다({@link #requireVisible}).
- *
- * <p>ClassService(기관 관리자 관점)와 같은 테이블을 쓰지만 기관 없는 반도 만들 수 있다 - 그런 반은
- * 부모 가입 코드·반 계정 같은 기관 전용 흐름에서는 제외된다(ClassService가 organization null을 거른다).
+ * 선생님 관점의 반(class_group) - 자기가 담임인 반이다. 원장이 기관 안에 만들고 담임으로 배정한 반과
+ * 선생님이 직접 만든 반(기관 소속이면 기관 반, 아니면 개인 반)이 모두 여기에 나온다. 학생 등록과 수업
+ * 생성은 이 목록 안의 반만 가리킬 수 있다({@link #requireVisible}).
  */
 @Service
 public class TutorClassService {
@@ -85,22 +79,9 @@ public class TutorClassService {
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
     }
 
+    /** 선생님이 볼 수 있는 반은 자기가 담임인 반뿐이다 - 같은 기관의 다른 선생님 반은 보이지 않는다. */
     private List<ClassGroup> visibleClasses(UUID tutorId) {
-        // LinkedHashMap으로 중복 제거 - 기관 소속 선생님이 기관 안에 만든 반은 두 조회에 다 걸린다.
-        Map<UUID, ClassGroup> byId = new LinkedHashMap<>();
-        for (ClassGroup own : classGroupRepository.findByTutor_IdOrderByCreatedAtAsc(tutorId)) {
-            byId.put(own.getId(), own);
-        }
-        List<UUID> organizationIds = new ArrayList<>();
-        for (OrganizationTutor link : organizationTutorRepository.findByTutor_IdOrderByJoinedAtAsc(tutorId)) {
-            organizationIds.add(link.getOrganization().getId());
-        }
-        if (!organizationIds.isEmpty()) {
-            for (ClassGroup orgClass : classGroupRepository.findByOrganization_IdInOrderByCreatedAtAsc(organizationIds)) {
-                byId.putIfAbsent(orgClass.getId(), orgClass);
-            }
-        }
-        return new ArrayList<>(byId.values());
+        return classGroupRepository.findByTutor_IdOrderByCreatedAtAsc(tutorId);
     }
 
     private String generateUniqueJoinCode() {

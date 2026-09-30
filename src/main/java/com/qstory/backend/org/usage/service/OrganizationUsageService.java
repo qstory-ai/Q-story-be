@@ -2,8 +2,6 @@ package com.qstory.backend.org.usage.service;
 
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
-import com.qstory.backend.identity.Role;
-import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.repository.ClassGroupRepository;
@@ -11,6 +9,7 @@ import com.qstory.backend.org.repository.OrganizationRepository;
 import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.org.usage.dto.OrganizationUsageResponse;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
+import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
@@ -30,19 +29,19 @@ public class OrganizationUsageService {
     private final OrganizationRepository organizationRepository;
     private final OrganizationTutorRepository organizationTutorRepository;
     private final ClassGroupRepository classGroupRepository;
-    private final AppUserRepository userRepository;
+    private final TutorStudentRepository tutorStudentRepository;
     private final StoryCompletionRepository completionRepository;
 
     public OrganizationUsageService(
             OrganizationRepository organizationRepository,
             OrganizationTutorRepository organizationTutorRepository,
             ClassGroupRepository classGroupRepository,
-            AppUserRepository userRepository,
+            TutorStudentRepository tutorStudentRepository,
             StoryCompletionRepository completionRepository) {
         this.organizationRepository = organizationRepository;
         this.organizationTutorRepository = organizationTutorRepository;
         this.classGroupRepository = classGroupRepository;
-        this.userRepository = userRepository;
+        this.tutorStudentRepository = tutorStudentRepository;
         this.completionRepository = completionRepository;
     }
 
@@ -52,8 +51,8 @@ public class OrganizationUsageService {
 
         long tutorCount = organizationTutorRepository.countByOrganization_IdAndTutor_DeletedAtIsNull(organizationId);
         long classCount = classGroupRepository.countByOrganization_Id(organizationId);
-        long parentCount = userRepository.countByOrganization_IdAndRoleAndDeletedAtIsNull(organizationId, Role.PARENT);
-        long classAccountCount = userRepository.countByOrganization_IdAndRoleAndDeletedAtIsNull(organizationId, Role.CLASS_ACCOUNT);
+        long studentCount = tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(organizationId);
+        long parentCount = tutorStudentRepository.countLinkedParentsByOrganization(organizationId);
         // 완주는 저장 시점에 스냅샷된 organization_id 기준 - /reports와 같은 기준이라 두 화면이 어긋나지
         // 않고, 선생님의 기관 반 수업(사용자 소속이 비어 있는)도 포함된다.
         long completionCount = completionRepository.countByOrganization_Id(organizationId);
@@ -73,8 +72,8 @@ public class OrganizationUsageService {
         return new OrganizationUsageResponse(
                 (int) tutorCount,
                 (int) classCount,
+                (int) studentCount,
                 (int) parentCount,
-                (int) classAccountCount,
                 completionCount,
                 recent);
     }

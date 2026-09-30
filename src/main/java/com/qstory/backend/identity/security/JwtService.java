@@ -28,7 +28,6 @@ public class JwtService {
 
     private static final String CLAIM_ROLE = "role";
     private static final String CLAIM_ORG_ID = "orgId";
-    private static final String CLAIM_CLASS_ID = "classId";
 
     private final AppProperties config;
 
@@ -59,9 +58,6 @@ public class JwtService {
         if (user.orgId() != null) {
             builder.claim(CLAIM_ORG_ID, user.orgId().toString());
         }
-        if (user.classId() != null) {
-            builder.claim(CLAIM_CLASS_ID, user.classId().toString());
-        }
         return builder.signWith(key()).compact();
     }
 
@@ -75,8 +71,7 @@ public class JwtService {
             UUID userId = UUID.fromString(claims.getSubject());
             Role role = Role.valueOf(claims.get(CLAIM_ROLE, String.class));
             UUID orgId = uuidOrNull(claims.get(CLAIM_ORG_ID, String.class));
-            UUID classId = uuidOrNull(claims.get(CLAIM_CLASS_ID, String.class));
-            return Optional.of(new CurrentUser(userId, role, orgId, classId));
+            return Optional.of(new CurrentUser(userId, role, orgId));
         } catch (JwtException | IllegalArgumentException malformed) {
             return Optional.empty();
         }

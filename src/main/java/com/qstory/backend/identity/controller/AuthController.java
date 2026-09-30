@@ -86,7 +86,7 @@ public class AuthController {
         return authService.signupStaff(request);
     }
 
-    @Operation(summary = "Log in", description = "loginId is an email for DIRECTOR/PARENT/STAFF or an organization-owner-issued handle for a CLASS_ACCOUNT.")
+    @Operation(summary = "Log in", description = "loginId is the free-form id the user chose at signup.")
     @PostMapping("/v1/auth/login")
     public AuthResponse login(@RequestBody LoginRequest request) {
         return authService.login(request);

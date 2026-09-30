@@ -144,15 +144,15 @@ public class TutorStudentService {
     }
 
     /**
-     * 부모가 선생님 운영 반의 반 코드/초대로 들어오는 경로 - 부모 계정에는 반 소속을 남기지 않고(소속이
-     * 둘로 갈라져 기관 인원수와 선생님 명단이 어긋나던 문제) 선생님의 학생 한 명(CONFIRMED)으로 등록한다.
-     * 그러면 이후 수업·리포트·알림이 초대 수락 경로와 똑같이 동작한다. 같은 부모가 아이 여러 명을
-     * 등록하려면 아이마다 이 경로를 한 번씩 거치면 된다.
+     * 부모가 반 코드로 아이를 그 반의 학생 명단에 올리는 경로. 부모 계정에는 반 소속을 남기지 않고 학생 한 명
+     * (CONFIRMED)으로 등록하므로, 이후 수업·리포트·알림은 초대 수락 경로와 똑같이 동작한다. 기관 반에 담임이 아직
+     * 없으면 학생은 담임 없이 명단에만 올라가고, 원장이 담임을 배정하면 그 선생님의 학생이 된다(ClassService).
+     * 같은 부모가 아이 여러 명을 올리려면 아이마다 이 경로를 한 번씩 거치면 된다.
      */
     @Transactional
-    public TutorStudent enrollParentInTutorClass(AppUser parent, ClassGroup classGroup, String childName, Integer birthYearInput) {
+    public TutorStudent enrollParentInClass(AppUser parent, ClassGroup classGroup, String childName, Integer birthYearInput) {
         if (isBlank(childName)) {
-            throw ApiException.contractError(ErrorCode.CHILD_INFO_REQUIRED, "이 반은 선생님이 운영하는 반이에요. 아이 이름을 입력해 주세요.");
+            throw ApiException.contractError(ErrorCode.CHILD_INFO_REQUIRED, "아이 이름을 입력해 주세요.");
         }
         Integer birthYear = ChildAge.validateBirthYear(birthYearInput);
         if (birthYear == null) {
@@ -171,21 +171,41 @@ public class TutorStudentService {
                 .createdAt(Instant.now())
                 .build();
         student.setChild(resolveChild(parent, student, null));
+        // 담임이 없는 반은 (tutor_id, child_id) 유니크 인덱스가 걸리지 않아 같은 아이가 중복으로 올라올 수 있다.
+        if (tutorStudentRepository.existsByClassGroup_IdAndChild_IdAndDeletedAtIsNull(classGroup.getId(), student.getChild().getId())) {
+            throw ApiException.contractError(ErrorCode.DUPLICATE_CHILD_LINK, "이 아이는 이미 이 반에 등록되어 있어요.", 409);
+        }
         try {
             student = tutorStudentRepository.saveAndFlush(student);
         } catch (DataIntegrityViolationException duplicate) {
             throw ApiException.contractError(
                     ErrorCode.DUPLICATE_CHILD_LINK, "이 아이는 이미 이 선생님의 학생으로 등록되어 있어요.", 409);
         }
-        addToScheduledClassLessons(tutor.getId(), student, classGroup);
-        notificationPublisher.publish(
-                tutor.getId(),
-                "tutor-class-parent-joined",
-                student.getName() + " 부모님이 반 코드로 들어왔어요",
-                parent.getDisplayName() + "님이 " + classGroup.getName() + " 반에 " + student.getName() + "을(를) 등록했어요.",
-                "/tutor/students/" + student.getId(),
-                "tutor-class-parent-joined:" + student.getId());
+        if (tutor != null) {
+            addToScheduledClassLessons(tutor.getId(), student, classGroup);
+        }
+        notifyClassEnrollment(parent, student, classGroup);
         return student;
+    }
+
+    /** 담임에게, 담임이 아직 없으면 기관 원장에게 알린다. */
+    private void notifyClassEnrollment(AppUser parent, TutorStudent student, ClassGroup classGroup) {
+        String body = parent.getDisplayName() + "님이 " + classGroup.getName() + " 반에 " + student.getName() + "을(를) 등록했어요.";
+        if (classGroup.getTutor() != null) {
+            notificationPublisher.publish(
+                    classGroup.getTutor().getId(), "tutor-class-parent-joined",
+                    student.getName() + " 부모님이 반 코드로 들어왔어요", body,
+                    "/tutor/students/" + student.getId(), "tutor-class-parent-joined:" + student.getId());
+            return;
+        }
+        if (classGroup.getOrganization() == null) {
+            return;
+        }
+        userRepository.findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(classGroup.getOrganization().getId(), Role.DIRECTOR)
+                .ifPresent(director -> notificationPublisher.publish(
+                        director.getId(), "class-parent-joined",
+                        "새 학부모가 반에 합류했어요", body,
+                        "/organization/classes/" + classGroup.getId(), "class-parent-joined:" + student.getId()));
     }
 
     /** 한 번에 등록할 수 있는 최대 인원 - 반 하나 규모를 넘는 요청은 실수로 보고 거절한다. */
@@ -273,6 +293,7 @@ public class TutorStudentService {
         return TutorStudentResponse.of(tutorStudentRepository.save(student));
     }
 
+    @Transactional(readOnly = true)
     public List<TutorStudentResponse> listStudents(CurrentUser caller) {
         return tutorStudentRepository.findByTutor_IdAndDeletedAtIsNullOrderByCreatedAtAsc(caller.userId()).stream()
                 .map(TutorStudentResponse::of)
@@ -492,7 +513,7 @@ public class TutorStudentService {
                     "/tutor/students/" + student.getId(),
                     "tutor-invite-accepted:" + invite.getId());
         }
-        CurrentUser currentUser = new CurrentUser(parent.getId(), Role.PARENT, null, null);
+        CurrentUser currentUser = new CurrentUser(parent.getId(), Role.PARENT, null);
         return new AuthResponse(jwtService.issue(currentUser), UserSummary.of(parent));
     }
 

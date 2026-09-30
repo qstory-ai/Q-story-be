@@ -63,7 +63,7 @@ public class AuthService {
 
     private static final int MAX_REASON_DETAIL_LENGTH = 2000;
 
-    /** 소셜 로그인으로 새로 만들 수 있는 역할 - Role.STAFF/CLASS_ACCOUNT는 여기서 절대 만들어지지 않는다(signupStaff/ClassService.join과 동일한 경계). */
+    /** 소셜 로그인으로 새로 만들 수 있는 역할 - Role.STAFF는 여기서 절대 만들어지지 않는다(signupStaff와 동일한 경계). */
     private static final Set<Role> OAUTH_SIGNUP_ROLES = Set.of(Role.DIRECTOR, Role.PARENT, Role.TUTOR);
 
     private final AppUserRepository userRepository;
@@ -430,9 +430,7 @@ public class AuthService {
 
     private AuthResponse issueResponse(AppUser user) {
         CurrentUser currentUser = new CurrentUser(
-                user.getId(), user.getRole(),
-                user.getOrganization() == null ? null : user.getOrganization().getId(),
-                user.getClassGroup() == null ? null : user.getClassGroup().getId());
+                user.getId(), user.getRole(), user.getOrganization() == null ? null : user.getOrganization().getId());
         return new AuthResponse(jwtService.issue(currentUser), UserSummary.of(user));
     }
 }
