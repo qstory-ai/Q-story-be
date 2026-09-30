@@ -5,7 +5,7 @@ import com.qstory.backend.common.error.ErrorCode;
 import java.time.Instant;
 
 /**
- * "1회용 토큰이 이미 쓰였거나 만료됐으면 던진다" 공용 검사. 토큰 엔티티(TutorInvite/
+ * "1회용 토큰이 이미 쓰였거나 만료됐으면 던진다" 공용 검사. 토큰 엔티티(OrganizationTutorInvite/
  * OrganizationTutorInvite/PasswordResetToken)는 서로 무관한 클래스라 공통 인터페이스 없이
  * usedAt/expiresAt을 그대로 받는다.
  */

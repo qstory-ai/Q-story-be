@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.RequestAttributes;
@@ -43,6 +44,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoHandlerFoundException.class)
     public ResponseEntity<FailureBody> handleNotFound() {
         return respond(404, ErrorCode.NOT_FOUND, null);
+    }
+
+    /** 있는 경로에 지원하지 않는 메서드(없앤 엔드포인트 등) - 서버 결함이 아니므로 500이 아니라 405로 답한다. */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<FailureBody> handleMethodNotAllowed() {
+        return respond(405, ErrorCode.METHOD_NOT_ALLOWED, null);
     }
 
     @ExceptionHandler(Exception.class)

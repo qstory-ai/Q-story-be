@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class TutorClassEnrollValidationTest {
 
     private final TutorStudentService service =
-            new TutorStudentService(null, null, null, null, null, null, null, null, null, null, null, null, null);
+            new TutorStudentService(null, null, null, null, null);
 
     @Test
     void rejectsMissingChildName() {

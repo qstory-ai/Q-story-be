@@ -1,16 +1,8 @@
 package com.qstory.backend.tutor.controller;
 
 import com.qstory.backend.identity.Role;
-import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.storyreport.dto.StoryCompletionSummary;
-import com.qstory.backend.tutor.dto.AcceptTutorInviteRequest;
-import com.qstory.backend.tutor.dto.CreateTutorInviteRequest;
-import com.qstory.backend.tutor.dto.BulkCreateTutorStudentsRequest;
-import com.qstory.backend.tutor.dto.BulkTutorStudentResult;
-import com.qstory.backend.tutor.dto.CreateTutorStudentRequest;
-import com.qstory.backend.tutor.dto.TutorInvitePreviewResponse;
-import com.qstory.backend.tutor.dto.TutorInviteResponse;
 import com.qstory.backend.tutor.dto.TutorReportSummary;
 import com.qstory.backend.tutor.dto.TutorStudentResponse;
 import com.qstory.backend.tutor.dto.UpdateTutorStudentRequest;
@@ -25,12 +17,11 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "Tutors", description = "Tutor student roster, parent invites, and shared reports")
+@Tag(name = "Tutors", description = "Class roster students (joined by parents through class invite links) and shared reports")
 @RestController
 public class TutorController {
 
@@ -42,21 +33,6 @@ public class TutorController {
         this.service = service;
         this.reportService = reportService;
         this.currentUserResolver = currentUserResolver;
-    }
-
-    @Operation(summary = "Register a student", description = "TUTOR only. Provisional until the parent accepts an invite.")
-    @PostMapping("/v1/tutor-students")
-    @ResponseStatus(HttpStatus.CREATED)
-    public TutorStudentResponse createStudent(@RequestBody CreateTutorStudentRequest request) {
-        return service.createStudent(currentUserResolver.requireRole(Role.TUTOR), request);
-    }
-
-    @Operation(summary = "Register several students and issue an invite for each",
-            description = "TUTOR only. All-or-nothing, up to 50 students. Shared lessonType/classGroupId/notes; per-student name and birthYear.")
-    @PostMapping("/v1/tutor-students/bulk")
-    @ResponseStatus(HttpStatus.CREATED)
-    public List<BulkTutorStudentResult> createStudentsBulk(@RequestBody BulkCreateTutorStudentsRequest request) {
-        return service.createStudentsBulk(currentUserResolver.requireRole(Role.TUTOR), request);
     }
 
     @Operation(summary = "List the caller's own students", description = "TUTOR only.")
@@ -71,7 +47,7 @@ public class TutorController {
         return service.getStudent(currentUserResolver.requireRole(Role.TUTOR), studentId);
     }
 
-    @Operation(summary = "Update a student (memo / class type)",
+    @Operation(summary = "Update a student's memos",
             description = "TUTOR only. Partial update - null 필드는 그대로 두고 빈 문자열은 지우기로 해석.")
     @PatchMapping("/v1/tutor-students/{studentId}")
     public TutorStudentResponse updateStudent(
@@ -79,50 +55,12 @@ public class TutorController {
         return service.updateStudent(currentUserResolver.requireRole(Role.TUTOR), studentId, request);
     }
 
-    @Operation(summary = "Delete a student (hard delete)",
-            description = "TUTOR only, must own the student. DB cascade가 초대·일정·수업계획·수업참여를 함께 정리하고, 저장된 story_completion은 tutor_student_id를 null로 남긴다(리포트 히스토리는 보존).")
+    @Operation(summary = "Remove a student from the roster (soft delete)",
+            description = "TUTOR only, must own the student. Drops the student from scheduled lessons; past lesson reports stay.")
     @DeleteMapping("/v1/tutor-students/{studentId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteStudent(@PathVariable UUID studentId) {
         service.deleteStudent(currentUserResolver.requireRole(Role.TUTOR), studentId);
-    }
-
-    @Operation(summary = "Create a single-use parent invite for a student", description = "TUTOR only, must own the student.")
-    @PostMapping("/v1/tutor-students/{studentId}/invites")
-    @ResponseStatus(HttpStatus.CREATED)
-    public TutorInviteResponse createInvite(@PathVariable UUID studentId, @RequestBody CreateTutorInviteRequest request) {
-        return service.createInvite(currentUserResolver.requireRole(Role.TUTOR), studentId, request);
-    }
-
-    @Operation(summary = "Preview a tutor's parent invite", description = "No authentication required. Does not consume the invite.")
-    @GetMapping("/v1/tutor-invites/{token}")
-    public TutorInvitePreviewResponse previewInvite(@PathVariable String token) {
-        return service.previewInvite(token);
-    }
-
-    @Operation(summary = "Preview a tutor's parent invite by short code",
-            description = "No authentication required. Same shape as the token-based preview. Case-insensitive.")
-    @GetMapping("/v1/tutor-invites/by-code/{code}")
-    public TutorInvitePreviewResponse previewInviteByCode(@PathVariable String code) {
-        return service.previewInviteByCode(code);
-    }
-
-    @Operation(summary = "Accept a tutor's parent invite",
-            description = "Works both signed out (creates a new PARENT account from email/password/displayName, "
-                    + "same as ClassController.join) and signed in as an existing PARENT (links the caller's own "
-                    + "account, ignoring the signup fields).")
-    @PostMapping("/v1/tutor-invites/{token}/accept")
-    @ResponseStatus(HttpStatus.CREATED)
-    public AuthResponse acceptInvite(@PathVariable String token, @RequestBody AcceptTutorInviteRequest request) {
-        return service.acceptInvite(currentUserResolver.current(), token, request);
-    }
-
-    @Operation(summary = "Accept a tutor's parent invite by short code",
-            description = "Same semantics as the token-based accept, but resolved by the short human-copyable code.")
-    @PostMapping("/v1/tutor-invites/by-code/{code}/accept")
-    @ResponseStatus(HttpStatus.CREATED)
-    public AuthResponse acceptInviteByCode(@PathVariable String code, @RequestBody AcceptTutorInviteRequest request) {
-        return service.acceptInviteByCode(currentUserResolver.current(), code, request);
     }
 
     @Operation(summary = "List a student's session reports", description = "TUTOR only, must own the student.")
