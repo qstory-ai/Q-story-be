@@ -19,7 +19,7 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
 
     long countByUser_IdAndReadAtIsNull(UUID userId);
 
-    Optional<Notification> findByUser_IdAndDedupKey(UUID userId, String dedupKey);
+    boolean existsByUser_IdAndDedupKey(UUID userId, String dedupKey);
 
     @Modifying
     @Query("update Notification n set n.readAt = :readAt where n.user.id = :userId and n.readAt is null")

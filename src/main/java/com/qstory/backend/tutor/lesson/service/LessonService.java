@@ -19,18 +19,20 @@ import com.qstory.backend.tutor.service.TutorClassService;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * IA "[3] 수업"의 CRUD. 학생/이야기 참조는 caller가 소유한 것만 허용 - 다른 선생님의 학생을
- * 자기 수업에 넣거나, 카탈로그에 없는 storyId를 넣는 것은 방지한다(단, story 카탈로그 검증은
- * story_completion과 같은 규약을 따라 하지 않는다 - 문자열 storyId로 두고 조회 시 카탈로그와
- * 조인해 표시하는 편이 시드/회수와의 마찰이 적어서).
+ * IA "[3] 수업"의 CRUD. 참여 학생은 caller가 소유한 학생만 허용한다. storyId는 카탈로그와 대조하지
+ * 않는다 - story_completion과 같은 규약으로 문자열만 저장하고 조회 시 클라이언트가 카탈로그와 조인한다
+ * (시드/회수와의 마찰이 적어서).
  */
 @Service
 public class LessonService {
@@ -126,6 +128,8 @@ public class LessonService {
             lesson.setClassGroup(classGroup);
             // 반을 바꾸면서 학생을 따로 지정하지 않았으면 새 반의 학생으로 참여 학생을 다시 채운다.
             if (request.studentIds() == null) lesson.setStudents(classStudents(caller, classGroup));
+        } else if (Boolean.TRUE.equals(request.clearClassGroup())) {
+            lesson.setClassGroup(null);
         }
         if (request.studentIds() != null) {
             lesson.setStudents(resolveOwnedStudents(caller, request.studentIds()));
@@ -140,7 +144,7 @@ public class LessonService {
     }
 
     /** 반 수업의 참여 학생은 그 반의 학생이어야 한다 - 반과 명단이 따로 놀면 기관 리포트가 어긋난다. */
-    private static void requireClassMembers(ClassGroup classGroup, java.util.Set<TutorStudent> students) {
+    private static void requireClassMembers(ClassGroup classGroup, Set<TutorStudent> students) {
         if (classGroup == null) return;
         for (TutorStudent student : students) {
             if (student.getClassGroup() == null || !student.getClassGroup().getId().equals(classGroup.getId())) {
@@ -158,7 +162,7 @@ public class LessonService {
 
     /**
      * "향후 모든 수업 수정" - 같은 시리즈에서 아직 SCHEDULED이고 원래 이 lesson과 같거나 이후
-     * 시각이었던 형제들에게 name/goal/studentIds/storyIds를 그대로 복사한다. scheduledAt은
+     * 시각이었던 형제들에게 name/goal/반/학생/이야기를 그대로 복사한다. scheduledAt은
      * 절대값을 복사하지 않는다(모두 같은 시각이 되어버려 요일 반복이 무너진다) - 대신 이
      * lesson이 "원래 시각에서 얼마나 이동했는지"(delta)를 계산해 각 형제의 기존 시각에 똑같이
      * 더한다. anchor(방금 저장한 lesson) 자신은 원래 update()에서 이미 저장했으니 제외한다.
@@ -179,19 +183,17 @@ public class LessonService {
                     || sibling.getScheduledAt().isBefore(anchorOriginalScheduledAt)) {
                 continue;
             }
-            if (request.name() != null) sibling.setName(request.name().trim());
-            if (request.goal() != null) sibling.setGoal(trimOrNull(request.goal()));
+            // anchor에 이미 검증·반영된 값을 그대로 복사한다 - 형제마다 학생/이야기를 다시 조회하지 않는다.
+            if (request.name() != null) sibling.setName(anchor.getName());
+            if (request.goal() != null) sibling.setGoal(anchor.getGoal());
             if (delta != null) sibling.setScheduledAt(sibling.getScheduledAt().plus(delta));
-            if (request.classGroupId() != null) {
+            if (request.classGroupId() != null || Boolean.TRUE.equals(request.clearClassGroup())) {
                 sibling.setClassGroup(anchor.getClassGroup());
-                if (request.studentIds() == null) sibling.setStudents(new LinkedHashSet<>(anchor.getStudents()));
             }
-            if (request.studentIds() != null) {
-                sibling.setStudents(resolveOwnedStudents(caller, request.studentIds()));
+            if (request.classGroupId() != null || request.studentIds() != null) {
+                sibling.setStudents(new LinkedHashSet<>(anchor.getStudents()));
             }
-            if (request.storyIds() != null) {
-                sibling.setStoryIds(normalizeStoryIds(request.storyIds()));
-            }
+            if (request.storyIds() != null) sibling.setStoryIds(new HashSet<>(anchor.getStoryIds()));
             sibling.setUpdatedAt(Instant.now());
             toSave.add(sibling);
         }
@@ -263,9 +265,16 @@ public class LessonService {
     private LinkedHashSet<TutorStudent> resolveOwnedStudents(CurrentUser caller, List<UUID> studentIds) {
         LinkedHashSet<TutorStudent> resolved = new LinkedHashSet<>();
         if (studentIds == null || studentIds.isEmpty()) return resolved;
+        Map<UUID, TutorStudent> owned = new HashMap<>();
+        for (TutorStudent student : tutorStudentRepository.findByIdInAndTutor_IdAndDeletedAtIsNull(studentIds, caller.userId())) {
+            owned.put(student.getId(), student);
+        }
+        // 요청 순서를 지키고, 하나라도 이 선생님의 학생이 아니면 404.
         for (UUID studentId : studentIds) {
-            TutorStudent student = tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(studentId, caller.userId())
-                    .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
+            TutorStudent student = owned.get(studentId);
+            if (student == null) {
+                throw ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404);
+            }
             resolved.add(student);
         }
         return resolved;

@@ -26,8 +26,4 @@ public enum CompanionToneTag {
 
     public static final List<String> ALL_LABELS =
             Arrays.stream(values()).map(CompanionToneTag::label).toList();
-
-    public static CompanionToneTag fromLabel(String label) {
-        return Arrays.stream(values()).filter(tag -> tag.label.equals(label)).findFirst().orElse(null);
-    }
 }

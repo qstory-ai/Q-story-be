@@ -21,17 +21,11 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 /**
- * 서버는 LLM이 반환한 JSON을 절대 그대로 신뢰하지 않는다. Phase 2부터는 하나의 거대한 스키마 대신
- * 3단계 파이프라인(safety_scope_gate -> route_classifier -> content_generator)이 각자 자기 몫만
- * 반환하므로, 이 클래스도 단계별로 나뉜 검증 메서드({@link #validateSafetyVerdict},
- * {@link #validateClassification}, {@link #validateContent})를 제공한다 - 그리고 최종 조립된
- * RouteDecision에 대해서는 여전히 {@link #guaranteeBetaAgencyChoice}/{@link #sanitizeGeneratedOptionCopy}만
- * 그대로 적용한다(QuestionRoutingService 참고).
- *
- * <p>예전에 있던 alignActionRouteCoverage/promoteConcernToChoice(단일 호출 시절 "커버 안 됨 -&gt; 기존
- * family로 억지 THREE_PATHS" 보정)는 폐기됐다 - 이제는 분류기 자신이 NEW_CHOICES/coverageStatus로
- * 그 판단을 내리기 때문이다(계획 문서 Phase 2 §1 참고). concern-choice 기반 강제 선택지
- * (guaranteeBetaAgencyChoice)는 그 폐기 대상과 무관한 별개의 비즈니스 규칙이라 그대로 남는다.
+ * 서버는 LLM이 반환한 JSON을 절대 그대로 신뢰하지 않는다. 3단계 파이프라인(safety_scope_gate -&gt;
+ * route_classifier -&gt; content_generator)이 각자 자기 몫만 반환하므로, 이 클래스도 단계별 검증 메서드
+ * ({@link #validateSafetyVerdict}, {@link #validateClassification}, {@link #validateContent})를 제공하고,
+ * 최종 조립된 RouteDecision에는 {@link #guaranteeBetaAgencyChoice}/{@link #sanitizeGeneratedOptionCopy}를
+ * 적용한다(QuestionRoutingService 참고).
  */
 @Component
 public class RouteResultValidator {
@@ -79,7 +73,7 @@ public class RouteResultValidator {
         return text;
     }
 
-    /** 각 Node 헬퍼가 재검증(re-validating)하기 전에 만드는 평범한 객체 리터럴을 그대로 반영한, 가공되지 않은 후보 필드들. */
+    /** validate()가 재검증하기 전의 가공되지 않은 후보 필드들. */
     private record Candidate(
             String route,
             String childRelevantMeaning,
@@ -134,7 +128,7 @@ public class RouteResultValidator {
     /**
      * 2단계 route_classifier의 출력 검증. GENTLE_REDIRECT는 이 단계가 절대 반환할 수 없는 route다
      * (안전 판정은 1단계 전담, RouteKind.CLASSIFIER_ROUTES 참고). actionFamilyId/rejoinAnchorId/
-     * fallbackFamilyId의 null 여부 규칙은 오늘의 단일 호출 스키마와 동일하다 - 단순 route와
+     * fallbackFamilyId의 null 여부 규칙(familyFieldsValid) - 단순 route와
      * NEW_CHOICES는 셋 다 null, 행동 route는 셋 다 채워짐(고정된 rejoin/fallback과 허용 family 하나),
      * THREE_PATHS는 actionFamilyId만 null.
      */
@@ -256,7 +250,7 @@ public class RouteResultValidator {
 
     /**
      * route 카테고리별 actionFamilyId/rejoinAnchorId/fallbackFamilyId nullability 규칙 -
-     * validateClassification()(stage2)과 validate()(레거시 후보 재검증)이 공유한다. options 관련
+     * validateClassification()(stage2)과 validate()(guaranteeBetaAgencyChoice 후보 재검증)이 공유한다. options 관련
      * 규칙(SIMPLE_ROUTES/ACTION_ROUTES는 빈 배열, THREE_PATHS는 3개)은 stage2 출력에는 options
      * 필드 자체가 없으므로 이 헬퍼에 넣지 않고 각 호출부가 따로 처리한다.
      */

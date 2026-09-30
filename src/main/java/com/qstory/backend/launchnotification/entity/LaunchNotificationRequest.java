@@ -19,7 +19,7 @@ import org.hibernate.annotations.UuidGenerator;
  * 무료 데모(`/demo`)를 쓰기 전에 남기는, 정식 출시 때 연락받고 싶다는 보호자 신청 한 건.
  * 익명 방문자가 자발적으로 남기는 연락처라 로그인 계정과 연결되지 않는다 - AppUser와는
  * 별개다. 전화 연락에는 쓰지 않는다는 것을 프론트엔드 폼 문구로 명시한다
- * (LaunchNotificationGateModal 참고) - 이메일/문자로만 출시 소식을 안내하는 용도다.
+ * (fe features/launch-notification-gate 참고) - 이메일/문자로만 출시 소식을 안내하는 용도다.
  */
 @Entity
 @Table(name = "launch_notification_requests")

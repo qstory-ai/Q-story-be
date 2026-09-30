@@ -12,6 +12,14 @@ public interface StoryActionFamilyRepository extends JpaRepository<StoryActionFa
 
     List<StoryActionFamily> findByAnchor_IdOrderByDisplayOrderAsc(String anchorId);
 
+    /**
+     * StoryContentRepository가 스토리 하나의 모든 family를 앵커별 N+1 없이 한 번에 읽는 경로. 트랜잭션
+     * 밖(부팅 시 ApplicationRunner)에서도 anchor id를 읽을 수 있게 anchor를 함께 가져온다.
+     */
+    @Query("select f from StoryActionFamily f join fetch f.anchor a "
+            + "where a.story.id = :storyId order by a.id, f.displayOrder")
+    List<StoryActionFamily> findAllByStoryIdWithAnchor(@Param("storyId") String storyId);
+
     /** fallback 응답이 임포트되어 rejoinSlot이 설정된 family들 - StoryContentAssemblyService 참고. */
     List<StoryActionFamily> findByAnchor_Story_IdAndRejoinSlotIsNotNullOrderByAnchor_IdAscDisplayOrderAsc(
             String storyId);

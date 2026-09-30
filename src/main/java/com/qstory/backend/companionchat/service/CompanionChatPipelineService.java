@@ -1,5 +1,6 @@
 package com.qstory.backend.companionchat.service;
 
+import com.qstory.backend.common.enums.CompanionInteractionMode;
 import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
@@ -131,7 +132,7 @@ public class CompanionChatPipelineService {
                 .storyId(context.story().storyId())
                 .sceneId(context.sceneId())
                 .occurredAt(Instant.now())
-                .interactionMode(com.qstory.backend.common.enums.CompanionInteractionMode.valueOf(reply.interactionMode()))
+                .interactionMode(CompanionInteractionMode.valueOf(reply.interactionMode()))
                 .topicTag(reply.topicTag())
                 .toneTag(reply.toneTag())
                 .valueTag(reply.valueTag())

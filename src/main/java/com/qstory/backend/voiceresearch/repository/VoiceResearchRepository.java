@@ -1,9 +1,8 @@
 package com.qstory.backend.voiceresearch.repository;
 
 import com.qstory.backend.voiceresearch.entity.VoiceResearchConsent;
+import com.qstory.backend.voiceresearch.entity.VoiceResearchPreference;
 import com.qstory.backend.voiceresearch.entity.VoiceResearchSample;
-import com.qstory.backend.voiceresearch.repository.VoiceResearchConsentRepository;
-import com.qstory.backend.voiceresearch.repository.VoiceResearchSampleRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -15,11 +14,14 @@ public class VoiceResearchRepository {
 
     private final VoiceResearchConsentRepository consentRepository;
     private final VoiceResearchSampleRepository sampleRepository;
+    private final VoiceResearchPreferenceRepository preferenceRepository;
 
     public VoiceResearchRepository(
-            VoiceResearchConsentRepository consentRepository, VoiceResearchSampleRepository sampleRepository) {
+            VoiceResearchConsentRepository consentRepository, VoiceResearchSampleRepository sampleRepository,
+            VoiceResearchPreferenceRepository preferenceRepository) {
         this.consentRepository = consentRepository;
         this.sampleRepository = sampleRepository;
+        this.preferenceRepository = preferenceRepository;
     }
 
     public VoiceResearchConsent findConsent(UUID consentId) {
@@ -34,6 +36,10 @@ public class VoiceResearchRepository {
         consentRepository.delete(consent);
     }
 
+    public void deleteSample(VoiceResearchSample sample) {
+        sampleRepository.delete(sample);
+    }
+
     public VoiceResearchSample saveSample(VoiceResearchSample sample) {
         return sampleRepository.save(sample);
     }
@@ -44,5 +50,17 @@ public class VoiceResearchRepository {
 
     public List<VoiceResearchConsent> expiredConsents(Instant before) {
         return consentRepository.findTop200ByExpiresAtBefore(before);
+    }
+
+    public List<VoiceResearchConsent> consentsOfUser(UUID userId) {
+        return consentRepository.findByUserId(userId);
+    }
+
+    public VoiceResearchPreference findPreference(UUID userId) {
+        return preferenceRepository.findById(userId).orElse(null);
+    }
+
+    public VoiceResearchPreference savePreference(VoiceResearchPreference preference) {
+        return preferenceRepository.save(preference);
     }
 }

@@ -9,6 +9,7 @@ import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.FailureBody;
 import com.qstory.backend.common.util.HttpJsonWriter;
 import com.qstory.backend.common.util.ValidationSupport;
+import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.voiceresearch.dto.UploadRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -29,17 +30,20 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** supabase/functions/voice-research/index.ts의 upload/withdraw 액션을 Java로 이식한 버전. */
+/** 보호자 동의 기반 음성 연구 녹음의 업로드/동의 철회. */
 @Tag(name = "Voice research", description = "Opt-in recording upload/withdrawal for the parent-consented voice research program - separate from the child-facing question pipeline")
 @RestController
 public class VoiceResearchController {
 
     private final ObjectMapper objectMapper;
     private final VoiceResearchService service;
+    private final CurrentUserResolver currentUserResolver;
 
-    public VoiceResearchController(ObjectMapper objectMapper, VoiceResearchService service) {
+    public VoiceResearchController(
+            ObjectMapper objectMapper, VoiceResearchService service, CurrentUserResolver currentUserResolver) {
         this.objectMapper = objectMapper;
         this.service = service;
+        this.currentUserResolver = currentUserResolver;
     }
 
     @Operation(
@@ -48,13 +52,16 @@ public class VoiceResearchController {
                     + "(consent_id, deletion_token, consented_at, sample_id, story_id, scene_id, anchor_id, "
                     + "stt_draft, confirmed_transcript, question_round, duration_millis, and the optional "
                     + "coverage_status/family_id/intent_summary once the question has been routed). "
-                    + "consent_id must reference a non-expired VoiceResearchConsent.")
+                    + "consent_id must reference a non-expired VoiceResearchConsent. Anonymous callers are accepted; "
+                    + "a signed-in PARENT is rejected with 403 when their account-level consent is off, and "
+                    + "otherwise the consent is linked to the account (so /v1/me/voice-research-consent/withdraw "
+                    + "can delete it).")
     @ApiResponses({
             @ApiResponse(responseCode = "202", description = "Accepted",
                     content = @Content(schema = @Schema(example = "{\"ok\":true}"))),
             @ApiResponse(responseCode = "400", description = "Missing/malformed field, or an unsupported coverage_status",
                     content = @Content(schema = @Schema(implementation = FailureBody.class))),
-            @ApiResponse(responseCode = "403", description = "consent_id unknown, expired, or deletion_token mismatch",
+            @ApiResponse(responseCode = "403", description = "consent_id unknown, expired, or deletion_token mismatch, or the signed-in parent's account consent is off",
                     content = @Content(schema = @Schema(implementation = FailureBody.class)))
     })
     @PostMapping(value = "/v1/voice-research", consumes = "multipart/form-data")
@@ -80,7 +87,7 @@ public class VoiceResearchController {
                 parseUuid(consentId), deletionToken, parseInstant(consentedAt), parseUuid(sampleId), storyId,
                 sceneId, anchorId, sttDraft, confirmedTranscript, questionRound, durationMillis, audio,
                 parseCoverageStatus(coverageStatus), familyId, intentSummary);
-        service.upload(request);
+        service.upload(request, currentUserResolver.currentOrNull());
         HttpJsonWriter.writeJson(response, objectMapper, 202, Map.of("ok", true));
     }
 

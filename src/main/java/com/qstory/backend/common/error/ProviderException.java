@@ -1,35 +1,23 @@
 package com.qstory.backend.common.error;
 
-/** Node 백엔드의 {@code provider-error.mjs}에 있는 {@code ProviderError} 클래스를 그대로 옮긴 것이다. */
+/** provider/파이프라인 실패. 요청 형식 위반(ApiException)과 달리 HTTP 200 + {ok:false, failure}로 응답된다. */
 public class ProviderException extends RuntimeException {
 
     private final ProviderErrorCode code;
-    private final String stage;
     private final String safeDetail;
     private final boolean retryable;
 
     public ProviderException(ProviderErrorCode code, String safeDetail) {
-        this(code, code.stage(), safeDetail, code.defaultRetryable(), null);
+        this(code, safeDetail, code.defaultRetryable(), null);
     }
 
     public ProviderException(ProviderErrorCode code, String safeDetail, boolean retryable) {
-        this(code, code.stage(), safeDetail, retryable, null);
+        this(code, safeDetail, retryable, null);
     }
 
     public ProviderException(ProviderErrorCode code, String safeDetail, boolean retryable, Throwable cause) {
-        this(code, code.stage(), safeDetail, retryable, cause);
-    }
-
-    /** stage가 상황에 따라 달라지는 소수의 호출부(예: stt 도중 타임아웃인지 response 도중 타임아웃인지)를 위한 탈출구다. */
-    public ProviderException(ProviderErrorCode code, String stage, String safeDetail, boolean retryable) {
-        this(code, stage, safeDetail, retryable, null);
-    }
-
-    public ProviderException(
-            ProviderErrorCode code, String stage, String safeDetail, boolean retryable, Throwable cause) {
         super(safeDetail, cause);
         this.code = code;
-        this.stage = stage;
         this.safeDetail = safeDetail;
         this.retryable = retryable;
     }
@@ -39,7 +27,7 @@ public class ProviderException extends RuntimeException {
     }
 
     public String stage() {
-        return stage;
+        return code.stage();
     }
 
     public String safeDetail() {

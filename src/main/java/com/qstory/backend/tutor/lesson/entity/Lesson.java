@@ -4,8 +4,9 @@ import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.tutor.entity.TutorStudent;
 import com.qstory.backend.tutor.lesson.LessonStatus;
-import jakarta.persistence.CascadeType;
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -27,15 +28,15 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 /**
  * IA "[3] 수업"의 최상위 엔티티. 이름/목표(선택)/일정(선택) + 참여 학생 + 사용할 이야기를 묶는다.
- * lesson_story의 순서는 별도 조인 엔티티가 아니라 @OrderColumn/@OrderBy로 다루려면 조인 엔티티가
- * 필요한데 스토리 M:N에는 그 정보가 다행히 크게 안 중요해서(선생님이 UI에서 순서를 새로 잡는다)
- * ordinal은 raw SQL에만 두고 엔티티에는 노출하지 않는다 - 이번 세션 범위. 필요해지면 조인 엔티티로.
+ * lesson_story의 ordinal 컬럼은 엔티티에 노출하지 않는다 - 순서는 선생님이 UI에서 새로 잡으므로
+ * 조인 엔티티를 둘 만큼 중요하지 않다.
  */
 @Entity
 @Table(name = "lesson")
@@ -45,6 +46,9 @@ import org.hibernate.annotations.UuidGenerator;
 @AllArgsConstructor
 @Builder
 public class Lesson {
+
+    /** 수업 목록에서 LessonResponse가 lesson마다 students/storyIds를 읽는 N+1을 묶어서 가져온다. */
+    private static final int LIST_BATCH_SIZE = 50;
 
     @Id
     @UuidGenerator
@@ -96,30 +100,27 @@ public class Lesson {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /** 참여 학생. 조인 테이블 행만 lesson과 함께 정리되고 TutorStudent 자체에는 cascade를 걸지 않는다. */
     @ManyToMany
     @JoinTable(
             name = "lesson_student",
             joinColumns = @JoinColumn(name = "lesson_id"),
             inverseJoinColumns = @JoinColumn(name = "tutor_student_id"))
     @OrderBy("createdAt asc")
+    @BatchSize(size = LIST_BATCH_SIZE)
     @Builder.Default
     private Set<TutorStudent> students = new LinkedHashSet<>();
 
     /**
-     * 사용 이야기는 스토리 엔티티(Story)와 M:N이지만 story_id가 문자열이라 collection table을 쓴다
-     * (@ElementCollection). CascadeType.ALL과 orphanRemoval을 두어 lesson과 함께 라이프사이클을
-     * 관리 - 별도 서비스가 관여하지 않게.
+     * 사용 이야기. story_id가 FK 없는 문자열이라 collection table(@ElementCollection)로 두며, lesson_story
+     * 행은 lesson과 라이프사이클을 같이 한다.
      */
-    @jakarta.persistence.ElementCollection(fetch = FetchType.LAZY)
-    @jakarta.persistence.CollectionTable(
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(
             name = "lesson_story",
             joinColumns = @JoinColumn(name = "lesson_id"))
     @Column(name = "story_id", length = 64, nullable = false)
+    @BatchSize(size = LIST_BATCH_SIZE)
     @Builder.Default
     private Set<String> storyIds = new HashSet<>();
-
-    // Cascade는 join 관계에는 걸지 않는다 - lesson_student/lesson_story 행은 자동 정리되지만,
-    // 참조 대상(TutorStudent/Story)은 다른 곳에서 소유되므로 여기서 삭제해선 안 된다.
-    @SuppressWarnings("unused")
-    private static final CascadeType[] NO_CASCADE_FOR_JOIN_TARGETS = {};
 }

@@ -67,7 +67,7 @@ class PaymentServiceOrganizationTest {
     @Test
     void orderAmountIsStudentCountTimesUnitAmount() {
         PaymentService service = serviceWithUnit(UNIT);
-        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(orgId)).thenReturn(12L);
+        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(orgId)).thenReturn(12L);
 
         PaymentOrderResponse order = service.create(director, organizationOrder());
 
@@ -78,14 +78,14 @@ class PaymentServiceOrganizationTest {
     @Test
     void orderIsRefusedWhenThePerStudentAmountIsNotConfigured() {
         PaymentService service = serviceWithUnit(0);
-        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(orgId)).thenReturn(12L);
+        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(orgId)).thenReturn(12L);
         assertThrows(ApiException.class, () -> service.create(director, organizationOrder()));
     }
 
     @Test
     void orderIsRefusedWhenThereAreNoStudents() {
         PaymentService service = serviceWithUnit(UNIT);
-        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(orgId)).thenReturn(0L);
+        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(orgId)).thenReturn(0L);
         assertThrows(ApiException.class, () -> service.create(director, organizationOrder()));
     }
 
@@ -93,11 +93,13 @@ class PaymentServiceOrganizationTest {
     void quoteShowsCurrentStudentsAndPaidSeats() {
         PaymentService service = serviceWithUnit(UNIT);
         organization.setSubscriptionSeats(8);
-        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(orgId)).thenReturn(10L);
+        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(orgId)).thenReturn(10L);
+        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(orgId)).thenReturn(13L);
 
         OrganizationQuoteResponse quote = service.quoteOrganization(director);
 
         assertEquals(10, quote.studentCount());
+        assertEquals(13, quote.rosterStudentCount());
         assertEquals(UNIT, quote.unitAmount());
         assertEquals(10 * UNIT, quote.amount());
         assertEquals(8, quote.currentSeats());
@@ -128,5 +130,62 @@ class PaymentServiceOrganizationTest {
 
         assertEquals(12, organization.getSubscriptionSeats());
         assertEquals(SubscriptionStatus.ACTIVE, organization.getSubscriptionStatus());
+    }
+
+    private PaymentOrder paidOrganizationOrder(int students) {
+        return PaymentOrder.builder()
+                .orderId("qs_ext")
+                .user(AppUser.builder().id(director.userId()).role(Role.DIRECTOR).build())
+                .organization(organization)
+                .target(PaymentOrderTarget.ORGANIZATION)
+                .status(PaymentOrderStatus.READY)
+                .amount(students * UNIT)
+                .studentCount(students)
+                .orderName("test")
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+    }
+
+    private void confirm(PaymentService service, int students) {
+        PaymentOrder order = paidOrganizationOrder(students);
+        when(paymentOrderRepository.findForUpdateByOrderId("qs_ext")).thenReturn(Optional.of(order));
+        when(tossPaymentsClient.confirm(anyString(), anyString(), anyInt()))
+                .thenReturn(new TossPaymentsClient.Approval(Instant.now()));
+        service.confirm(director, new ConfirmPaymentRequest("pay_key", "qs_ext", students * UNIT));
+    }
+
+    @Test
+    void extendingAnActiveSubscriptionNeverShrinksTheSeats() {
+        PaymentService service = serviceWithUnit(UNIT);
+        organization.setSubscriptionStatus(SubscriptionStatus.ACTIVE);
+        organization.setSubscriptionExpiresAt(Instant.now().plus(java.time.Duration.ofDays(20)));
+        organization.setSubscriptionSeats(100);
+
+        confirm(service, 10);
+
+        assertEquals(100, organization.getSubscriptionSeats());
+    }
+
+    @Test
+    void renewingAfterExpiryStartsFromTheNewSeatCount() {
+        PaymentService service = serviceWithUnit(UNIT);
+        organization.setSubscriptionStatus(SubscriptionStatus.ACTIVE);
+        organization.setSubscriptionExpiresAt(Instant.now().minus(java.time.Duration.ofDays(1)));
+        organization.setSubscriptionSeats(100);
+
+        confirm(service, 10);
+
+        assertEquals(10, organization.getSubscriptionSeats());
+    }
+
+    @Test
+    void newOrganizationOrderVoidsOlderUnpaidOrders() {
+        PaymentService service = serviceWithUnit(UNIT);
+        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(orgId)).thenReturn(3L);
+
+        service.create(director, organizationOrder());
+
+        org.mockito.Mockito.verify(paymentOrderRepository).voidOpenOrganizationOrders(org.mockito.ArgumentMatchers.eq(orgId), org.mockito.ArgumentMatchers.any());
     }
 }

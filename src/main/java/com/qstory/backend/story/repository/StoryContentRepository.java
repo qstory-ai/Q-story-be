@@ -1,22 +1,19 @@
 package com.qstory.backend.story.repository;
+
+import com.qstory.backend.story.ActionFamily;
+import com.qstory.backend.story.Anchor;
+import com.qstory.backend.story.CastEntry;
 import com.qstory.backend.story.ConcernChoice;
 import com.qstory.backend.story.StoryManifest;
-import com.qstory.backend.story.CastEntry;
-import com.qstory.backend.story.Anchor;
-import com.qstory.backend.story.ActionFamily;
-
+import com.qstory.backend.story.entity.Story;
 import com.qstory.backend.story.entity.StoryActionFamily;
 import com.qstory.backend.story.entity.StoryAnchor;
 import com.qstory.backend.story.entity.StoryCast;
-import com.qstory.backend.story.entity.Story;
-import com.qstory.backend.story.repository.StoryActionFamilyRepository;
-import com.qstory.backend.story.repository.StoryAnchorRepository;
-import com.qstory.backend.story.repository.StoryCastRepository;
-import com.qstory.backend.story.repository.StoryRepository;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 /** 네 개의 story-content JPA 리포지토리를 감싸서, 그 row들을 StoryRegistry가 캐싱하는 StoryManifest 도메인 형태로 조립한다. */
@@ -46,9 +43,15 @@ public class StoryContentRepository {
     }
 
     private StoryManifest toDomain(Story storyEntity) {
+        Map<String, List<ActionFamily>> familiesByAnchor =
+                familyRepository.findAllByStoryIdWithAnchor(storyEntity.getId()).stream()
+                        .collect(Collectors.groupingBy(
+                                family -> family.getAnchor().getId(), LinkedHashMap::new,
+                                Collectors.mapping(this::toDomain, Collectors.toUnmodifiableList())));
         Map<String, Anchor> anchors = new LinkedHashMap<>();
         for (StoryAnchor anchorEntity : anchorRepository.findByStory_Id(storyEntity.getId())) {
-            anchors.put(anchorEntity.getId(), toDomain(anchorEntity));
+            anchors.put(anchorEntity.getId(),
+                    toDomain(anchorEntity, familiesByAnchor.getOrDefault(anchorEntity.getId(), List.of())));
         }
         Map<String, CastEntry> cast = new LinkedHashMap<>();
         for (StoryCast castEntity : castRepository.findByStory_Id(storyEntity.getId())) {
@@ -62,11 +65,7 @@ public class StoryContentRepository {
                 storyEntity.getCoverImageUrl(), storyEntity.getDescription(), storyEntity.getCategory());
     }
 
-    private Anchor toDomain(StoryAnchor anchorEntity) {
-        List<ActionFamily> families = familyRepository.findByAnchor_IdOrderByDisplayOrderAsc(anchorEntity.getId())
-                .stream()
-                .map(this::toDomain)
-                .toList();
+    private Anchor toDomain(StoryAnchor anchorEntity, List<ActionFamily> families) {
         ConcernChoice concernChoice = anchorEntity.getConcernChoiceFamilyIds() == null
                 ? null
                 : new ConcernChoice(anchorEntity.getConcernChoiceFamilyIds(), anchorEntity.getConcernChoiceResponseText());

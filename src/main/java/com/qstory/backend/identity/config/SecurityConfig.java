@@ -18,24 +18,15 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
- * 무상태(stateless) JWT 설정. authorizeHttpRequests()는 프레임워크 레벨에서 모든 요청을
- * 허용한다 - 기존의 전체 공개 표면(story catalog/content, question/narration 파이프라인,
- * beta-events, voice-research, shadow review, admin import)이 지금과 완전히 동일하게 계속
- * 동작해야 하고, 이들 각각은 이미 애플리케이션 코드 안에서 자체적으로 요청 형태/토큰 검사를
- * 하고 있기 때문이다(기존 선례로 StoryImportController.requireAdminToken() 참고). 여기서
- * Spring Security가 담당하는 것은 딱 세 가지뿐이다: CORS(기존 CorsRequestFilter를 대체),
- * JWT를 파싱해 SecurityContext에 넣는 것(JwtAuthFilter), 그리고 BCrypt 제공. organization/
- * class/story-authoring 엔드포인트에 대한 인가(authorization)는 여전히 컨트롤러별로 수동으로
- * CurrentUserResolver.requireRole(...)을 통해 결정되며, 이는 프레임워크 선언형 @PreAuthorize/
- * matcher 규칙이 아니라 이 코드베이스가 기존에 써 온 수작업 검사(hand-rolled-check) 스타일을
- * 따르는 것이다.
+ * 무상태(stateless) JWT 설정. authorizeHttpRequests()는 프레임워크 레벨에서 모든 요청을 허용한다 -
+ * 공개 표면(story catalog/content, question/narration 파이프라인, beta-events, voice-research 등)은
+ * 토큰 없이도 동작해야 하고, 각 엔드포인트가 애플리케이션 코드 안에서 자체적으로 요청/토큰 검사를 한다.
+ * 여기서 Spring Security가 담당하는 것은 CORS, JWT를 파싱해 SecurityContext에 넣는 것(JwtAuthFilter),
+ * BCrypt 제공 세 가지뿐이다. 인가는 컨트롤러별로 CurrentUserResolver.requireRole(...)이 결정한다.
  *
- * <p>이러한 컨트롤러별 검사는 검사 대상 역할(role)만큼만 안전하다: Role.DIRECTOR/
- * PARENT/TUTOR는 누구나 공개 회원가입을 통해 얻을 수 있는 셀프서비스 역할이므로,
- * 내부 운영자 전용 엔드포인트를 이들 중 하나로 게이트하는 것(story-authoring이 한때 DIRECTOR로
- * 그렇게 했던 것처럼)은 설정 실수가 아니라 권한 상승(privilege-escalation) 버그다. 내부 전용
- * 엔드포인트는 반드시 Role.STAFF로 게이트해야 하며, 이 역할은 고객 대상 회원가입 폼을 통해서는
- * 절대 발급되지 않는다 - Role.java와 AuthController.signupStaff()를 참고.
+ * <p>이 검사는 검사 대상 역할만큼만 안전하다: DIRECTOR/PARENT/TUTOR는 공개 회원가입으로 누구나 얻는
+ * 역할이므로, 내부 운영자 전용 엔드포인트를 이들로 게이트하면 권한 상승 버그다. 내부 전용 엔드포인트는
+ * 반드시 Role.STAFF로 게이트한다(Role.java, AuthController.signupStaff() 참고).
  */
 @Configuration
 public class SecurityConfig {
@@ -83,9 +74,7 @@ public class SecurityConfig {
 
     /**
      * 환경별 allowed-origins(프로필 yml 또는 ALLOWED_ORIGINS 환경변수가 통째로 결정) + 네이티브 앱
-     * WebView 출처(application.yml의 qstory.native-origins, 환경과 무관하게 항상). 예전엔 네이티브
-     * 출처를 allowed-origins 기본값에 넣었는데, dev/staging 프로필과 환경변수 설정이 그 기본값을
-     * 대체해 버려서 실제로는 prod 한 곳에서만, 그것도 ALLOWED_ORIGINS가 없을 때만 유효했다.
+     * WebView 출처(application.yml의 qstory.native-origins, 환경과 무관하게 항상).
      */
     List<String> effectiveAllowedOrigins() {
         return Stream.concat(

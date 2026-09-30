@@ -8,11 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * StoryImportService/ShadowFamilyGenerationService/StoryRevisionService/StoryAuthoringService가
- * 각자 손으로 다시 작성했던 "JsonNode/엔티티를 Map으로 변환한다" 로직을 하나로 모았다. 호출부마다
- * ObjectMapper 인스턴스가 다르므로 static 메서드가 그것을 받는다.
- */
+/** JsonNode/엔티티를 Map으로 변환한다. 호출부마다 ObjectMapper 인스턴스가 다르므로 인자로 받는다. */
 public final class JacksonConversion {
 
     private JacksonConversion() {}

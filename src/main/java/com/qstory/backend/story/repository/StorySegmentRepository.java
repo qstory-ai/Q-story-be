@@ -13,9 +13,6 @@ public interface StorySegmentRepository extends JpaRepository<StorySegment, UUID
     /** StoryContentAssemblyService를 위한 벌크 로딩 경로 - 한 스토리의 모든 장면에 속한 모든 세그먼트를 쿼리 한 번으로 가져온다. */
     List<StorySegment> findByScene_Story_IdOrderByScene_SequenceAscDisplayOrderAsc(String storyId);
 
-    /**
-     * StoryAuthoringService.editSegment()/restoreSegment(), NarrationRerenderService.rerender()가
-     * 각자 손으로 다시 작성했던 "이 세그먼트가 정말 그 storyId 소유인가" 필터를 하나로 모았다.
-     */
+    /** 세그먼트가 정말 그 storyId 소유인지까지 함께 확인한다 - 저작/재녹음 경로 공용. */
     Optional<StorySegment> findByIdAndScene_Story_Id(UUID id, String storyId);
 }

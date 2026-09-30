@@ -20,6 +20,11 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     /** 탈퇴(소프트 삭제)된 계정을 제외하고 조회한다 - me()/updateProfile()/changePassword()/deleteAccount()가 사용. */
     Optional<AppUser> findByIdAndDeletedAtIsNull(UUID id);
 
+    /** 한 학부모의 동시 요청(반 코드 가입을 두 번 누르는 등)을 직렬화한다 - 아이 프로필·학생 행이 둘 생기지 않게. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select u from AppUser u where u.id = :id and u.deletedAt is null")
+    Optional<AppUser> lockActiveById(@org.springframework.data.repository.query.Param("id") UUID id);
+
     Optional<AppUser> findByOauthProviderAndOauthSubject(OAuthProvider oauthProvider, String oauthSubject);
 
     /**
@@ -30,12 +35,9 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     Optional<AppUser> findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(UUID organizationId, Role role);
 
     /**
-     * AuthService.createAccount()/loginOrSignupWithOAuth(), ClassService.create()/join(),
-     * TutorStudentService.newParent()가 각자 따로 갖고 있던 "saveAndFlush 하고
-     * DataIntegrityViolationException이면 LOGIN_ID_ALREADY_REGISTERED로 변환" 패턴을 하나로
-     * 모았다. saveAndFlush를 쓰는 이유(save가 아니라)는 AuthService.createAccount()의 원래
-     * 주석 참고 - 클라이언트가 미리 만든 @UuidGenerator id를 쓰면 INSERT가 커밋 시점까지
-     * 지연될 수 있어, 여기서 강제로 flush해야 제약 조건 위반을 동기적으로 catch할 수 있다.
+     * 새 계정을 저장하고 unique 제약 위반(주로 login_id 중복)을 LOGIN_ID_ALREADY_REGISTERED로 변환한다.
+     * save가 아니라 saveAndFlush인 이유: INSERT가 커밋 시점까지 지연될 수 있어, 여기서 flush해야
+     * 제약 위반을 동기적으로 catch할 수 있다.
      */
     default AppUser saveOrThrowDuplicate(AppUser user, String safeDetail) {
         try {

@@ -43,7 +43,9 @@ public class TutorClassService {
 
     @Transactional(readOnly = true)
     public List<ClassResponse> listVisible(CurrentUser caller) {
-        return visibleClasses(caller.userId()).stream().map(ClassResponse::of).toList();
+        return classGroupRepository.findByTutor_IdOrderByCreatedAtAsc(caller.userId()).stream()
+                .map(ClassResponse::of)
+                .toList();
     }
 
     @Transactional
@@ -70,25 +72,18 @@ public class TutorClassService {
         return ClassResponse.of(saved);
     }
 
-    /** 학생 등록·수업 생성에서 반 id를 받았을 때 - 선생님이 볼 수 있는 반이 아니면 404. */
+    /**
+     * 학생 등록·수업 생성에서 반 id를 받았을 때 - 선생님이 볼 수 있는 반(자기가 담임인 반)이 아니면 404.
+     * 같은 기관의 다른 선생님 반은 보이지 않는다.
+     */
     @Transactional(readOnly = true)
     public ClassGroup requireVisible(CurrentUser caller, UUID classGroupId) {
-        return visibleClasses(caller.userId()).stream()
-                .filter(classGroup -> classGroup.getId().equals(classGroupId))
-                .findFirst()
+        return classGroupRepository.findByIdAndTutor_Id(classGroupId, caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
     }
 
-    /** 선생님이 볼 수 있는 반은 자기가 담임인 반뿐이다 - 같은 기관의 다른 선생님 반은 보이지 않는다. */
-    private List<ClassGroup> visibleClasses(UUID tutorId) {
-        return classGroupRepository.findByTutor_IdOrderByCreatedAtAsc(tutorId);
-    }
-
     private String generateUniqueJoinCode() {
-        for (int attempt = 0; attempt < 10; attempt++) {
-            String code = joinCodeGenerator.generate();
-            if (!classGroupRepository.existsByJoinCode(code)) return code;
-        }
-        throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "반 코드를 생성하지 못했어요. 다시 시도해 주세요.", 500);
+        return joinCodeGenerator.generateUnique(classGroupRepository::existsByJoinCode,
+                () -> ApiException.contractError(ErrorCode.INTERNAL_ERROR, "반 코드를 생성하지 못했어요. 다시 시도해 주세요.", 500));
     }
 }

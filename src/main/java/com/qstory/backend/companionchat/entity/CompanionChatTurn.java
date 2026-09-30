@@ -19,9 +19,7 @@ import lombok.Setter;
 /**
  * companion-chat 한 턴에서 파생된 신호만 저장 - transcript/responseText 컬럼은 여기엔 없다.
  * 이 테이블은 부모 리포트 스냅샷용 태그 집계(90일 보존)만 책임진다. 원문(아이의 말·캐릭터의 답)은
- * 2026-09부터 별도의 열람 API 없는 원장 conversation_record(db/schema/052, 보존 기간 별도 설정)에
- * 남는다 - 예전 "원본 음성/전사문 영구 저장 금지" 원칙(core-contracts.design.md §CC-NFR-03)은
- * 음성 원본에 대해서만 유지된다.
+ * 열람 API 없는 원장 conversation_record(db/schema/052)에 따로 남는다.
  */
 @Entity
 @Table(

@@ -1,8 +1,6 @@
 package com.qstory.backend.common.enums;
 
-import java.util.Map;
-
-/** 13개의 베타 퍼널/텔레메트리 이벤트로, 각각이 발생시킬 수 있는 소스에 고정되어 있다. */
+/** 베타 퍼널/텔레메트리 이벤트. 각각 발생시킬 수 있는 소스가 고정되어 있다. */
 public enum EventName {
     LANDING_VIEW(EventSource.LANDING),
     LANDING_CTA_CLICK(EventSource.LANDING),
@@ -27,12 +25,5 @@ public enum EventName {
 
     public EventSource requiredSource() {
         return requiredSource;
-    }
-
-    private static final Map<EventName, EventSource> SOURCES = java.util.stream.Stream.of(values())
-            .collect(java.util.stream.Collectors.toMap(name -> name, EventName::requiredSource));
-
-    public static Map<EventName, EventSource> sources() {
-        return SOURCES;
     }
 }

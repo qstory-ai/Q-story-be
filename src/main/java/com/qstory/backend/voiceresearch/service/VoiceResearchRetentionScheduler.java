@@ -5,7 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Supabase의 pg_cron 작업 "qstory-delete-expired-voice-research"를 대체한다(기존에는 매일 UTC 18:45에 엣지 함수로 HTTP 호출을 거쳐 실행되었다). */
+/** 만료된 음성 연구 동의와 그 녹음(Storage 객체 포함)을 매일 삭제한다. */
 @Component
 public class VoiceResearchRetentionScheduler {
 

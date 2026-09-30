@@ -22,7 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/** rtzr-stt.mjs를 Java로 포팅한 것: 토큰을 캐싱하는 인증, 멀티파트 제출, 결과 폴링. */
+/** RTZR(VITO) 배치 STT 클라이언트: 토큰을 캐싱하는 인증, 멀티파트 제출, 결과 폴링. */
 @Component
 public class RtzrSttClient {
 
@@ -149,9 +149,6 @@ public class RtzrSttClient {
                 // Rtzr가 200으로 응답하고도 status="failed"를 낸 케이스 - HTTP 실패와 구분되는 별도 태그로
                 // 남긴다. 원인이 서버 쪽이라 사용자 재시도로는 안 풀리는 경우가 많아 별도 알림 라인.
                 logRtzrTranscriptionFailed(submissionId, response.body());
-                // 호출부가 retryable을 생략하면 Node의 ProviderError는 기본값을 true로 둔다 - 아래의
-                // throw도 retryable을 생략하므로, 아래 2-인자 팩토리를 통해 ProviderErrorCode.RTZR_TRANSCRIPTION_FAILED의
-                // 기본값(true)을 그대로 물려받아 원본과 정확히 동일하게 동작한다.
                 throw new ProviderException(
                         ProviderErrorCode.RTZR_TRANSCRIPTION_FAILED, "이번 목소리를 문장으로 바꾸지 못했어요.");
             }

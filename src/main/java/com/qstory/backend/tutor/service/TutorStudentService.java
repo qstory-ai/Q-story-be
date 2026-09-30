@@ -1,67 +1,60 @@
 package com.qstory.backend.tutor.service;
 
-import org.springframework.dao.DataIntegrityViolationException;
-import java.util.ArrayList;
-import com.qstory.backend.tutor.lesson.repository.LessonRepository;
-import com.qstory.backend.tutor.lesson.entity.Lesson;
-import com.qstory.backend.tutor.lesson.LessonStatus;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.ChildAge;
 import com.qstory.backend.common.util.DigestUtil;
 import com.qstory.backend.common.util.SecureTokenGenerator;
 import com.qstory.backend.common.util.TokenValidation;
-import com.qstory.backend.org.util.JoinCodeGenerator;
+import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
-import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.notification.service.NotificationPublisher;
+import com.qstory.backend.org.entity.ClassGroup;
+import com.qstory.backend.org.util.JoinCodeGenerator;
 import com.qstory.backend.parent.child.entity.Child;
 import com.qstory.backend.parent.child.repository.ChildRepository;
-import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.tutor.TutorLessonType;
 import com.qstory.backend.tutor.TutorStudentStatus;
-import com.qstory.backend.tutor.Weekday;
 import com.qstory.backend.tutor.dto.AcceptTutorInviteRequest;
 import com.qstory.backend.tutor.dto.BulkCreateTutorStudentsRequest;
 import com.qstory.backend.tutor.dto.BulkTutorStudentResult;
 import com.qstory.backend.tutor.dto.CreateTutorInviteRequest;
-import com.qstory.backend.tutor.dto.CreateTutorScheduleRequest;
 import com.qstory.backend.tutor.dto.CreateTutorStudentRequest;
 import com.qstory.backend.tutor.dto.TutorInvitePreviewResponse;
 import com.qstory.backend.tutor.dto.TutorInviteResponse;
-import com.qstory.backend.tutor.dto.TutorScheduleResponse;
 import com.qstory.backend.tutor.dto.TutorStudentResponse;
 import com.qstory.backend.tutor.dto.UpdateTutorStudentRequest;
 import com.qstory.backend.tutor.entity.TutorInvite;
-import com.qstory.backend.tutor.entity.TutorSchedule;
 import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.tutor.lesson.LessonStatus;
+import com.qstory.backend.tutor.lesson.entity.Lesson;
+import com.qstory.backend.tutor.lesson.repository.LessonRepository;
 import com.qstory.backend.tutor.repository.TutorInviteRepository;
-import com.qstory.backend.tutor.repository.TutorScheduleRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalTime;
-import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 선생님의 학생 등록/일정/부모 초대 - org.service.ClassService의 초대 메커니즘(랜덤 토큰 생성,
- * SHA-256 해시 저장, 14일 TTL, 1회용 소진)을 그대로 재사용한다. ClassService.join()과 다른 점 하나:
- * 초대 수락자는 새로 가입하는 경우도, 이미 로그인된 기존 PARENT 계정인 경우도 있을 수 있다(자녀가
- * 이미 다른 경로로 부모 계정을 갖고 있는 흔한 케이스) - acceptInvite()가 둘 다 받는다.
+ * 선생님의 학생 등록/일정/부모 초대. 초대는 랜덤 토큰(SHA-256 해시만 저장) + short code, 14일 TTL, 1회용이다.
+ * 초대 수락자는 새로 가입하는 경우도, 이미 로그인된 기존 PARENT 계정인 경우도 있다 - acceptInvite()가 둘 다 받는다.
  */
 @Service
 public class TutorStudentService {
@@ -71,8 +64,9 @@ public class TutorStudentService {
     /** fe entities/child/model/avatars.ts CHILD_AVATARS[0].key와 동일. */
     private static final String DEFAULT_CHILD_AVATAR_KEY = "fox";
 
+    private static final Pattern DIGITS = Pattern.compile("\\d+");
+
     private final TutorStudentRepository tutorStudentRepository;
-    private final TutorScheduleRepository tutorScheduleRepository;
     private final TutorInviteRepository tutorInviteRepository;
     private final AppUserRepository userRepository;
     private final AuthValidator authValidator;
@@ -85,8 +79,9 @@ public class TutorStudentService {
     private final TutorClassService tutorClassService;
     private final LessonRepository lessonRepository;
     private final UserSummaryFactory userSummaryFactory;
+
     public TutorStudentService(
-            TutorStudentRepository tutorStudentRepository, TutorScheduleRepository tutorScheduleRepository,
+            TutorStudentRepository tutorStudentRepository,
             TutorInviteRepository tutorInviteRepository, AppUserRepository userRepository,
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
             SecureTokenGenerator tokenGenerator, JoinCodeGenerator joinCodeGenerator,
@@ -94,7 +89,6 @@ public class TutorStudentService {
             TutorClassService tutorClassService, LessonRepository lessonRepository,
             UserSummaryFactory userSummaryFactory) {
         this.tutorStudentRepository = tutorStudentRepository;
-        this.tutorScheduleRepository = tutorScheduleRepository;
         this.tutorInviteRepository = tutorInviteRepository;
         this.userRepository = userRepository;
         this.authValidator = authValidator;
@@ -142,7 +136,7 @@ public class TutorStudentService {
                 .classGroup(classGroup)
                 .createdAt(Instant.now())
                 .build());
-        if (classGroup != null) addToScheduledClassLessons(caller, student, classGroup);
+        if (classGroup != null) addToScheduledClassLessons(caller.userId(), student, classGroup);
         return TutorStudentResponse.of(student);
     }
 
@@ -162,22 +156,41 @@ public class TutorStudentService {
             throw ApiException.contractError(ErrorCode.CHILD_INFO_REQUIRED, "아이의 출생연도를 골라 주세요.");
         }
         AppUser tutor = classGroup.getTutor();
-        TutorStudent student = TutorStudent.builder()
-                .tutor(tutor)
-                .name(childName.trim())
-                .ageBand(ChildAge.tutorLabel(birthYear))
-                .birthYear(birthYear)
-                .lessonType(TutorLessonType.CLASS)
-                .classGroup(classGroup)
-                .status(TutorStudentStatus.CONFIRMED)
-                .linkedParentUser(parent)
-                .createdAt(Instant.now())
-                .build();
-        student.setChild(resolveChild(parent, student, null));
+        Instant now = Instant.now();
+        // 선생님이 미리 올려 둔(아직 학부모가 없는) 같은 이름의 학생이 있으면 새로 만들지 않고 그 학생에 잇는다 -
+        // 일괄 등록 뒤 반 코드를 공유했거나, 학부모가 아이를 뺐다가 다시 올린 경우 명단에 같은 아이가 둘 생기지 않게.
+        TutorStudent pending = findPendingClassmate(classGroup, childName, birthYear);
+        TutorStudent student;
+        if (pending != null) {
+            student = pending;
+            if (student.getBirthYear() == null) {
+                student.setBirthYear(birthYear);
+                student.setAgeBand(ChildAge.tutorLabel(birthYear));
+            }
+            if (student.getTutor() == null) student.setTutor(tutor);
+            tutorInviteRepository.closeOpenInvites(student.getId(), now);
+        } else {
+            student = TutorStudent.builder()
+                    .tutor(tutor)
+                    .name(childName.trim())
+                    .ageBand(ChildAge.tutorLabel(birthYear))
+                    .birthYear(birthYear)
+                    .lessonType(TutorLessonType.CLASS)
+                    .classGroup(classGroup)
+                    .createdAt(now)
+                    .build();
+        }
+        // 아이 프로필을 먼저 정하고 중복을 확인한 뒤에 학생에 붙인다 - 기존 학생(pending)에 먼저 붙이면 조회 전
+        // 자동 flush로 그 행이 먼저 저장돼 자기 자신이 "이미 등록된 아이"로 잡힌다.
+        Child child = resolveChild(parent, student, null);
         // 담임이 없는 반은 (tutor_id, child_id) 유니크 인덱스가 걸리지 않아 같은 아이가 중복으로 올라올 수 있다.
-        if (tutorStudentRepository.existsByClassGroup_IdAndChild_IdAndDeletedAtIsNull(classGroup.getId(), student.getChild().getId())) {
+        if (tutorStudentRepository.existsByClassGroup_IdAndChild_IdAndDeletedAtIsNull(classGroup.getId(), child.getId())) {
             throw ApiException.contractError(ErrorCode.DUPLICATE_CHILD_LINK, "이 아이는 이미 이 반에 등록되어 있어요.", 409);
         }
+        student.setStatus(TutorStudentStatus.CONFIRMED);
+        student.setLinkedParentUser(parent);
+        student.setLinkedAt(now);
+        student.setChild(child);
         try {
             student = tutorStudentRepository.saveAndFlush(student);
         } catch (DataIntegrityViolationException duplicate) {
@@ -189,6 +202,27 @@ public class TutorStudentService {
         }
         notifyClassEnrollment(parent, student, classGroup);
         return student;
+    }
+
+    /**
+     * 같은 반에서 학부모가 아직 없는 같은 이름(공백·대소문자 무시)의 학생. 여럿이면 출생연도가 같은 학생, 그래도
+     * 여럿이면 먼저 등록된 학생. 고른 학생은 잠가서 두 학부모가 동시에 같은 학생에 이어지지 않게 한다.
+     */
+    private TutorStudent findPendingClassmate(ClassGroup classGroup, String childName, Integer birthYear) {
+        String wanted = normalizeName(childName);
+        List<TutorStudent> sameName = tutorStudentRepository
+                .findByClassGroup_IdAndLinkedParentUserIsNullAndDeletedAtIsNull(classGroup.getId()).stream()
+                .filter(candidate -> normalizeName(candidate.getName()).equals(wanted))
+                .sorted(java.util.Comparator.comparing(TutorStudent::getCreatedAt))
+                .toList();
+        if (sameName.isEmpty()) return null;
+        TutorStudent chosen = sameName.stream()
+                .filter(candidate -> birthYear.equals(candidate.getBirthYear()))
+                .findFirst()
+                .orElse(sameName.get(0));
+        return tutorStudentRepository.lockById(chosen.getId())
+                .filter(locked -> locked.getLinkedParentUser() == null && locked.getDeletedAt() == null)
+                .orElse(null);
     }
 
     /** 담임에게, 담임이 아직 없으면 기관 원장에게 알린다. */
@@ -231,6 +265,9 @@ public class TutorStudentService {
         }
         List<BulkTutorStudentResult> results = new ArrayList<>();
         for (BulkCreateTutorStudentsRequest.Student item : items) {
+            if (item == null) {
+                throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "학생 이름을 확인해 주세요.");
+            }
             Integer birthYear = item.birthYear() != null ? item.birthYear() : request.defaultBirthYear();
             TutorStudentResponse student = createStudent(caller, new CreateTutorStudentRequest(
                     item.name(), null, request.classType(), request.prepNote(), request.lessonType(),
@@ -284,14 +321,13 @@ public class TutorStudentService {
             }
             student.setLessonType(lessonType);
         }
-        // 반이 바뀌면 예정된 반 수업의 참여자도 따라간다 - 예전엔 수업 생성 시점의 명단이 그대로 남아,
-        // 반을 옮긴 학생에게 옛 반 수업의 완주 기록·알림이 가고 새 반 수업에서는 빠졌다.
+        // 반이 바뀌면 예정된 반 수업의 참여자도 따라간다 - 옛 반 수업에 남으면 그 수업의 완주 기록·알림이 잘못 간다.
         ClassGroup nextClass = student.getClassGroup();
         UUID previousId = previousClass == null ? null : previousClass.getId();
         UUID nextId = nextClass == null ? null : nextClass.getId();
-        if (!java.util.Objects.equals(previousId, nextId)) {
+        if (!Objects.equals(previousId, nextId)) {
             if (previousClass != null) removeFromScheduledClassLessons(caller, student, previousClass);
-            if (nextClass != null) addToScheduledClassLessons(caller, student, nextClass);
+            if (nextClass != null) addToScheduledClassLessons(caller.userId(), student, nextClass);
         }
         return TutorStudentResponse.of(tutorStudentRepository.save(student));
     }
@@ -304,10 +340,8 @@ public class TutorStudentService {
     }
 
     /**
-     * 소프트 삭제(053). 행을 지우면 story_completion.tutor_student_id가 null이 되어 부모가 이 학생의
-     * 선생님 리포트에 접근할 경로(학생↔linked_parent_user)를 전부 잃고 알림 링크가 404가 됐다. 이제
-     * deletedAt만 채운다 - 목록·일정·수업 조회는 전부 deletedAt is null로 거르고, 예정 수업 참여자에서
-     * 빼고, 열려 있던 초대는 닫는다. 이미 끝난 수업·완주 기록은 그대로 남는다.
+     * 소프트 삭제(053) - 행을 남겨야 story_completion이 이 학생을 계속 가리켜 부모가 선생님 리포트를 잃지 않는다.
+     * deletedAt을 채우고, 예정 수업 참여자에서 빼고, 열려 있던 초대는 닫는다. 이미 끝난 수업·완주 기록은 그대로다.
      */
     @Transactional
     public void deleteStudent(CurrentUser caller, UUID studentId) {
@@ -325,10 +359,6 @@ public class TutorStudentService {
     }
 
     /** 반에 새로 들어온 학생을 그 반의 아직 예정(SCHEDULED)인 수업에 참여자로 넣는다. */
-    private void addToScheduledClassLessons(CurrentUser caller, TutorStudent student, ClassGroup classGroup) {
-        addToScheduledClassLessons(caller.userId(), student, classGroup);
-    }
-
     private void addToScheduledClassLessons(UUID tutorId, TutorStudent student, ClassGroup classGroup) {
         for (Lesson lesson : lessonRepository.findByTutor_IdAndClassGroup_IdAndStatus(
                 tutorId, classGroup.getId(), LessonStatus.SCHEDULED)) {
@@ -351,46 +381,6 @@ public class TutorStudentService {
         }
     }
 
-    /**
-     * 이 선생님이 등록한 모든 학생의 일정을 통틀어 - "주간 일정" 화면이 학생별로 다시 조회할 필요
-     * 없게. @Transactional(readOnly=true) 필수 - TutorScheduleResponse.of()가 지연 로딩된
-     * tutorStudent.getName()을 읽는데, 세션이 이미 닫힌 뒤(트랜잭션 밖)라면
-     * LazyInitializationException이 난다(id만 읽으면 프록시가 안 깨어나 괜찮지만, name처럼
-     * 실제 컬럼을 읽으려면 DB를 다시 쳐야 해서 열린 세션이 필요하다).
-     */
-    @Transactional(readOnly = true)
-    public List<TutorScheduleResponse> listSchedules(CurrentUser caller) {
-        return tutorScheduleRepository.findByTutorStudent_Tutor_IdAndTutorStudent_DeletedAtIsNullOrderByCreatedAtAsc(caller.userId()).stream()
-                .map(TutorScheduleResponse::of)
-                .toList();
-    }
-
-    @Transactional
-    public TutorScheduleResponse createSchedule(CurrentUser caller, UUID studentId, CreateTutorScheduleRequest request) {
-        TutorStudent student = requireOwnedStudent(caller, studentId);
-        Weekday weekday = parseWeekday(request.weekday());
-        LocalTime startTime = parseTime(request.startTime(), "시작 시간");
-        LocalTime endTime = parseTime(request.endTime(), "종료 시간");
-        if (!startTime.isBefore(endTime)) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "종료 시간은 시작 시간보다 늦어야 해요.");
-        }
-        LocalDate startDate = parseDate(request.startDate());
-        if (isBlank(request.location())) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "수업 장소를 입력해 주세요.");
-        }
-        TutorSchedule schedule = tutorScheduleRepository.save(TutorSchedule.builder()
-                .tutorStudent(student)
-                .weekday(weekday)
-                .startTime(startTime)
-                .endTime(endTime)
-                .startDate(startDate)
-                .location(request.location().trim())
-                .reminderEnabled(request.reminderEnabled() == null || request.reminderEnabled())
-                .createdAt(Instant.now())
-                .build());
-        return TutorScheduleResponse.of(schedule);
-    }
-
     @Transactional
     public TutorInviteResponse createInvite(CurrentUser caller, UUID studentId, CreateTutorInviteRequest request) {
         TutorStudent student = requireOwnedStudent(caller, studentId);
@@ -401,8 +391,10 @@ public class TutorStudentService {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "휴대폰 번호를 입력해 주세요.");
         }
         String rawToken = tokenGenerator.generate();
-        String shortCode = generateUniqueShortCode();
-        Instant expiresAt = Instant.now().plus(INVITE_TTL);
+        String shortCode = joinCodeGenerator.generateUnique(tutorInviteRepository::existsByShortCode,
+                () -> ApiException.contractError(ErrorCode.INTERNAL_ERROR, "초대 코드를 만들지 못했어요. 잠시 후 다시 시도해 주세요."));
+        Instant now = Instant.now();
+        Instant expiresAt = now.plus(INVITE_TTL);
         tutorInviteRepository.save(TutorInvite.builder()
                 .tutorStudent(student)
                 .tokenHash(DigestUtil.sha256Hex(rawToken))
@@ -410,19 +402,9 @@ public class TutorStudentService {
                 .method(request.method())
                 .phoneNumber(request.phoneNumber())
                 .expiresAt(expiresAt)
-                .createdAt(Instant.now())
+                .createdAt(now)
                 .build());
         return new TutorInviteResponse(rawToken, shortCode, expiresAt);
-    }
-
-    /** ClassGroup.joinCode 생성과 동일한 접근 - 8자 코드가 이미 존재하면 다시 시도한다.
-     *  탈출은 이론상 필요 없지만(31^8이 매우 크지만), 방어적으로 최대 10회 시도만. */
-    private String generateUniqueShortCode() {
-        for (int attempt = 0; attempt < 10; attempt++) {
-            String code = joinCodeGenerator.generate();
-            if (!tutorInviteRepository.existsByShortCode(code)) return code;
-        }
-        throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "초대 코드를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
 
     /**
@@ -493,6 +475,7 @@ public class TutorStudentService {
         }
         tutorInviteRepository.closeOpenInvites(student.getId(), now);
         student.setLinkedParentUser(parent);
+        student.setLinkedAt(now);
         student.setStatus(TutorStudentStatus.CONFIRMED);
         // 부모 쪽 아이 프로필까지 연결해야 "수락"이 완결된다 - 이 행이 없으면 부모 홈의 아이 목록에
         // 아무것도 없고, 선생님 세션의 완주 기록도 아이에게 이어지지 않는다.
@@ -577,7 +560,7 @@ public class TutorStudentService {
      * (fe entities/child/model/age-band.ts의 ageBandFromLabel과 같은 규칙). 숫자가 없으면 "6-7".
      */
     static String childAgeBandFor(String tutorAgeBand) {
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\d+").matcher(tutorAgeBand == null ? "" : tutorAgeBand);
+        Matcher matcher = DIGITS.matcher(tutorAgeBand == null ? "" : tutorAgeBand);
         if (!matcher.find()) return "6-7";
         int age = Integer.parseInt(matcher.group());
         if (age <= 5) return "4-5";
@@ -632,30 +615,6 @@ public class TutorStudentService {
     private TutorStudent requireOwnedStudent(CurrentUser caller, UUID studentId) {
         return tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(studentId, caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
-    }
-
-    private static Weekday parseWeekday(String value) {
-        try {
-            return Weekday.valueOf(value == null ? "" : value.trim().toUpperCase());
-        } catch (IllegalArgumentException invalid) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "수업 요일을 다시 확인해 주세요.");
-        }
-    }
-
-    private static LocalTime parseTime(String value, String label) {
-        try {
-            return LocalTime.parse(value);
-        } catch (DateTimeParseException | NullPointerException invalid) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, label + "을 다시 확인해 주세요.");
-        }
-    }
-
-    private static LocalDate parseDate(String value) {
-        try {
-            return LocalDate.parse(value);
-        } catch (DateTimeParseException | NullPointerException invalid) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "시작일을 다시 확인해 주세요.");
-        }
     }
 
     private static boolean isBlank(String value) {

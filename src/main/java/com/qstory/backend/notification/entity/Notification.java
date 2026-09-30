@@ -25,7 +25,7 @@ import org.hibernate.annotations.OnDeleteAction;
  *
  * <p>dedupKey가 non-null이면 (user, dedupKey) 유니크 제약이 걸려 같은 이벤트가 두 번 발행돼도
  * DB가 거부한다. 프로듀서는 도메인 이벤트마다 안정적인 키(예: `"tutor-report:{uuid}"`)를
- * 정하고, service.publish()가 중복 발행을 조용히 넘긴다.
+ * 정하고, NotificationPublisher.publish()가 중복 발행을 조용히 넘긴다.
  */
 @Entity
 @Table(name = "notifications")

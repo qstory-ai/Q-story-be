@@ -12,7 +12,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
-/** question-contract.mjs를 Java로 이식한 것. */
+/** 질문/전사 요청의 컨텍스트(storyId/sceneId/anchorId/questionRound)와 오디오 타입 검증. */
 @Component
 public class QuestionContractValidator {
 
@@ -35,11 +35,6 @@ public class QuestionContractValidator {
         return resolveHeaderContext(request, contentType == null ? "" : contentType);
     }
 
-    /** base64 업로드 라우트에서 사용된다: mimeType은 요청 자체의 content-type(application/json)이 아니라 디코딩된 JSON 본문에서 가져온다. */
-    public HeaderContext parseQuestionContextForMimeType(HttpServletRequest request, String mimeType) {
-        return resolveHeaderContext(request, mimeType);
-    }
-
     /**
      * /v1/transcriptions/base64 전용 - storyId/sceneId/anchorId/questionRound를 헤더가 아니라
      * (오디오와 같이 이미 파싱된) JSON body에서 읽는다. 리소스 컨텍스트가 URL이나 body에 있어야
@@ -54,14 +49,7 @@ public class QuestionContractValidator {
         return new HeaderContext(storyId, sceneId, anchorId, questionRound, checkedAudioMimeType(mimeType));
     }
 
-    /** 컴패니언 챗의 base64 음성 인식 라우트에서 사용된다 - anchor/questionRound 헤더는 요구하지 않는다. */
-    public CompanionAudioContext parseCompanionAudioContext(HttpServletRequest request, String mimeType) {
-        String storyId = checkedIdentifier(requiredHeader(request, "x-qstory-story-id"), "storyId");
-        String sceneId = checkedIdentifier(requiredHeader(request, "x-qstory-scene-id"), "sceneId");
-        return new CompanionAudioContext(storyId, sceneId, checkedAudioMimeType(mimeType));
-    }
-
-    /** parseCompanionAudioContext의 body 버전 - storyId/sceneId를 헤더가 아니라 JSON body에서 읽는다. */
+    /** 컴패니언 챗의 base64 음성 인식 라우트용 - anchor/questionRound 없이 storyId/sceneId만 JSON body에서 읽는다. */
     public CompanionAudioContext parseCompanionAudioContextFromBody(JsonNode body, String mimeType) {
         String storyId = checkedIdentifier(requiredBodyField(body, "storyId"), "storyId");
         String sceneId = checkedIdentifier(requiredBodyField(body, "sceneId"), "sceneId");

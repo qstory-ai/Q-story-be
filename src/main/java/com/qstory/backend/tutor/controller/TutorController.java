@@ -6,14 +6,12 @@ import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.storyreport.dto.StoryCompletionSummary;
 import com.qstory.backend.tutor.dto.AcceptTutorInviteRequest;
 import com.qstory.backend.tutor.dto.CreateTutorInviteRequest;
-import com.qstory.backend.tutor.dto.CreateTutorScheduleRequest;
 import com.qstory.backend.tutor.dto.BulkCreateTutorStudentsRequest;
 import com.qstory.backend.tutor.dto.BulkTutorStudentResult;
 import com.qstory.backend.tutor.dto.CreateTutorStudentRequest;
 import com.qstory.backend.tutor.dto.TutorInvitePreviewResponse;
 import com.qstory.backend.tutor.dto.TutorInviteResponse;
 import com.qstory.backend.tutor.dto.TutorReportSummary;
-import com.qstory.backend.tutor.dto.TutorScheduleResponse;
 import com.qstory.backend.tutor.dto.TutorStudentResponse;
 import com.qstory.backend.tutor.dto.UpdateTutorStudentRequest;
 import com.qstory.backend.tutor.service.TutorReportService;
@@ -32,7 +30,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "Tutors", description = "Tutor student roster, schedules, parent invites, and shared reports")
+@Tag(name = "Tutors", description = "Tutor student roster, parent invites, and shared reports")
 @RestController
 public class TutorController {
 
@@ -89,13 +87,6 @@ public class TutorController {
         service.deleteStudent(currentUserResolver.requireRole(Role.TUTOR), studentId);
     }
 
-    @Operation(summary = "Add a weekly recurring schedule for a student", description = "TUTOR only, must own the student.")
-    @PostMapping("/v1/tutor-students/{studentId}/schedule")
-    @ResponseStatus(HttpStatus.CREATED)
-    public TutorScheduleResponse createSchedule(@PathVariable UUID studentId, @RequestBody CreateTutorScheduleRequest request) {
-        return service.createSchedule(currentUserResolver.requireRole(Role.TUTOR), studentId, request);
-    }
-
     @Operation(summary = "Create a single-use parent invite for a student", description = "TUTOR only, must own the student.")
     @PostMapping("/v1/tutor-students/{studentId}/invites")
     @ResponseStatus(HttpStatus.CREATED)
@@ -132,12 +123,6 @@ public class TutorController {
     @ResponseStatus(HttpStatus.CREATED)
     public AuthResponse acceptInviteByCode(@PathVariable String code, @RequestBody AcceptTutorInviteRequest request) {
         return service.acceptInviteByCode(currentUserResolver.current(), code, request);
-    }
-
-    @Operation(summary = "List all of the caller's students' schedules", description = "TUTOR only.")
-    @GetMapping("/v1/tutor-schedules")
-    public List<TutorScheduleResponse> listSchedules() {
-        return service.listSchedules(currentUserResolver.requireRole(Role.TUTOR));
     }
 
     @Operation(summary = "List a student's session reports", description = "TUTOR only, must own the student.")

@@ -21,9 +21,8 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 /**
- * 학부모(PARENT)가 등록한 아이 프로필. 한 부모가 여러 아이를 관리한다는 IA를 반영해 1:N으로
- * 매핑돼 있다 - 예전에는 AppUser.childName 단일 문자열이 이 역할을 대신했지만, "아이 선택기"와
- * 아이별 리포트를 지원하려면 각각 id를 가진 별도의 행이 필요하다.
+ * 학부모(PARENT)가 등록한 아이 프로필. 한 부모가 여러 아이를 관리하므로 1:N이며, "아이 선택기"와
+ * 아이별 리포트가 이 행의 id를 기준으로 동작한다.
  *
  * <p>AppUser가 삭제되면 함께 지워진다({@code ON DELETE CASCADE}) - 계정 없이 남는 아이 프로필은
  * 존재 이유가 없기 때문. 반대로 아이 삭제가 부모 계정에 영향을 주는 일은 없다.

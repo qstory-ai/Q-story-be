@@ -90,8 +90,7 @@ public class TutorStudent {
     private AppUser linkedParentUser;
 
     /**
-     * 부모가 초대를 수락할 때 연결(또는 생성)되는 부모 쪽 아이 프로필(parent_child). 예전엔 부모
-     * 계정만 연결하고 아이 행은 만들지 않아 "수락했는데 아이가 등록되지 않는" 상태가 됐다. 이 링크가
+     * 부모가 초대를 수락할 때 연결(또는 생성)되는 부모 쪽 아이 프로필(parent_child). 이 링크가
      * 있어야 선생님 세션의 완주 기록이 아이 프로필로 이어진다(StoryCompletionService 참고).
      * 아이 프로필이 삭제되면 null로 돌아간다(048 마이그레이션 on delete set null).
      */
@@ -101,6 +100,10 @@ public class TutorStudent {
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
+
+    /** 학부모가 연결된 시각(058). 연결이 풀리면 null. 기관 이용권 좌석을 이 순서로 채운다. */
+    @Column(name = "linked_at")
+    private Instant linkedAt;
 
     /**
      * 소프트 삭제(053). 선생님이 지운 학생은 목록·일정·수업에서 사라지지만 행은 남는다 - story_completion이

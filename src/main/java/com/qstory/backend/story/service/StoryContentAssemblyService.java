@@ -4,6 +4,7 @@ import com.qstory.backend.story.CastEntry;
 import com.qstory.backend.story.Anchor;
 import com.qstory.backend.story.StoryManifest;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -97,6 +98,19 @@ public class StoryContentAssemblyService implements ApplicationRunner {
         return assembledByStoryId.get(storyId);
     }
 
+    /**
+     * 이 스토리의 리포트 문구 팩(report-copy.yaml 그대로 - 전략 표 strategyByFamily 포함)만 꺼낸다.
+     * 아직 임포트되지 않았거나 패키지에 reportCopy가 없으면 null.
+     */
+    public JsonNode reportCopy(String storyId) {
+        ObjectNode content = get(storyId);
+        if (content == null) {
+            return null;
+        }
+        JsonNode reportCopy = content.path("packageData").path("reportCopy");
+        return reportCopy.isObject() ? reportCopy : null;
+    }
+
     /** 앱이 이 asset을 가져와야 할 위치 - 규칙은 {@link StoryAssetUrls} 한 곳에 있다. */
     private String assetUrl(Story story, StoryAsset asset) {
         return assetUrls.forAsset(story.getSlug(), asset.getCategory(), asset.getFile());
@@ -171,10 +185,7 @@ public class StoryContentAssemblyService implements ApplicationRunner {
             domainStory.cast().forEach((castTag, cast) -> speakersNode.set(castTag, castEntryToJson(cast)));
         }
 
-        // 이제 asset은 콘텐츠와 함께 전달된다. 예전에는 story-assets.generated.ts를 통해서만 앱에 도달했고,
-        // 이는 빌드 시점에 번들에 구워 넣는 방식이었다 - 그래서 다시 녹음한 대사나 교체된 삽화가 새 프론트엔드를
-        // 배포하지 않고서는 아이에게 도달할 수 없었고, 이것이 바로 이 데이터베이스에서 콘텐츠를 수정하는 것을
-        // 반쪽짜리 조치로 만드는 이유였다.
+        // asset을 콘텐츠와 함께 내려야 재녹음한 대사나 교체된 삽화가 프론트엔드 재배포 없이 앱에 반영된다.
         ArrayNode assetsArray = packageData.putArray("assets");
         for (StoryAsset asset : assetRepository.findByStory_IdOrderBySlugAsc(story.getId())) {
             ObjectNode node = assetsArray.addObject();

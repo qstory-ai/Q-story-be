@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Supabase의 pg_cron 작업 "qstory-delete-expired-beta-sessions"(기존: 매일 UTC 18:30)를 대체한다. */
+/** 마지막 활동 후 90일이 지난 베타 세션을 매일 삭제한다(이벤트는 FK cascade로 함께 삭제). */
 @Component
 public class BetaSessionRetentionScheduler {
 

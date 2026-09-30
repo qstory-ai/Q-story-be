@@ -9,18 +9,14 @@ import com.qstory.backend.conversationrecord.service.ConversationRecordService;
 import com.qstory.backend.provider.ProviderReadiness;
 import com.qstory.backend.provider.audio.service.AudioNormalizer;
 import com.qstory.backend.provider.audio.NormalizedAudio;
-import com.qstory.backend.provider.gemini.util.GeminiTtsClient;
 import com.qstory.backend.provider.openrouter.RouteDecision;
-import com.qstory.backend.provider.openrouter.SynthesizedAudio;
 import com.qstory.backend.provider.rtzr.util.RtzrSttClient;
 import com.qstory.backend.provider.rtzr.RtzrTranscriptionResult;
-import com.qstory.backend.question.dto.AudioPayload;
 import com.qstory.backend.question.dto.FallbackPlan;
 import com.qstory.backend.question.dto.RoutePlan;
 import com.qstory.backend.question.dto.SpeechResult;
 import com.qstory.backend.story.StoryContext;
 import com.qstory.backend.story.service.StoryRegistryService.ResolvedQuestionContext;
-import com.qstory.backend.voicecast.service.VoiceCastService;
 import com.qstory.backend.common.util.RequestDeadline;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -29,7 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/** question-pipeline.mjs를 Java로 이식한 것. */
+/** 질문 파이프라인: 오디오 정규화 → STT(transcribe), 전사문 → 라우팅(route, QuestionRoutingService). 응답 음성은 프론트가 /v1/narrations로 따로 받는다. */
 @Service
 public class QuestionPipelineService {
 
@@ -40,21 +36,16 @@ public class QuestionPipelineService {
     private final AppProperties config;
     private final AudioNormalizer normalizer;
     private final RtzrSttClient sttClient;
-    private final GeminiTtsClient geminiTtsClient;
     private final QuestionRoutingService questionRoutingService;
-    private final VoiceCastService voiceCastService;
     private final ConversationRecordService conversationRecordService;
 
     public QuestionPipelineService(
             AppProperties config, AudioNormalizer normalizer, RtzrSttClient sttClient,
-            GeminiTtsClient geminiTtsClient, QuestionRoutingService questionRoutingService,
-            VoiceCastService voiceCastService, ConversationRecordService conversationRecordService) {
+            QuestionRoutingService questionRoutingService, ConversationRecordService conversationRecordService) {
         this.config = config;
         this.normalizer = normalizer;
         this.sttClient = sttClient;
-        this.geminiTtsClient = geminiTtsClient;
         this.questionRoutingService = questionRoutingService;
-        this.voiceCastService = voiceCastService;
         this.conversationRecordService = conversationRecordService;
     }
 
@@ -65,37 +56,7 @@ public class QuestionPipelineService {
 
     public Map<String, Object> route(
             ResolvedQuestionContext context, String transcript, RequestDeadline deadline, ConversationAttribution attribution) {
-        return routeTranscript(context, transcript, "ko", "text/plain", newDiagnostics(transcript), deadline, false, System.nanoTime(), attribution);
-    }
-
-    public Map<String, Object> process(
-            ResolvedQuestionContext context, byte[] audio, RequestDeadline deadline, ConversationAttribution attribution) {
-        long startedAt = System.nanoTime();
-        Map<String, Object> transcription = transcribeRecording(context, audio, deadline, startedAt, attribution);
-        if (Boolean.FALSE.equals(transcription.get("ok"))) {
-            ProviderReadiness readiness = ProviderReadiness.of(config);
-            Object failure = transcription.get("failure");
-            if (failure instanceof Map<?, ?> failureMap
-                    && ProviderErrorCode.STT_PROVIDER_NOT_CONFIGURED.name().equals(failureMap.get("code"))
-                    && (!readiness.llm() || !readiness.tts())) {
-                Map<String, Object> rewritten = new LinkedHashMap<>(transcription);
-                Map<String, Object> rewrittenFailure = new LinkedHashMap<>((Map<String, Object>) failureMap);
-                rewrittenFailure.put("code", ProviderErrorCode.SPEECH_PROVIDER_NOT_CONFIGURED.name());
-                rewrittenFailure.put("safeDetail", "실제 음성 처리 공급자가 아직 연결되지 않았어요.");
-                rewritten.put("failure", rewrittenFailure);
-                return rewritten;
-            }
-            return transcription;
-        }
-        SpeechResult speech = (SpeechResult) transcription.get("speech");
-        return routeTranscript(
-                context, speech.transcript(), speech.locale(), speech.normalizedMimeType(),
-                (Map<String, Object>) transcription.get("diagnostics"), deadline, true, startedAt, attribution);
-    }
-
-    public Map<String, Object> processText(
-            ResolvedQuestionContext context, String transcript, RequestDeadline deadline, ConversationAttribution attribution) {
-        return routeTranscript(context, transcript, "ko", "text/plain", newDiagnostics(transcript), deadline, false, System.nanoTime(), attribution);
+        return routeTranscript(context, transcript, "ko", "text/plain", newDiagnostics(transcript), deadline, System.nanoTime(), attribution);
     }
 
     private Map<String, Object> newDiagnostics(String transcript) {
@@ -153,16 +114,15 @@ public class QuestionPipelineService {
 
     private Map<String, Object> routeTranscript(
             ResolvedQuestionContext context, String transcript, String locale, String normalizedMimeType,
-            Map<String, Object> diagnostics, RequestDeadline deadline, boolean includeAudio, long startedAtNanos,
+            Map<String, Object> diagnostics, RequestDeadline deadline, long startedAtNanos,
             ConversationAttribution attribution) {
-        ProviderReadiness readiness = ProviderReadiness.of(config);
-        if (!readiness.llm() || (includeAudio && !readiness.tts())) {
+        if (!ProviderReadiness.of(config).llm()) {
             return failureEnvelope(
                     ProviderErrorCode.RESPONSE_PROVIDER_NOT_CONFIGURED, "response", false,
                     "질문 답변 공급자가 아직 연결되지 않았어요.", context.storyContext());
         }
         try {
-            return respondToTranscript(context, transcript, locale, normalizedMimeType, includeAudio, diagnostics, deadline, startedAtNanos, attribution);
+            return respondToTranscript(context, transcript, locale, normalizedMimeType, diagnostics, deadline, startedAtNanos, attribution);
         } catch (Exception error) {
             return failedResult(error, context.storyContext(), "response");
         }
@@ -170,7 +130,7 @@ public class QuestionPipelineService {
 
     private Map<String, Object> respondToTranscript(
             ResolvedQuestionContext context, String transcript, String locale, String normalizedMimeType,
-            boolean includeAudio, Map<String, Object> priorDiagnostics, RequestDeadline deadline, long startedAtNanos,
+            Map<String, Object> priorDiagnostics, RequestDeadline deadline, long startedAtNanos,
             ConversationAttribution attribution) {
         StoryContext storyContext = context.storyContext();
         long responseStartedAtNanos = System.nanoTime();
@@ -200,22 +160,6 @@ public class QuestionPipelineService {
                 context.storyId(), context.sceneId(), context.anchorId(), context.questionRound(),
                 transcript, locale, normalizedMimeType, decision, attribution);
 
-        SynthesizedAudio generatedAudio = null;
-        String ttsFailureCode = null;
-        if (includeAudio) {
-            try {
-                var cast = voiceCastService.voiceCastForSpeaker(context.storyId(), decision.speakerId());
-                String ttsInput = voiceCastService.buildGeminiTtsPerformanceInput(
-                        context.storyId(), decision.speakerId(), decision.responseText());
-                generatedAudio = geminiTtsClient.synthesize(ttsInput, cast.voice(), 1.0, deadline);
-            } catch (ProviderException error) {
-                ttsFailureCode = error.code().name();
-            } catch (AbortException abort) {
-                ttsFailureCode = "SPEECH_PIPELINE_TTS_TIMEOUT";
-            } catch (Exception other) {
-                ttsFailureCode = "SPEECH_PIPELINE_TTS_FAILED";
-            }
-        }
         long completedAtNanos = System.nanoTime();
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -229,13 +173,10 @@ public class QuestionPipelineService {
         diagnostics.put("responseMs", millisBetween(responseStartedAtNanos, plannedAtNanos));
         diagnostics.put("ttsMs", millisBetween(plannedAtNanos, completedAtNanos));
         diagnostics.put("totalMs", millisBetween(startedAtNanos, completedAtNanos));
-        diagnostics.put("ttsStatus", includeAudio ? (generatedAudio != null ? "generated" : "device-fallback") : "not-requested");
-        diagnostics.put("ttsFailureCode", ttsFailureCode);
+        // 이 경로는 음성을 합성하지 않는다 - 응답 형태를 유지하려고 TTS 진단 값을 고정으로 둔다.
+        diagnostics.put("ttsStatus", "not-requested");
+        diagnostics.put("ttsFailureCode", null);
         result.put("diagnostics", diagnostics);
-
-        if (generatedAudio != null) {
-            result.put("audio", AudioPayload.of(generatedAudio.mimeType(), generatedAudio.audio()));
-        }
         return result;
     }
 
@@ -250,9 +191,7 @@ public class QuestionPipelineService {
                     providerException.code().name(), providerException.stage(), providerException.retryable(),
                     providerException.safeDetail(), storyContext);
         }
-        // AbortException/ProviderException 외의 예외는 원래 조용히 삼켜지고 사용자는 "질문을
-        // 처리하지 못했어요" 하나만 봤다 - 원인 파악이 안 돼 재발 방지 어렵다. 이제 WARN 로그로
-        // 원인을 남기고, 사용자에게는 여전히 안전한 안내 대사를 보여준다.
+        // 예상 밖 예외는 원인을 WARN으로 남기고, 사용자에게는 안전한 안내 대사만 보여준다.
         log.warn("question-pipeline.unexpected-failure storyId={} anchorId={} stage={} type={}",
                 storyContext.storyId(), storyContext.anchorId(), timeoutStage,
                 error.getClass().getName(), error);

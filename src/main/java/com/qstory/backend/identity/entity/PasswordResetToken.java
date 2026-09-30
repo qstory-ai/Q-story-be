@@ -19,7 +19,7 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 /**
- * 특정 AppUser에 대한 1회용, 만료 가능한 비밀번호 재설정 요청 - ClassInvite.tokenHash와 동일한
+ * 특정 AppUser에 대한 1회용, 만료 가능한 비밀번호 재설정 요청 - 초대 토큰(TutorInvite 등)과 동일한
  * 해시된-비밀값(hashed-secret) 방식을 따른다: 원본 토큰은 발급 시점(AuthService.requestPasswordReset
  * 참고)에 딱 한 번만 노출되며, 저장되는 것은 절대 원본이 아니라 그 SHA-256 해시뿐이다.
  */

@@ -2,7 +2,7 @@ package com.qstory.backend.org;
 
 import java.time.Instant;
 
-/** 기관의 유료 접근 상태. 아직 결제 게이트웨이는 연동되어 있지 않으며, 이는 단지 상태/게이트에 불과하다. */
+/** 기관·개인 구독의 유료 접근 상태. 결제 확인(PaymentService)이 ACTIVE와 만료 시각을 기록한다. */
 public enum SubscriptionStatus {
     NONE,
     TRIALING,

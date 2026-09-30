@@ -5,9 +5,8 @@ import java.util.Base64;
 import org.springframework.stereotype.Component;
 
 /**
- * AuthService(비밀번호 재설정)/ClassService(반 초대)/TutorStudentService(초대)가 각자 자기만의
- * SecureRandom 인스턴스를 들고 있으면서 완전히 동일한 24바이트 base64url 토큰 생성 로직을 손으로
- * 다시 작성해 갖고 있던 것을 하나로 모았다.
+ * 1회용 비밀 토큰(24바이트 base64url) 생성기 - 비밀번호 재설정(AuthService)과 선생님/기관 초대
+ * (TutorStudentService/OrganizationTutorService)가 공유한다.
  */
 @Component
 public class SecureTokenGenerator {

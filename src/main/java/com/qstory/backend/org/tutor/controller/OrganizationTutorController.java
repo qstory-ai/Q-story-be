@@ -97,7 +97,6 @@ public class OrganizationTutorController {
     @Operation(summary = "List organizations I belong to as a tutor", description = "TUTOR only.")
     @GetMapping("/v1/tutors/me/organizations")
     public List<TutorOrganizationResponse> listMyOrganizations() {
-        // 소속 조회는 caller.userId() 스코프로만 - 다른 사람의 소속을 볼 방법이 아예 없다.
         return service.listMyOrganizations(currentUserResolver.requireRole(Role.TUTOR));
     }
 }

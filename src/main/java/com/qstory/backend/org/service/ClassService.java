@@ -29,7 +29,6 @@ import com.qstory.backend.tutor.service.TutorStudentService;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -127,14 +126,14 @@ public class ClassService {
         AppUser homeroom = requireOrganizationTutor(classGroup.getOrganization().getId(), tutorId);
         classGroup.setTutor(homeroom);
         classGroupRepository.save(classGroup);
-        List<TutorStudent> waiting = tutorStudentRepository.findByClassGroup_IdAndTutorIsNullAndDeletedAtIsNull(classId);
-        waiting.forEach(student -> student.setTutor(homeroom));
-        try {
-            tutorStudentRepository.saveAllAndFlush(waiting);
-        } catch (DataIntegrityViolationException duplicate) {
-            throw ApiException.contractError(
-                    ErrorCode.DUPLICATE_CHILD_LINK, "이 선생님에게 이미 등록된 아이가 명단에 있어요. 선생님의 학생 목록을 확인해 주세요.", 409);
-        }
+        // 대기 학생을 담임에게 넘긴다. 담임이 이미 같은 아이를 다른 학생 등록으로 갖고 있으면((tutor_id, child_id)
+        // 유니크) 그 학생만 대기로 남겨 배정 자체는 막지 않는다 - 명단에는 그대로 있고 이용권도 유지된다.
+        List<TutorStudent> movable = tutorStudentRepository.findByClassGroup_IdAndTutorIsNullAndDeletedAtIsNull(classId).stream()
+                .filter(student -> student.getChild() == null
+                        || !tutorStudentRepository.existsByTutor_IdAndChild_IdAndDeletedAtIsNull(homeroom.getId(), student.getChild().getId()))
+                .toList();
+        movable.forEach(student -> student.setTutor(homeroom));
+        tutorStudentRepository.saveAll(movable);
         return ClassResponse.of(classGroup);
     }
 
@@ -162,7 +161,8 @@ public class ClassService {
     /** 이미 계정이 있는 학부모가 반 코드로 아이를 한 명 더 올린다. 아이마다 한 번씩 거치면 된다. */
     @Transactional
     public AuthResponse joinExistingParent(CurrentUser caller, JoinExistingClassRequest request) {
-        AppUser parent = userRepository.findByIdAndDeletedAtIsNull(caller.userId())
+        // 같은 학부모의 동시 요청(버튼을 두 번 누르는 등)을 직렬화한다 - 아이 프로필·학생 행이 둘 생기지 않게.
+        AppUser parent = userRepository.lockActiveById(caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
         ClassGroup classGroup = resolveClassGroup(request.classCode());
         tutorStudentService.enrollParentInClass(parent, classGroup, request.childName(), request.childBirthYear());
@@ -189,6 +189,7 @@ public class ClassService {
                         && found.getLinkedParentUser().getId().equals(caller.userId()))
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "연결된 학생을 찾을 수 없어요.", 404));
         student.setLinkedParentUser(null);
+        student.setLinkedAt(null);
         student.setChild(null);
         student.setStatus(TutorStudentStatus.PENDING_PARENT);
         tutorStudentRepository.save(student);
@@ -202,8 +203,13 @@ public class ClassService {
         if (classCode == null || classCode.isBlank()) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "반 코드가 필요해요.");
         }
-        return classGroupRepository.findByJoinCode(classCode.trim().toUpperCase())
+        ClassGroup classGroup = classGroupRepository.findByJoinCode(classCode.trim().toUpperCase())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_JOIN_CODE, "반 코드를 다시 확인해 주세요.", 404));
+        // 탈퇴한 선생님의 개인 반 코드는 더 이상 쓸 수 없다(기관 반은 탈퇴 시 담임 미정으로 되돌아간다).
+        if (classGroup.getTutor() != null && classGroup.getTutor().getDeletedAt() != null) {
+            throw ApiException.contractError(ErrorCode.INVALID_JOIN_CODE, "더 이상 사용할 수 없는 반 코드예요.", 404);
+        }
+        return classGroup;
     }
 
     private AppUser requireOrganizationTutor(UUID organizationId, UUID tutorId) {
@@ -213,38 +219,42 @@ public class ClassService {
     }
 
     private ClassGroup requireOwnedByDirector(CurrentUser caller, UUID classId) {
-        ClassGroup classGroup = classGroupRepository.findById(classId)
-                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
-        if (caller.role() != Role.DIRECTOR || classGroup.getOrganization() == null
-                || !classGroup.getOrganization().getId().equals(caller.orgId())) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 반에 접근할 권한이 없어요.", 403);
+        ClassGroup classGroup = requireClass(classId);
+        if (!isOwningDirector(caller, classGroup)) {
+            throw forbidden();
         }
         return classGroup;
     }
 
     /** 반을 볼 수 있는 사람: 그 반이 속한 기관의 원장, 그리고 담임 선생님. */
     private ClassGroup requireVisible(CurrentUser caller, UUID classId) {
-        ClassGroup classGroup = classGroupRepository.findById(classId)
-                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
-        boolean isOwningDirector = caller.role() == Role.DIRECTOR
-                && classGroup.getOrganization() != null
-                && classGroup.getOrganization().getId().equals(caller.orgId());
+        ClassGroup classGroup = requireClass(classId);
         boolean isHomeroomTutor = caller.role() == Role.TUTOR
                 && classGroup.getTutor() != null
                 && classGroup.getTutor().getId().equals(caller.userId());
-        if (!isOwningDirector && !isHomeroomTutor) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 반에 접근할 권한이 없어요.", 403);
+        if (!isOwningDirector(caller, classGroup) && !isHomeroomTutor) {
+            throw forbidden();
         }
         return classGroup;
     }
 
+    private ClassGroup requireClass(UUID classId) {
+        return classGroupRepository.findById(classId)
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
+    }
+
+    private static boolean isOwningDirector(CurrentUser caller, ClassGroup classGroup) {
+        return caller.role() == Role.DIRECTOR
+                && classGroup.getOrganization() != null
+                && classGroup.getOrganization().getId().equals(caller.orgId());
+    }
+
+    private static ApiException forbidden() {
+        return ApiException.contractError(ErrorCode.FORBIDDEN, "이 반에 접근할 권한이 없어요.", 403);
+    }
+
     private String generateUniqueJoinCode() {
-        for (int attempt = 0; attempt < 10; attempt++) {
-            String code = joinCodeGenerator.generate();
-            if (!classGroupRepository.existsByJoinCode(code)) {
-                return code;
-            }
-        }
-        throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "반 코드를 생성하지 못했어요. 다시 시도해 주세요.", 500);
+        return joinCodeGenerator.generateUnique(classGroupRepository::existsByJoinCode,
+                () -> ApiException.contractError(ErrorCode.INTERNAL_ERROR, "반 코드를 생성하지 못했어요. 다시 시도해 주세요.", 500));
     }
 }

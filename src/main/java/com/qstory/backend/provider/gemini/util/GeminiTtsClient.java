@@ -25,9 +25,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Gemini의 Interactions API(generativelanguage.googleapis.com)를 직접 호출하는 TTS 클라이언트.
- * OpenRouterClient가 예전에 이 역할을 맡았지만, google/gemini-*-tts-preview 모델이 OpenRouter
- * 모델 카탈로그에 없어서(직접 조회로 확인) 매 요청이 OPENROUTER_TTS_FAILED로 실패했다 - Sulafat
- * 등 프리셋 목소리 이름도 Gemini 자체 API 전용이라 OpenRouter의 다른 provider로는 대체가 안 된다.
+ * google/gemini-*-tts-preview 모델과 Sulafat 등 프리셋 목소리는 Gemini 자체 API 전용이라
+ * OpenRouter를 거치지 않는다.
  *
  * <p>synthesizeStream()은 아직 진짜 청크 스트리밍이 아니다 - Gemini의 스트리밍 응답은 SSE
  * (event_type=step.delta, delta.type=audio)로 오는데, 정확한 필드 구조를 실제 API 키로
@@ -61,53 +60,39 @@ public class GeminiTtsClient {
         this.ttsVoice = config.providers().gemini().ttsVoice();
     }
 
+    /** speed는 호출부 호환용으로만 받는다 - Gemini Interactions API에 대응 파라미터가 없다. */
     public SynthesizedAudio synthesize(String text, String voice, double speed, RequestDeadline deadline) {
-        try {
-            HttpRequest httpRequest = buildSpeechHttpRequest(text, voice, deadline);
-            HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
-            if (response.statusCode() / 100 != 2) {
-                logProviderHttpFailure("synthesize", response.statusCode(), response.body());
-                throw new ProviderException(
-                        ProviderErrorCode.GEMINI_TTS_FAILED, "답변 음성을 만들지 못했어요.", response.statusCode() >= 429);
-            }
-            byte[] pcm = decodeAudioData(response.body());
-            if (pcm.length == 0) {
-                logEmptyAudio("synthesize", response.statusCode(), response.body());
-                throw new ProviderException(ProviderErrorCode.GEMINI_TTS_EMPTY, "답변 음성이 비어 있어요.");
-            }
-            byte[] wav = WavPcmUtil.wrapPcmAsWav(pcm, PCM_SAMPLE_RATE, PCM_CHANNELS, PCM_BIT_DEPTH);
-            return new SynthesizedAudio(wav, "audio/wav", null);
-        } catch (ProviderException | AbortException known) {
-            throw known;
-        } catch (HttpTimeoutException timeout) {
-            throw new AbortException("request-timeout");
-        } catch (Exception error) {
-            throw new ProviderException(
-                    ProviderErrorCode.GEMINI_TTS_NETWORK_FAILED, "답변 음성 서버에 연결하지 못했어요.", true, error);
-        }
+        byte[] pcm = fetchPcm("synthesize", text, voice, deadline);
+        byte[] wav = WavPcmUtil.wrapPcmAsWav(pcm, PCM_SAMPLE_RATE, PCM_CHANNELS, PCM_BIT_DEPTH);
+        return new SynthesizedAudio(wav, "audio/wav", null);
     }
 
     /**
-     * 진짜 청크 스트리밍이 아니라 synthesize()의 결과를 InputStream으로 감싼 것 - 클래스
-     * 문서의 설명 참고. 반환 계약(SynthesizedAudioStream)은 NarrationController가 기대하는
-     * 그대로(raw PCM, WAV 헤더 없음)라서 스트리밍 방식이 나중에 바뀌어도 호출부는 안 바뀐다.
+     * 진짜 청크 스트리밍이 아니라 전체 합성 결과를 InputStream으로 감싼 것 - 클래스 문서 참고.
+     * 반환 계약(SynthesizedAudioStream)은 NarrationController가 기대하는 그대로(raw PCM, WAV 헤더
+     * 없음)라서 스트리밍 방식이 나중에 바뀌어도 호출부는 안 바뀐다.
      */
     public SynthesizedAudioStream synthesizeStream(String text, String voice, double speed, RequestDeadline deadline) {
+        byte[] pcm = fetchPcm("synthesizeStream", text, voice, deadline);
+        return new SynthesizedAudioStream(
+                new ByteArrayInputStream(pcm), "audio/pcm", PCM_SAMPLE_RATE, PCM_CHANNELS, PCM_BIT_DEPTH, null);
+    }
+
+    private byte[] fetchPcm(String context, String text, String voice, RequestDeadline deadline) {
         try {
             HttpRequest httpRequest = buildSpeechHttpRequest(text, voice, deadline);
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
-                logProviderHttpFailure("synthesizeStream", response.statusCode(), response.body());
+                logProviderHttpFailure(context, response.statusCode(), response.body());
                 throw new ProviderException(
                         ProviderErrorCode.GEMINI_TTS_FAILED, "답변 음성을 만들지 못했어요.", response.statusCode() >= 429);
             }
             byte[] pcm = decodeAudioData(response.body());
             if (pcm.length == 0) {
-                logEmptyAudio("synthesizeStream", response.statusCode(), response.body());
+                logEmptyAudio(context, response.statusCode(), response.body());
                 throw new ProviderException(ProviderErrorCode.GEMINI_TTS_EMPTY, "답변 음성이 비어 있어요.");
             }
-            return new SynthesizedAudioStream(
-                    new ByteArrayInputStream(pcm), "audio/pcm", PCM_SAMPLE_RATE, PCM_CHANNELS, PCM_BIT_DEPTH, null);
+            return pcm;
         } catch (ProviderException | AbortException known) {
             throw known;
         } catch (HttpTimeoutException timeout) {
@@ -119,9 +104,8 @@ public class GeminiTtsClient {
     }
 
     /**
-     * 응답 JSON에서 raw PCM(base64)을 뽑는다 - 실제 프로덕션 로그로 확인한 구조는
-     * {"steps":[{"content":[{"data":"<base64 pcm>"}]}]} 다(문서 요약만 보고 처음 짐작했던
-     * interaction.output_audio.data는 틀렸었다 - 매번 200에 오디오는 빈 값으로 실패한 원인).
+     * 응답 JSON에서 raw PCM(base64)을 뽑는다 - 실제 응답 구조는
+     * {"steps":[{"content":[{"data":"<base64 pcm>"}]}]} 다.
      * steps/content 둘 다 배열이라 첫 번째 항목만 보지 않고 data가 채워진 첫 항목을 찾는다.
      */
     private byte[] decodeAudioData(byte[] responseBody) throws Exception {
@@ -154,10 +138,8 @@ public class GeminiTtsClient {
 
     /**
      * 200인데도 decodeAudioData()가 오디오를 못 찾았을 때 실제 응답 구조를 남긴다 - steps/content
-     * 배열이 비어 있거나 예상 밖 형태로 바뀌는 경우를 대비한 안전망이다(처음 이 클라이언트를 만들
-     * 때는 이 로그 덕분에 잘못 짐작했던 필드 경로 interaction.output_audio.data를 실제 구조
-     * steps[].content[].data로 바로잡을 수 있었다). base64 오디오 값 자체가 길 수 있어
-     * FAILURE_BODY_LOG_LIMIT보다 넉넉하게 남긴다 - 필드 이름/구조를 보는 게 목적이라.
+     * 배열이 비어 있거나 예상 밖 형태로 바뀌는 경우를 대비한 안전망이다. 필드 이름/구조를 보는 게
+     * 목적이라 FAILURE_BODY_LOG_LIMIT보다 넉넉하게 남긴다.
      */
     private void logEmptyAudio(String context, int statusCode, byte[] responseBody) {
         String bodySnippet = new String(responseBody, StandardCharsets.UTF_8);

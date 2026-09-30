@@ -36,7 +36,7 @@ insert into public.tutor_student
 select gen_random_uuid(), cg.tutor_id, left(child.name, 60),
        case when child.birth_year is not null
             then (extract(year from now())::int - child.birth_year)::text || '세'
-            else child.age_band || '세' end,
+            else regexp_replace(child.age_band, '[^0-9].*$', '') || '세' end,
        child.birth_year, 'CLASS', cg.id, 'CONFIRMED', u.id, child.id, now()
   from public.app_user u
   join public.class_group cg on cg.id = u.class_group_id
@@ -51,7 +51,8 @@ select gen_random_uuid(), cg.tutor_id, left(child.name, 60),
 on conflict do nothing;
 
 -- 4) 부모 계정에서 기관·반 소속을 없앤다(이용권은 학생 명단에서 계산한다). app_user.class_group_id 컬럼은
---    이관이 확인된 뒤 별도 마이그레이션에서 지운다.
+--    이관이 확인된 뒤 별도 마이그레이션에서 지운다. 지울 때 001(FK 재생성)과 039(백필)가 부팅마다 이 컬럼을
+--    참조하므로 두 파일도 함께 고쳐야 한다 - 그대로 지우면 다음 부팅부터 실패한다.
 update public.app_user
    set class_group_id = null, organization_id = null
  where role = 'PARENT' and (class_group_id is not null or organization_id is not null);

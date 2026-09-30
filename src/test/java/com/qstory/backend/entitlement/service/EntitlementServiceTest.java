@@ -96,7 +96,7 @@ class EntitlementServiceTest {
         ParentClassSeat third = childIn(paidForThree);
         when(tutorStudentRepository.findClassSeatsOfParent(parentId)).thenReturn(List.of(third));
         when(tutorStudentRepository.countEarlierInOrganization(
-                eq(paidForThree.getId()), eq(third.studentCreatedAt()), eq(third.studentId()))).thenReturn(2L);
+                eq(paidForThree.getId()), eq(third.linkedAt()), eq(third.studentId()))).thenReturn(2L);
         assertDoesNotThrow(() -> service.assertAccessible(paidStory, parent));
     }
 
@@ -106,7 +106,7 @@ class EntitlementServiceTest {
         ParentClassSeat fourth = childIn(paidForThree);
         when(tutorStudentRepository.findClassSeatsOfParent(parentId)).thenReturn(List.of(fourth));
         when(tutorStudentRepository.countEarlierInOrganization(
-                eq(paidForThree.getId()), eq(fourth.studentCreatedAt()), eq(fourth.studentId()))).thenReturn(3L);
+                eq(paidForThree.getId()), eq(fourth.linkedAt()), eq(fourth.studentId()))).thenReturn(3L);
         assertThrows(ApiException.class, () -> service.assertAccessible(paidStory, parent));
     }
 

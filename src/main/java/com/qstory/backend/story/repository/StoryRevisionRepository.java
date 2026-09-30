@@ -11,6 +11,5 @@ public interface StoryRevisionRepository extends JpaRepository<StoryRevision, Lo
 
     Optional<StoryRevision> findFirstByStoryIdOrderByRevisionDesc(String storyId);
 
-    List<StoryRevision> findByStoryIdAndTargetTypeAndTargetIdOrderByRevisionDesc(
-            String storyId, com.qstory.backend.common.enums.RevisionTarget targetType, String targetId);
+    Optional<StoryRevision> findFirstByStoryIdAndRevision(String storyId, Integer revision);
 }

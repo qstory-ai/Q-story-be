@@ -7,6 +7,10 @@ import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
 import com.qstory.backend.common.util.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
+import com.qstory.backend.identity.Role;
+import com.qstory.backend.identity.security.CurrentUser;
+import com.qstory.backend.voiceresearch.dto.VoiceResearchConsentStatusResponse;
+import com.qstory.backend.voiceresearch.entity.VoiceResearchPreference;
 import com.qstory.backend.voiceresearch.entity.VoiceResearchConsent;
 import com.qstory.backend.voiceresearch.entity.VoiceResearchSample;
 import com.qstory.backend.voiceresearch.dto.UploadRequest;
@@ -15,14 +19,30 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/** supabase/functions/voice-research/index.ts를 Java로 이식한 버전. */
+/**
+ * 음성 연구 녹음의 동의 확인·Storage 업로드·철회·보존 만료 정리.
+ *
+ * <p>동의는 두 층이다. (1) 세션 동의(VoiceResearchConsent): 이야기 세션마다 브라우저가 만들고, 그
+ * 브라우저가 가진 deletion_token으로 철회한다. (2) 계정 동의(VoiceResearchPreference): 로그인한
+ * 보호자가 마이페이지에서 켜고 끈다. 계정 동의가 꺼져 있으면 그 계정으로 오는 업로드를 거절하고,
+ * 끄는 순간 그 계정에 연결된 세션 동의와 녹음(Storage 객체 포함)을 모두 지운다.
+ */
 @Service
 public class VoiceResearchService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(VoiceResearchService.class);
+
     public static final String CONSENT_VERSION = "voice-research-v2-shadow-family";
     private static final Duration RETENTION = Duration.ofDays(90);
+    /**
+     * 마이페이지에서 한 번도 켜거나 끈 적 없는 보호자 계정의 기본 상태. 지금 제품은 질문 원음을 기본으로
+     * 저장하므로(이야기 화면에 별도 동의 UI 없음) true로 둬 기존 동작을 유지한다 - 옵트인으로 바꾸려면
+     * 이 값만 false로 바꾸면 된다(마이페이지·업로드 게이트가 모두 이 값을 따른다).
+     */
+    static final boolean DEFAULT_ENABLED = true;
 
     private final VoiceResearchValidator validator;
     private final VoiceResearchRepository repository;
@@ -38,11 +58,17 @@ public class VoiceResearchService {
         this.bucket = config.supabase().voiceResearchBucket();
     }
 
+    /** caller는 로그인하지 않은 세션이면 null이다. 보호자 계정이면 계정 동의를 확인하고 세션 동의에 계정을 남긴다. */
     @Transactional
-    public void upload(UploadRequest request) {
+    public void upload(UploadRequest request, CurrentUser caller) {
         validator.validate(request);
+        UUID accountId = caller != null && caller.role() == Role.PARENT ? caller.userId() : null;
+        if (accountId != null && !isEnabled(repository.findPreference(accountId))) {
+            throw ApiException.contractError(
+                    ErrorCode.CONSENT_INVALID, "음성 연구 저장에 동의하지 않은 계정이에요.", 403);
+        }
         String deletionTokenHash = DigestUtil.sha256Hex(request.deletionToken());
-        VoiceResearchConsent consent = ensureConsent(request, deletionTokenHash);
+        VoiceResearchConsent consent = ensureConsent(request, deletionTokenHash, accountId);
 
         String extension = extensionFor(request.audio().getContentType());
         String objectName = request.consentId() + "/" + request.sampleId() + "." + extension;
@@ -82,7 +108,7 @@ public class VoiceResearchService {
         }
     }
 
-    private VoiceResearchConsent ensureConsent(UploadRequest request, String deletionTokenHash) {
+    private VoiceResearchConsent ensureConsent(UploadRequest request, String deletionTokenHash, UUID accountId) {
         VoiceResearchConsent consent = repository.findConsent(request.consentId());
         if (consent == null) {
             Instant expiresAt = request.consentedAt().plus(RETENTION);
@@ -93,12 +119,20 @@ public class VoiceResearchService {
                     .consentedAt(request.consentedAt())
                     .expiresAt(expiresAt)
                     .createdAt(Instant.now())
+                    .userId(accountId)
                     .build());
         }
         if (!CONSENT_VERSION.equals(consent.getConsentVersion())
                 || !DigestUtil.constantTimeEquals(consent.getDeletionTokenHash(), deletionTokenHash)
                 || consent.getExpiresAt().isBefore(Instant.now())) {
             throw ApiException.contractError(ErrorCode.CONSENT_INVALID, "동의 정보가 올바르지 않아요.", 403);
+        }
+        // 비로그인으로 시작했다가 로그인한 세션 등 - 토큰으로 소유가 확인된 뒤에만 계정을 남긴다. 이미 다른 계정에
+        // 연결된 세션 동의로는 올리지 못한다(공용 기기에서 다른 계정의 동의 아래 녹음이 쌓이면 철회로 지워지지 않는다).
+        if (accountId != null && consent.getUserId() == null) {
+            consent.setUserId(accountId);
+        } else if (accountId != null && !accountId.equals(consent.getUserId())) {
+            throw ApiException.contractError(ErrorCode.CONSENT_INVALID, "다른 계정의 동의로는 녹음을 저장할 수 없어요.", 403);
         }
         return consent;
     }
@@ -112,7 +146,81 @@ public class VoiceResearchService {
         deleteConsentAndSamples(consent);
     }
 
-    /** 원래의 pg_cron -> 엣지 함수 호출 경로 대신, 예약된 보존 기간 정리 작업(retention sweep)에 의해 호출된다. */
+    @Transactional(readOnly = true)
+    public VoiceResearchConsentStatusResponse accountStatus(CurrentUser caller) {
+        return statusOf(repository.findPreference(caller.userId()));
+    }
+
+    /** 마이페이지에서 다시 동의 - 화면에 보여 준 약관 버전이 서버의 현재 버전과 같아야 한다. */
+    @Transactional
+    public VoiceResearchConsentStatusResponse grantForAccount(CurrentUser caller, String consentVersion) {
+        if (!CONSENT_VERSION.equals(consentVersion)) {
+            throw ApiException.contractError(
+                    ErrorCode.CONSENT_INVALID, "동의 문구가 바뀌었어요. 화면을 새로 고친 뒤 다시 동의해 주세요.", 409);
+        }
+        Instant now = Instant.now();
+        VoiceResearchPreference preference = preferenceFor(caller.userId(), now);
+        preference.setEnabled(true);
+        preference.setConsentVersion(CONSENT_VERSION);
+        preference.setConsentedAt(now);
+        preference.setWithdrawnAt(null);
+        preference.setUpdatedAt(now);
+        return statusOf(repository.savePreference(preference));
+    }
+
+    /**
+     * 마이페이지에서 철회 - 이후 이 계정으로 오는 업로드를 거절하고, 이 계정에 연결된 세션 동의와 그
+     * 녹음(Storage 객체 포함)을 모두 지운다. 토큰 기반 withdraw()와 같은 삭제 경로를 쓴다.
+     */
+    @Transactional
+    public VoiceResearchConsentStatusResponse withdrawForAccount(CurrentUser caller) {
+        return statusOf(withdraw(caller.userId()));
+    }
+
+    /**
+     * 회원 탈퇴 시 이 계정에 연결된 녹음을 곧바로 지운다(만료 90일을 기다리지 않는다). 별도 트랜잭션이라 Storage
+     * 삭제가 실패해도 탈퇴는 계속된다 - 호출자(AuthService.deleteAccount)는 app_user 행을 바꾸기 전에 불러야
+     * 한다(이 트랜잭션이 그 행을 참조하는 동안 탈퇴 트랜잭션이 행 잠금을 쥐고 있으면 서로 기다린다).
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void withdrawForDeletedAccount(UUID userId) {
+        withdraw(userId);
+    }
+
+    private VoiceResearchPreference withdraw(UUID userId) {
+        Instant now = Instant.now();
+        VoiceResearchPreference preference = preferenceFor(userId, now);
+        preference.setEnabled(false);
+        preference.setWithdrawnAt(now);
+        preference.setUpdatedAt(now);
+        VoiceResearchPreference saved = repository.savePreference(preference);
+        repository.consentsOfUser(userId).forEach(this::deleteConsentAndSamples);
+        return saved;
+    }
+
+    private VoiceResearchPreference preferenceFor(UUID userId, Instant now) {
+        VoiceResearchPreference existing = repository.findPreference(userId);
+        if (existing != null) {
+            return existing;
+        }
+        return VoiceResearchPreference.builder().userId(userId).enabled(DEFAULT_ENABLED).updatedAt(now).build();
+    }
+
+    private static boolean isEnabled(VoiceResearchPreference preference) {
+        return preference == null ? DEFAULT_ENABLED : preference.isEnabled();
+    }
+
+    private static VoiceResearchConsentStatusResponse statusOf(VoiceResearchPreference preference) {
+        int retentionDays = (int) RETENTION.toDays();
+        if (preference == null) {
+            return new VoiceResearchConsentStatusResponse(DEFAULT_ENABLED, false, null, null, null, retentionDays);
+        }
+        return new VoiceResearchConsentStatusResponse(
+                preference.isEnabled(), true, preference.getConsentVersion(), preference.getConsentedAt(),
+                preference.getWithdrawnAt(), retentionDays);
+    }
+
+    /** VoiceResearchRetentionScheduler가 호출한다 - 한 번에 최대 200건의 만료 동의를 정리한다. */
     @Transactional
     public int cleanupExpired() {
         List<VoiceResearchConsent> expired = repository.expiredConsents(Instant.now());
@@ -120,10 +228,27 @@ public class VoiceResearchService {
         return expired.size();
     }
 
+    /**
+     * 녹음 객체를 지운 뒤에만 그 기록을 지운다. Storage 삭제가 하나라도 실패하면 동의와 남은 녹음 기록을 두고 만료
+     * 시각을 지금으로 당겨, 매일 도는 만료 정리(cleanupExpired)가 다시 시도하게 한다 - 기록을 먼저 지우면 객체가
+     * 버킷에 영구히 남는다. 만료된 동의로는 더 이상 업로드할 수 없다.
+     */
     private void deleteConsentAndSamples(VoiceResearchConsent consent) {
-        List<VoiceResearchSample> samples = repository.samplesForConsent(consent.getId());
-        samples.forEach(sample -> storageClient.delete(bucket, sample.getStorageObjectName()));
-        repository.deleteConsent(consent);
+        boolean allDeleted = true;
+        for (VoiceResearchSample sample : repository.samplesForConsent(consent.getId())) {
+            if (storageClient.delete(bucket, sample.getStorageObjectName())) {
+                repository.deleteSample(sample);
+            } else {
+                allDeleted = false;
+            }
+        }
+        if (allDeleted) {
+            repository.deleteConsent(consent);
+            return;
+        }
+        log.warn("voice-research.delete-retry-scheduled consentId={}", consent.getId());
+        consent.setExpiresAt(Instant.now());
+        repository.saveConsent(consent);
     }
 
     private static String extensionFor(String mimeType) {

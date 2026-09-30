@@ -1,15 +1,12 @@
 package com.qstory.backend.shadow.repository;
 
 import com.qstory.backend.shadow.entity.ShadowQuestionObservation;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ShadowQuestionObservationRepository extends JpaRepository<ShadowQuestionObservation, UUID> {
-
-    List<ShadowQuestionObservation> findByCandidate_Id(UUID candidateId);
 
     long countByCandidate_Id(UUID candidateId);
 

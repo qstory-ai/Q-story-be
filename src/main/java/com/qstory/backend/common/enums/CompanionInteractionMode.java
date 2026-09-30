@@ -1,5 +1,6 @@
 package com.qstory.backend.common.enums;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -11,5 +12,5 @@ public enum CompanionInteractionMode {
     ANSWER,
     GENTLE_REDIRECT;
 
-    public static final List<String> ALL_NAMES = List.of("ANSWER", "GENTLE_REDIRECT");
+    public static final List<String> ALL_NAMES = Arrays.stream(values()).map(Enum::name).toList();
 }

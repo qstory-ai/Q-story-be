@@ -2,6 +2,7 @@ package com.qstory.backend.story.controller;
 import com.qstory.backend.story.service.StoryCatalogService;
 import com.qstory.backend.story.service.StoryContentAssemblyService;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
@@ -91,5 +92,28 @@ public class StoryController {
             throw ApiException.contractError(ErrorCode.NOT_FOUND, "이 작품은 아직 콘텐츠가 준비되지 않았어요.");
         }
         return content;
+    }
+
+    @Operation(
+            summary = "Get a story's parent-report copy",
+            description = "Returns only packageData.reportCopy (the story's report-copy.yaml: anchor topics, "
+                    + "follow-up questions, strategyByFamily, ...). Parent reports that aggregate sessions across "
+                    + "several stories read each story's strategy labels from here instead of downloading the full "
+                    + "content. Unlike /content it is not gated by availability or entitlement - it holds no "
+                    + "narrative, and a parent's past reports for a story that was since RETIRED or whose "
+                    + "entitlement lapsed must still render. 404s if the story has never been imported.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The story's reportCopy object"),
+            @ApiResponse(responseCode = "404", description = "Unknown story id, or not yet imported",
+                    content = @Content(schema = @Schema(implementation = FailureBody.class)))
+    })
+    @GetMapping("/{storyId}/report-copy")
+    public JsonNode reportCopy(
+            @Parameter(description = "Stable content id, e.g. \"HG\"", example = "HG") @PathVariable String storyId) {
+        JsonNode reportCopy = contentAssemblyService.reportCopy(storyId);
+        if (reportCopy == null) {
+            throw ApiException.contractError(ErrorCode.NOT_FOUND, "이 작품의 리포트 문구가 아직 준비되지 않았어요.");
+        }
+        return reportCopy;
     }
 }

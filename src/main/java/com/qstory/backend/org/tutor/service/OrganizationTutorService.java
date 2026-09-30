@@ -1,13 +1,5 @@
 package com.qstory.backend.org.tutor.service;
 
-import com.qstory.backend.tutor.lesson.repository.LessonRepository;
-import com.qstory.backend.tutor.lesson.entity.Lesson;
-import com.qstory.backend.tutor.lesson.LessonStatus;
-import com.qstory.backend.tutor.repository.TutorStudentRepository;
-import com.qstory.backend.tutor.entity.TutorStudent;
-import com.qstory.backend.tutor.TutorLessonType;
-import com.qstory.backend.org.repository.ClassGroupRepository;
-import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
@@ -18,7 +10,9 @@ import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.notification.service.NotificationPublisher;
+import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.org.entity.Organization;
+import com.qstory.backend.org.repository.ClassGroupRepository;
 import com.qstory.backend.org.repository.OrganizationRepository;
 import com.qstory.backend.org.tutor.dto.OrganizationTutorInvitePreviewResponse;
 import com.qstory.backend.org.tutor.dto.OrganizationTutorInviteResponse;
@@ -30,6 +24,11 @@ import com.qstory.backend.org.tutor.entity.OrganizationTutorInvite;
 import com.qstory.backend.org.tutor.repository.OrganizationTutorInviteRepository;
 import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.org.util.JoinCodeGenerator;
+import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.tutor.lesson.LessonStatus;
+import com.qstory.backend.tutor.lesson.entity.Lesson;
+import com.qstory.backend.tutor.lesson.repository.LessonRepository;
+import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -39,11 +38,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 기관(DIRECTOR)이 소속 선생님(TUTOR)을 초대·관리하는 CRUD. TutorStudentService의 부모 초대와
- * 완전히 같은 규약: 원본 token은 발급 시 한 번만 반환되고 sha-256만 저장, 손으로 옮길 수 있는
+ * 같은 규약: 원본 token은 발급 시 한 번만 반환되고 sha-256만 저장, 손으로 옮길 수 있는
  * short_code(8자)를 함께 발급, 만료 14일, 1회용, 사용 시 used_at/used_by_tutor 기록.
  *
- * <p>소유권 검증은 CurrentUser.orgId()로만 한다 - JWT 클레임에 이미 담겨 있어서 DB를 다시 치지
- * 않고도 접근 통제가 가능. 다른 기관에 접근하려는 시도는 403.
+ * <p>소유권 검증은 JWT의 CurrentUser.orgId()로 한다 - 다른 기관에 접근하려는 시도는 403.
  */
 @Service
 public class OrganizationTutorService {
@@ -60,6 +58,7 @@ public class OrganizationTutorService {
     private final ClassGroupRepository classGroupRepository;
     private final TutorStudentRepository tutorStudentRepository;
     private final LessonRepository lessonRepository;
+
     public OrganizationTutorService(
             OrganizationTutorRepository organizationTutorRepository,
             OrganizationTutorInviteRepository organizationTutorInviteRepository,
@@ -116,13 +115,14 @@ public class OrganizationTutorService {
         Organization organization = requireOwnedByCaller(caller, organizationId);
         String rawToken = tokenGenerator.generate();
         String shortCode = generateUniqueShortCode();
-        Instant expiresAt = Instant.now().plus(INVITE_TTL);
+        Instant now = Instant.now();
+        Instant expiresAt = now.plus(INVITE_TTL);
         OrganizationTutorInvite saved = organizationTutorInviteRepository.save(OrganizationTutorInvite.builder()
                 .organization(organization)
                 .tokenHash(DigestUtil.sha256Hex(rawToken))
                 .shortCode(shortCode)
                 .expiresAt(expiresAt)
-                .createdAt(Instant.now())
+                .createdAt(now)
                 .build());
         return new OrganizationTutorInviteResponse(saved.getId(), rawToken, shortCode, expiresAt);
     }
@@ -205,34 +205,42 @@ public class OrganizationTutorService {
     /* ---------------------------------------------------------- unlink */
 
     /**
-     * 소속 해제. 링크 행만 지우면 선생님이 기관 안에 만든 반은 여전히 그 선생님에게 보여 학생·수업을 계속
-     * 붙일 수 있었다. 이제 함께 정리한다: 기관 안에서 만든 반은 기관 단독 소유로(tutor_id null), 그 기관 반에
-     * 들어 있던 이 선생님의 학생은 개인 레슨으로, 그 반에 묶인 예정 수업은 반 없는 수업으로 되돌린다.
+     * 소속 해제. 링크 행과 함께 기관 안의 흔적도 정리한다 - 이 선생님이 담임인 기관 반은 담임 미정(tutor_id null)으로,
+     * 그 기관 반에 들어 있던 이 선생님의 학생은 개인 레슨으로, 그 반에 묶인 예정 수업은 반 없는 수업으로 되돌린다.
      * 이미 끝난 수업과 완주 기록은 건드리지 않는다.
      */
     @Transactional
     public void unlinkTutor(CurrentUser caller, UUID organizationId, UUID tutorId) {
         requireOwnedByCaller(caller, organizationId);
         organizationTutorRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId).ifPresent(link -> {
-            Instant now = Instant.now();
-            for (TutorStudent student : tutorStudentRepository
-                    .findByTutor_IdAndClassGroup_Organization_IdAndDeletedAtIsNull(tutorId, organizationId)) {
-                student.setClassGroup(null);
-                student.setLessonType(TutorLessonType.INDIVIDUAL);
-                tutorStudentRepository.save(student);
-            }
-            for (Lesson lesson : lessonRepository
-                    .findByTutor_IdAndClassGroup_Organization_IdAndStatus(tutorId, organizationId, LessonStatus.SCHEDULED)) {
-                lesson.setClassGroup(null);
-                lesson.setUpdatedAt(now);
-                lessonRepository.save(lesson);
-            }
-            for (ClassGroup classGroup : classGroupRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId)) {
-                classGroup.setTutor(null);
-                classGroupRepository.save(classGroup);
-            }
+            detachTutor(link.getOrganization().getId(), tutorId);
             organizationTutorRepository.delete(link);
         });
+    }
+
+    /**
+     * 선생님이 기관을 떠날 때(원장이 내보내거나 선생님이 탈퇴할 때) 기관 반을 정리한다. 기관 반의 명단은 기관 것이라
+     * 학생은 반에 그대로 두고 담임만 비운다(대기 명단) - 학부모의 기관 이용권이 유지되고, 원장이 새 담임을 배정하면
+     * 그대로 넘어간다. 떠나는 선생님의 예정 수업은 반에서 떼어 낸다.
+     */
+    @Transactional
+    public void detachTutor(UUID organizationId, UUID tutorId) {
+        Instant now = Instant.now();
+        for (TutorStudent student : tutorStudentRepository
+                .findByTutor_IdAndClassGroup_Organization_IdAndDeletedAtIsNull(tutorId, organizationId)) {
+            student.setTutor(null);
+            tutorStudentRepository.save(student);
+        }
+        for (Lesson lesson : lessonRepository
+                .findByTutor_IdAndClassGroup_Organization_IdAndStatus(tutorId, organizationId, LessonStatus.SCHEDULED)) {
+            lesson.setClassGroup(null);
+            lesson.setUpdatedAt(now);
+            lessonRepository.save(lesson);
+        }
+        for (ClassGroup classGroup : classGroupRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId)) {
+            classGroup.setTutor(null);
+            classGroupRepository.save(classGroup);
+        }
     }
 
     /* ---------------------------------------------------------- helpers */
@@ -267,10 +275,7 @@ public class OrganizationTutorService {
     }
 
     private String generateUniqueShortCode() {
-        for (int attempt = 0; attempt < 10; attempt++) {
-            String code = joinCodeGenerator.generate();
-            if (!organizationTutorInviteRepository.existsByShortCode(code)) return code;
-        }
-        throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "초대 코드를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
+        return joinCodeGenerator.generateUnique(organizationTutorInviteRepository::existsByShortCode,
+                () -> ApiException.contractError(ErrorCode.INTERNAL_ERROR, "초대 코드를 만들지 못했어요. 잠시 후 다시 시도해 주세요."));
     }
 }

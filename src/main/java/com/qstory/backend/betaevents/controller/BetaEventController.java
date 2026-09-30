@@ -22,7 +22,7 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** supabase/functions/beta-events/index.ts를 Java로 이식한 것. */
+/** 베타 퍼널 텔레메트리 이벤트 한 건을 받아 검증(BetaEventValidator) 후 저장한다. */
 @Tag(name = "Beta events", description = "Pseudonymous, cookie-free funnel telemetry for the beta - session lifecycle and question-routing events")
 @RestController
 public class BetaEventController {

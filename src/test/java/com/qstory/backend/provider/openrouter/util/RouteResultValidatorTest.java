@@ -16,12 +16,7 @@ import com.qstory.backend.story.StoryVersions;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/**
- * Phase 2의 3단계 파이프라인(safety_scope_gate/route_classifier/content_generator) 검증 메서드
- * 단위테스트. 폐기된 alignActionRouteCoverage/promoteConcernToChoice에는 이 코드베이스에 기존
- * 테스트가 없었으므로(StoryImportServiceTest 하나뿐 - 확인됨) 옮겨올 기존 assertion은 없다. 대신
- * 그 두 메서드를 대체하는 새 판정 지점(NEW_CHOICES 검증, coverageStatus 필드 규칙)을 여기서 검증한다.
- */
+/** 3단계 파이프라인(safety_scope_gate/route_classifier/content_generator) 검증 메서드 단위테스트. */
 class RouteResultValidatorTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
