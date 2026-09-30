@@ -47,6 +47,10 @@ public class Organization {
     @Column(name = "subscription_expires_at")
     private Instant subscriptionExpiresAt;
 
+    /** 마지막 결제로 이용권이 적용되는 학생 수. null이면 인원 제한 없이 결제된 예전 구독이다. */
+    @Column(name = "subscription_seats")
+    private Integer subscriptionSeats;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 }

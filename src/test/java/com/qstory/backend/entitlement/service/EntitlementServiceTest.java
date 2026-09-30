@@ -3,6 +3,7 @@ package com.qstory.backend.entitlement.service;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -14,7 +15,9 @@ import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.org.SubscriptionStatus;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.repository.OrganizationRepository;
+import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.story.StoryManifest;
+import com.qstory.backend.tutor.repository.ParentClassSeat;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -23,14 +26,18 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-/** 학부모의 기관 이용권은 계정 소속이 아니라 아이가 들어간 기관 반(학생 명단)에서 계산한다. */
+/**
+ * 기관 이용권이 열리는 조건: 원장은 자기 기관, 선생님은 소속 기관, 학부모는 아이가 들어간 기관 반의 기관이 구독 중이고
+ * 아이가 결제한 인원 안에 들 때다. 학부모의 근거는 계정 소속이 아니라 학생 명단이다.
+ */
 class EntitlementServiceTest {
 
     private final OrganizationRepository organizationRepository = mock(OrganizationRepository.class);
     private final AppUserRepository appUserRepository = mock(AppUserRepository.class);
     private final TutorStudentRepository tutorStudentRepository = mock(TutorStudentRepository.class);
-    private final EntitlementService service =
-            new EntitlementService(organizationRepository, appUserRepository, tutorStudentRepository);
+    private final OrganizationTutorRepository organizationTutorRepository = mock(OrganizationTutorRepository.class);
+    private final EntitlementService service = new EntitlementService(
+            organizationRepository, appUserRepository, tutorStudentRepository, organizationTutorRepository);
 
     private final StoryManifest paidStory = mock(StoryManifest.class);
     private final UUID parentId = UUID.randomUUID();
@@ -41,44 +48,72 @@ class EntitlementServiceTest {
         when(appUserRepository.findById(any())).thenReturn(Optional.of(AppUser.builder().role(Role.PARENT).build()));
     }
 
-    private static Organization organization(SubscriptionStatus status, Instant expiresAt) {
-        return Organization.builder().subscriptionStatus(status).subscriptionExpiresAt(expiresAt).build();
+    private static Organization organization(SubscriptionStatus status, Instant expiresAt, Integer seats) {
+        return Organization.builder()
+                .id(UUID.randomUUID()).subscriptionStatus(status).subscriptionExpiresAt(expiresAt).subscriptionSeats(seats)
+                .build();
+    }
+
+    private static Organization activeOrganization(Integer seats) {
+        return organization(SubscriptionStatus.ACTIVE, Instant.now().plus(10, ChronoUnit.DAYS), seats);
+    }
+
+    private ParentClassSeat childIn(Organization organization) {
+        return new ParentClassSeat(UUID.randomUUID(), Instant.now(), organization);
     }
 
     @Test
     void parentWhoseChildIsInAnActiveOrganizationClassHasAccess() {
-        Organization active = organization(SubscriptionStatus.ACTIVE, Instant.now().plus(10, ChronoUnit.DAYS));
-        when(tutorStudentRepository.findOrganizationsOfParent(parentId)).thenReturn(List.of(active));
+        when(tutorStudentRepository.findClassSeatsOfParent(parentId)).thenReturn(List.of(childIn(activeOrganization(null))));
         assertDoesNotThrow(() -> service.assertAccessible(paidStory, parent));
     }
 
     @Test
     void oneActiveOrganizationIsEnoughWhenAnotherHasExpired() {
-        Organization expired = organization(SubscriptionStatus.ACTIVE, Instant.now().minus(1, ChronoUnit.DAYS));
-        Organization active = organization(SubscriptionStatus.ACTIVE, Instant.now().plus(10, ChronoUnit.DAYS));
-        when(tutorStudentRepository.findOrganizationsOfParent(parentId)).thenReturn(List.of(expired, active));
+        Organization expired = organization(SubscriptionStatus.ACTIVE, Instant.now().minus(1, ChronoUnit.DAYS), null);
+        when(tutorStudentRepository.findClassSeatsOfParent(parentId))
+                .thenReturn(List.of(childIn(expired), childIn(activeOrganization(null))));
         assertDoesNotThrow(() -> service.assertAccessible(paidStory, parent));
     }
 
     @Test
-    void expiredOrUnsubscribedOrganizationDoesNotGrantAccess() {
-        Organization expired = organization(SubscriptionStatus.ACTIVE, Instant.now().minus(1, ChronoUnit.DAYS));
-        when(tutorStudentRepository.findOrganizationsOfParent(parentId)).thenReturn(List.of(expired));
+    void expiredOrganizationDoesNotGrantAccess() {
+        Organization expired = organization(SubscriptionStatus.ACTIVE, Instant.now().minus(1, ChronoUnit.DAYS), null);
+        when(tutorStudentRepository.findClassSeatsOfParent(parentId)).thenReturn(List.of(childIn(expired)));
         assertThrows(ApiException.class, () -> service.assertAccessible(paidStory, parent));
     }
 
     @Test
     void parentWithNoClassAndNoPersonalSubscriptionHasNoAccess() {
-        when(tutorStudentRepository.findOrganizationsOfParent(parentId)).thenReturn(List.of());
+        when(tutorStudentRepository.findClassSeatsOfParent(parentId)).thenReturn(List.of());
+        assertThrows(ApiException.class, () -> service.assertAccessible(paidStory, parent));
+    }
+
+    @Test
+    void childWithinThePaidSeatsHasAccess() {
+        Organization paidForThree = activeOrganization(3);
+        ParentClassSeat third = childIn(paidForThree);
+        when(tutorStudentRepository.findClassSeatsOfParent(parentId)).thenReturn(List.of(third));
+        when(tutorStudentRepository.countEarlierInOrganization(
+                eq(paidForThree.getId()), eq(third.studentCreatedAt()), eq(third.studentId()))).thenReturn(2L);
+        assertDoesNotThrow(() -> service.assertAccessible(paidStory, parent));
+    }
+
+    @Test
+    void childBeyondThePaidSeatsHasNoAccess() {
+        Organization paidForThree = activeOrganization(3);
+        ParentClassSeat fourth = childIn(paidForThree);
+        when(tutorStudentRepository.findClassSeatsOfParent(parentId)).thenReturn(List.of(fourth));
+        when(tutorStudentRepository.countEarlierInOrganization(
+                eq(paidForThree.getId()), eq(fourth.studentCreatedAt()), eq(fourth.studentId()))).thenReturn(3L);
         assertThrows(ApiException.class, () -> service.assertAccessible(paidStory, parent));
     }
 
     @Test
     void staleOrgIdClaimOnAParentTokenGrantsNothing() {
         UUID orgId = UUID.randomUUID();
-        when(organizationRepository.findById(orgId))
-                .thenReturn(Optional.of(organization(SubscriptionStatus.ACTIVE, Instant.now().plus(10, ChronoUnit.DAYS))));
-        when(tutorStudentRepository.findOrganizationsOfParent(parentId)).thenReturn(List.of());
+        when(organizationRepository.findById(orgId)).thenReturn(Optional.of(activeOrganization(null)));
+        when(tutorStudentRepository.findClassSeatsOfParent(parentId)).thenReturn(List.of());
         CurrentUser staleToken = new CurrentUser(parentId, Role.PARENT, orgId);
         assertThrows(ApiException.class, () -> service.assertAccessible(paidStory, staleToken));
     }
@@ -86,9 +121,25 @@ class EntitlementServiceTest {
     @Test
     void directorKeepsAccessThroughTheirOrganization() {
         UUID orgId = UUID.randomUUID();
-        when(organizationRepository.findById(orgId))
-                .thenReturn(Optional.of(organization(SubscriptionStatus.ACTIVE, Instant.now().plus(10, ChronoUnit.DAYS))));
+        when(organizationRepository.findById(orgId)).thenReturn(Optional.of(activeOrganization(null)));
         CurrentUser director = new CurrentUser(UUID.randomUUID(), Role.DIRECTOR, orgId);
         assertDoesNotThrow(() -> service.assertAccessible(paidStory, director));
+    }
+
+    @Test
+    void tutorGetsAccessThroughAnActiveOrganizationTheyBelongTo() {
+        UUID tutorId = UUID.randomUUID();
+        Organization expired = organization(SubscriptionStatus.ACTIVE, Instant.now().minus(1, ChronoUnit.DAYS), 5);
+        when(organizationTutorRepository.findOrganizationsOfTutor(tutorId))
+                .thenReturn(List.of(expired, activeOrganization(1)));
+        assertDoesNotThrow(() -> service.assertAccessible(paidStory, new CurrentUser(tutorId, Role.TUTOR, null)));
+    }
+
+    @Test
+    void tutorInNoActiveOrganizationHasNoAccess() {
+        UUID tutorId = UUID.randomUUID();
+        when(organizationTutorRepository.findOrganizationsOfTutor(tutorId)).thenReturn(List.of());
+        assertThrows(ApiException.class,
+                () -> service.assertAccessible(paidStory, new CurrentUser(tutorId, Role.TUTOR, null)));
     }
 }
