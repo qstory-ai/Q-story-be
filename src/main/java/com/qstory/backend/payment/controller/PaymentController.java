@@ -1,13 +1,16 @@
 package com.qstory.backend.payment.controller;
 
+import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.payment.dto.ConfirmPaymentRequest;
 import com.qstory.backend.payment.dto.CreatePaymentOrderRequest;
+import com.qstory.backend.payment.dto.OrganizationQuoteResponse;
 import com.qstory.backend.payment.dto.PaymentOrderResponse;
 import com.qstory.backend.payment.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -29,6 +32,12 @@ public class PaymentController {
     @ResponseStatus(HttpStatus.CREATED)
     public PaymentOrderResponse create(@RequestBody CreatePaymentOrderRequest request) {
         return service.create(currentUserResolver.require(), request);
+    }
+
+    @Operation(summary = "Quote the organization subscription", description = "DIRECTOR only. Price is the current student count times the per-student amount.")
+    @GetMapping("/v1/payments/organization-quote")
+    public OrganizationQuoteResponse organizationQuote() {
+        return service.quoteOrganization(currentUserResolver.requireRole(Role.DIRECTOR));
     }
 
     @Operation(summary = "Confirm a Toss payment", description = "Amount and order ownership are verified server-side before access is granted.")

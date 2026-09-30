@@ -130,7 +130,7 @@ public class StoryCompletionService {
                     ErrorCode.VALIDATION_FAILED, "이 수업에 참여 학생이 없어요. 수업에 학생을 추가한 뒤 기록해 주세요.", 400);
         }
         if (participants.isEmpty()) {
-            // 가정 세션(부모/반 계정) - 기록 하나.
+            // 가정 세션 - 기록 하나.
             return StoryCompletionSummary.of(
                     saveCompletion(user, lesson, null, child, request, companionChatSummary, now));
         }
@@ -152,13 +152,10 @@ public class StoryCompletionService {
     private StoryCompletion saveCompletion(
             AppUser user, Lesson lesson, TutorStudent tutorStudent, Child child,
             RecordStoryCompletionRequest request, Map<String, Object> companionChatSummary, Instant now) {
-        // 기관·반 스냅샷: 선생님은 app_user.organization/class_group이 항상 비어 있어 예전엔 선생님 세션이
-        // 기관 이용 현황·리포트에 전혀 잡히지 않았다. 수업의 반 → 학생의 반 → 사용자 자신의 소속 순으로 정한다.
+        // 기관·반 스냅샷: 수업의 반 → 학생의 반 순으로 정한다. 부모의 가정 세션에는 반이 없다.
         ClassGroup classGroup = lesson != null && lesson.getClassGroup() != null
                 ? lesson.getClassGroup()
-                : tutorStudent != null && tutorStudent.getClassGroup() != null
-                        ? tutorStudent.getClassGroup()
-                        : user.getClassGroup();
+                : tutorStudent != null ? tutorStudent.getClassGroup() : null;
         Organization organization = classGroup != null && classGroup.getOrganization() != null
                 ? classGroup.getOrganization()
                 : user.getOrganization();

@@ -1,7 +1,9 @@
 package com.qstory.backend.tutor.repository;
 
+import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.tutor.entity.TutorStudent;
 import jakarta.persistence.LockModeType;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -20,8 +22,39 @@ public interface TutorStudentRepository extends JpaRepository<TutorStudent, UUID
     /** 반 수업을 만들 때 그 반의 학생을 참여 학생으로 자동 채운다(LessonService). */
     List<TutorStudent> findByClassGroup_IdAndTutor_IdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID classGroupId, UUID tutorId);
 
-    /** 기관 리포트의 반 인원수 - 반 코드로 가입한 부모(app_user)와 별개로 선생님이 반에 넣은 학생. */
+    /** 반 상세의 학생 명단과 기관 리포트의 반 인원수 - 담임이 없는 반의 학생도 포함한다. */
+    List<TutorStudent> findByClassGroup_IdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID classGroupId);
+
     long countByClassGroup_IdAndDeletedAtIsNull(UUID classGroupId);
+
+    /** 담임이 배정되기 전에 들어온 학생 - 배정하면 이 학생들이 담임의 학생이 된다(ClassService.assignHomeroom). */
+    List<TutorStudent> findByClassGroup_IdAndTutorIsNullAndDeletedAtIsNull(UUID classGroupId);
+
+    boolean existsByClassGroup_IdAndChild_IdAndDeletedAtIsNull(UUID classGroupId, UUID childId);
+
+    /** 학부모가 자기 아이가 들어가 있는 반을 볼 때(ClassService.listMemberships). */
+    List<TutorStudent> findByLinkedParentUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID parentUserId);
+
+    /** 기관 사용 현황 - 기관 반에 올라 있는 학생 수. */
+    long countByClassGroup_Organization_IdAndDeletedAtIsNull(UUID organizationId);
+
+    /** 기관 사용 현황 - 기관 반 학생에 연결된 학부모 수(중복 제외). */
+    @Query("select count(distinct s.linkedParentUser.id) from TutorStudent s "
+            + "where s.classGroup.organization.id = :organizationId and s.deletedAt is null and s.linkedParentUser is not null")
+    long countLinkedParentsByOrganization(@Param("organizationId") UUID organizationId);
+
+    /** 학부모의 이용권 근거 - 이 부모의 아이가 들어가 있는 기관 반과 그 기관(EntitlementService). */
+    @Query("select new com.qstory.backend.tutor.repository.ParentClassSeat(s.id, s.createdAt, o) "
+            + "from TutorStudent s join s.classGroup c join c.organization o "
+            + "where s.linkedParentUser.id = :parentUserId and s.deletedAt is null")
+    List<ParentClassSeat> findClassSeatsOfParent(@Param("parentUserId") UUID parentUserId);
+
+    /** 기관 안에서 이 학생보다 먼저 등록된 학생 수 - 결제한 인원 안에 드는지(순번) 판단한다. */
+    @Query("select count(s) from TutorStudent s where s.classGroup.organization.id = :organizationId "
+            + "and s.deletedAt is null and (s.createdAt < :createdAt or (s.createdAt = :createdAt and s.id < :studentId))")
+    long countEarlierInOrganization(
+            @Param("organizationId") UUID organizationId, @Param("createdAt") Instant createdAt,
+            @Param("studentId") UUID studentId);
 
     /** 부모 계정 탈퇴 시 연결을 풀어 학생을 다시 초대 가능한 상태로 되돌린다(AuthService). */
     List<TutorStudent> findByLinkedParentUser_Id(UUID parentUserId);

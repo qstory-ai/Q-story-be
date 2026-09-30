@@ -20,11 +20,12 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 /**
- * 한 반(classroom). joinCode는 영구적/재사용 가능하며 - 자율 가입용으로 전단지에 인쇄할 수 있다.
+ * 한 반(classroom). 기관 반은 기관 → 담임 선생님 → 학생들, 기관 없는 선생님 반은 선생님 → 학생들이다.
+ * joinCode는 영구적/재사용 가능하며 학부모 가입용으로 전단지에 인쇄할 수 있다.
  *
- * <p>소유자는 기관(organization) 또는 선생님(tutor), 혹은 둘 다(기관 소속 선생님이 기관 안에 만든 반).
- * 둘 중 하나는 반드시 있다(049 마이그레이션 check). 기관이 없는 선생님 개인 반은 부모 가입 코드·반
- * 계정 같은 기관 전용 흐름에서 제외된다(ClassService.requireOrganizationClass).
+ * <p>소유자는 기관(organization) 또는 선생님(tutor), 혹은 둘 다(기관 소속 선생님이 담임인 반).
+ * 둘 중 하나는 반드시 있다(049 마이그레이션 check). 기관 반에 담임이 아직 없으면 tutor가 null이고
+ * (원장이 배정하기 전), 그 반의 학생은 담임이 정해질 때까지 tutor 없이 명단에만 올라 있다.
  */
 @Entity
 @Table(name = "class_group")
@@ -44,7 +45,7 @@ public class ClassGroup {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private Organization organization;
 
-    /** 이 반을 만든 선생님. 기관 관리자(DIRECTOR)가 만든 반은 null. */
+    /** 담임 선생님. 기관 반에서 아직 배정되지 않았으면 null. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tutor_id")
     @OnDelete(action = OnDeleteAction.CASCADE)

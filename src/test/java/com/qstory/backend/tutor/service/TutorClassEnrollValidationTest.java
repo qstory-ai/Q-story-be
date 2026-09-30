@@ -9,16 +9,16 @@ import org.junit.jupiter.api.Test;
 class TutorClassEnrollValidationTest {
 
     private final TutorStudentService service =
-            new TutorStudentService(null, null, null, null, null, null, null, null, null, null, null, null, null);
+            new TutorStudentService(null, null, null, null, null, null, null, null, null, null, null, null, null, null);
 
     @Test
     void rejectsMissingChildName() {
-        assertThrows(ApiException.class, () -> service.enrollParentInTutorClass(null, null, "  ", 2019));
-        assertThrows(ApiException.class, () -> service.enrollParentInTutorClass(null, null, null, 2019));
+        assertThrows(ApiException.class, () -> service.enrollParentInClass(null, null, "  ", 2019));
+        assertThrows(ApiException.class, () -> service.enrollParentInClass(null, null, null, 2019));
     }
 
     @Test
     void rejectsMissingBirthYear() {
-        assertThrows(ApiException.class, () -> service.enrollParentInTutorClass(null, null, "민서", null));
+        assertThrows(ApiException.class, () -> service.enrollParentInClass(null, null, "민서", null));
     }
 }

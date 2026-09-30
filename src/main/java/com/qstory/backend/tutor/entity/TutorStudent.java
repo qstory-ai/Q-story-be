@@ -45,8 +45,9 @@ public class TutorStudent {
     @UuidGenerator
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "tutor_id", nullable = false)
+    /** 담당 선생님. 담임이 아직 없는 기관 반에 들어온 학생만 null이고, 담임이 배정되면 채워진다. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "tutor_id")
     @OnDelete(action = OnDeleteAction.CASCADE)
     private AppUser tutor;
 

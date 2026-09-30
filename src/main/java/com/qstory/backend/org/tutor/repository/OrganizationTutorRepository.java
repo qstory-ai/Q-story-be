@@ -5,6 +5,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.Query;
+import com.qstory.backend.org.entity.Organization;
 
 public interface OrganizationTutorRepository extends JpaRepository<OrganizationTutor, UUID> {
 
@@ -20,6 +23,10 @@ public interface OrganizationTutorRepository extends JpaRepository<OrganizationT
 
     /** 이용 현황의 선생님 수 - 탈퇴(소프트 삭제)한 선생님은 제외. */
     long countByOrganization_IdAndTutor_DeletedAtIsNull(UUID organizationId);
+
+    /** 선생님이 소속된 기관들 - 이용권 판정에 쓴다(EntitlementService). */
+    @Query("select ot.organization from OrganizationTutor ot where ot.tutor.id = :tutorId")
+    List<Organization> findOrganizationsOfTutor(@Param("tutorId") UUID tutorId);
 
     /** 선생님 계정 탈퇴 시 소속 관계를 정리한다(AuthService). */
     void deleteByTutor_Id(UUID tutorId);

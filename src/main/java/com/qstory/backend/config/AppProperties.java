@@ -28,7 +28,7 @@ public record AppProperties(
 
     public record Payments(Toss toss) {}
 
-    public record Toss(String secretKey, int parentMonthlyAmount, int organizationMonthlyAmount, int accessDays) {
+    public record Toss(String secretKey, int parentMonthlyAmount, int organizationStudentMonthlyAmount, int accessDays) {
         public boolean configured() {
             return secretKey != null && !secretKey.isBlank();
         }

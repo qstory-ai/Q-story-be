@@ -31,7 +31,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * 따르는 것이다.
  *
  * <p>이러한 컨트롤러별 검사는 검사 대상 역할(role)만큼만 안전하다: Role.DIRECTOR/
- * CLASS_ACCOUNT/PARENT는 누구나 공개 회원가입을 통해 얻을 수 있는 셀프서비스 역할이므로,
+ * PARENT/TUTOR는 누구나 공개 회원가입을 통해 얻을 수 있는 셀프서비스 역할이므로,
  * 내부 운영자 전용 엔드포인트를 이들 중 하나로 게이트하는 것(story-authoring이 한때 DIRECTOR로
  * 그렇게 했던 것처럼)은 설정 실수가 아니라 권한 상승(privilege-escalation) 버그다. 내부 전용
  * 엔드포인트는 반드시 Role.STAFF로 게이트해야 하며, 이 역할은 고객 대상 회원가입 폼을 통해서는

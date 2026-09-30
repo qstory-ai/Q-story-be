@@ -2,73 +2,75 @@ package com.qstory.backend.org.service;
 
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
-import com.qstory.backend.common.util.DigestUtil;
-import com.qstory.backend.common.util.SecureTokenGenerator;
-import com.qstory.backend.common.util.TokenValidation;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.dto.AuthResponse;
-import com.qstory.backend.identity.dto.UserSummary;
+import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
+import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
-import com.qstory.backend.notification.service.NotificationPublisher;
-import com.qstory.backend.org.dto.ClassInviteResponse;
-import com.qstory.backend.org.dto.ClassMemberResponse;
+import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassResponse;
+import com.qstory.backend.org.dto.ClassStudentResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
 import com.qstory.backend.org.dto.JoinClassRequest;
 import com.qstory.backend.org.dto.JoinExistingClassRequest;
 import com.qstory.backend.org.entity.ClassGroup;
-import com.qstory.backend.org.entity.ClassInvite;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.repository.ClassGroupRepository;
-import com.qstory.backend.org.repository.ClassInviteRepository;
+import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.org.util.JoinCodeGenerator;
+import com.qstory.backend.tutor.TutorStudentStatus;
+import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import com.qstory.backend.tutor.service.TutorStudentService;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 기관 반 - 기관 → 담임 선생님 → 학생 명단. 원장은 반을 만들고 담임을 배정하고 명단을 볼 뿐 수업은
+ * 담임의 계정으로 진행하며, 학부모는 반 코드로 자기 아이를 그 반의 학생으로 올린다(부모 계정에는 반
+ * 소속을 남기지 않는다). 그래서 기관 반의 수업 기록도 튜터 수업과 같은 경로로 부모에게 전달된다.
+ */
 @Service
 public class ClassService {
 
-    private static final Duration INVITE_TTL = Duration.ofDays(14);
-
     private final ClassGroupRepository classGroupRepository;
-    private final ClassInviteRepository classInviteRepository;
+    private final TutorStudentRepository tutorStudentRepository;
+    private final OrganizationTutorRepository organizationTutorRepository;
     private final AppUserRepository userRepository;
     private final OrganizationService organizationService;
     private final JoinCodeGenerator joinCodeGenerator;
     private final AuthValidator authValidator;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
-    private final SecureTokenGenerator tokenGenerator;
-    private final NotificationPublisher notificationPublisher;
     private final TutorStudentService tutorStudentService;
+    private final UserSummaryFactory userSummaryFactory;
 
     public ClassService(
-            ClassGroupRepository classGroupRepository, ClassInviteRepository classInviteRepository,
-            AppUserRepository userRepository, OrganizationService organizationService,
-            JoinCodeGenerator joinCodeGenerator, AuthValidator authValidator,
-            PasswordEncoder passwordEncoder, JwtService jwtService, SecureTokenGenerator tokenGenerator,
-            NotificationPublisher notificationPublisher, TutorStudentService tutorStudentService) {
+            ClassGroupRepository classGroupRepository, TutorStudentRepository tutorStudentRepository,
+            OrganizationTutorRepository organizationTutorRepository, AppUserRepository userRepository,
+            OrganizationService organizationService, JoinCodeGenerator joinCodeGenerator,
+            AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
+            TutorStudentService tutorStudentService, UserSummaryFactory userSummaryFactory) {
         this.classGroupRepository = classGroupRepository;
-        this.classInviteRepository = classInviteRepository;
+        this.tutorStudentRepository = tutorStudentRepository;
+        this.organizationTutorRepository = organizationTutorRepository;
         this.userRepository = userRepository;
         this.organizationService = organizationService;
         this.joinCodeGenerator = joinCodeGenerator;
         this.authValidator = authValidator;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
-        this.tokenGenerator = tokenGenerator;
-        this.notificationPublisher = notificationPublisher;
         this.tutorStudentService = tutorStudentService;
+        this.userSummaryFactory = userSummaryFactory;
     }
 
     @Transactional
@@ -77,25 +79,15 @@ public class ClassService {
         if (request.name() == null || request.name().isBlank()) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "반 이름을 입력해 주세요.");
         }
-        authValidator.validatePassword(request.initialPassword());
-
+        AppUser homeroom = request.homeroomTutorId() == null
+                ? null : requireOrganizationTutor(organizationId, request.homeroomTutorId());
         ClassGroup classGroup = classGroupRepository.save(ClassGroup.builder()
                 .organization(organization)
+                .tutor(homeroom)
                 .name(request.name().trim())
                 .joinCode(generateUniqueJoinCode())
                 .createdAt(Instant.now())
                 .build());
-
-        AppUser classAccount = AppUser.builder()
-                .role(Role.CLASS_ACCOUNT)
-                .loginId(classAccountLoginId(classGroup))
-                .passwordHash(passwordEncoder.encode(request.initialPassword()))
-                .displayName(request.name().trim())
-                .organization(organization)
-                .classGroup(classGroup)
-                .createdAt(Instant.now())
-                .build();
-        userRepository.saveOrThrowDuplicate(classAccount, "반 계정 아이디가 이미 사용 중이에요.");
         return ClassResponse.of(classGroup);
     }
 
@@ -107,193 +99,143 @@ public class ClassService {
     }
 
     public ClassResponse get(CurrentUser caller, UUID classId) {
-        ClassGroup classGroup = requireVisible(caller, classId);
-        return ClassResponse.of(classGroup);
+        return ClassResponse.of(requireVisible(caller, classId));
     }
 
-    /**
-     * IA "반 상세 > 반에 속한 부모(학생) 목록" - PARENT 역할이면서 이 반에 조인된 사용자만.
-     * 반 계정(CLASS_ACCOUNT) 자체는 이 목록에서 제외한다(그건 별도의 존재).
-     */
+    /** 반 상세의 학생 명단 - 담임이 아직 없는 반의 학생과 학부모가 아직 연결되지 않은 학생도 포함한다. */
     @Transactional(readOnly = true)
-    public List<ClassMemberResponse> listParents(CurrentUser caller, UUID classId) {
+    public List<ClassStudentResponse> listStudents(CurrentUser caller, UUID classId) {
         requireVisible(caller, classId);
-        return userRepository.findByClassGroup_IdAndRoleAndDeletedAtIsNullOrderByCreatedAtDesc(classId, Role.PARENT).stream()
-                .map(ClassMemberResponse::of)
+        return tutorStudentRepository.findByClassGroup_IdAndDeletedAtIsNullOrderByCreatedAtAsc(classId).stream()
+                .map(ClassStudentResponse::of)
                 .toList();
     }
 
+    /**
+     * 담임이 없는 반에 담임을 배정한다. 담임이 정해지기 전에 명단에 올라온 학생이 그 선생님의 학생이 되고,
+     * 이미 담임이 있는 반의 교체는 수업·기록이 선생님에게 묶여 있어 지원하지 않는다.
+     */
     @Transactional
-    public ClassInviteResponse createInvite(CurrentUser caller, UUID classId) {
-        ClassGroup classGroup = requireVisible(caller, classId);
-        if (caller.role() != Role.DIRECTOR) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "기관 및 단체 계정만 초대를 만들 수 있어요.", 403);
+    public ClassResponse assignHomeroom(CurrentUser caller, UUID classId, UUID tutorId) {
+        ClassGroup classGroup = requireOwnedByDirector(caller, classId);
+        if (classGroup.getTutor() != null) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "이미 담임 선생님이 있는 반이에요.", 409);
         }
-        String rawToken = tokenGenerator.generate();
-        Instant expiresAt = Instant.now().plus(INVITE_TTL);
-        classInviteRepository.save(ClassInvite.builder()
-                .classGroup(classGroup)
-                .tokenHash(DigestUtil.sha256Hex(rawToken))
-                .expiresAt(expiresAt)
-                .createdAt(Instant.now())
-                .build());
-        return new ClassInviteResponse(rawToken, expiresAt);
+        if (tutorId == null) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "담임으로 배정할 선생님을 골라 주세요.");
+        }
+        AppUser homeroom = requireOrganizationTutor(classGroup.getOrganization().getId(), tutorId);
+        classGroup.setTutor(homeroom);
+        classGroupRepository.save(classGroup);
+        List<TutorStudent> waiting = tutorStudentRepository.findByClassGroup_IdAndTutorIsNullAndDeletedAtIsNull(classId);
+        waiting.forEach(student -> student.setTutor(homeroom));
+        try {
+            tutorStudentRepository.saveAllAndFlush(waiting);
+        } catch (DataIntegrityViolationException duplicate) {
+            throw ApiException.contractError(
+                    ErrorCode.DUPLICATE_CHILD_LINK, "이 선생님에게 이미 등록된 아이가 명단에 있어요. 선생님의 학생 목록을 확인해 주세요.", 409);
+        }
+        return ClassResponse.of(classGroup);
     }
 
+    /** 반 코드로 학부모 계정을 만들고 아이를 그 반의 학생으로 올린다 - 가입과 동시에 연결된다. */
     @Transactional
     public AuthResponse join(JoinClassRequest request) {
-        ClassGroup classGroup = resolveClassGroup(request.classCode(), request.inviteToken());
-        authValidator.validateSignup(new com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest(
+        ClassGroup classGroup = resolveClassGroup(request.classCode());
+        authValidator.validateSignup(new SignupOrganizationOwnerRequest(
                 request.loginId(), request.email(), request.password(), request.displayName()));
 
-        boolean tutorManaged = classGroup.getTutor() != null;
         AppUser parent = AppUser.builder()
                 .role(Role.PARENT)
                 .loginId(request.loginId().trim().toLowerCase())
                 .email(request.email().trim().toLowerCase())
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .displayName(request.displayName().trim())
-                .organization(tutorManaged ? null : classGroup.getOrganization())
-                .classGroup(tutorManaged ? null : classGroup)
                 .createdAt(Instant.now())
                 .build();
         parent = userRepository.saveOrThrowDuplicate(parent, "이미 사용 중인 아이디예요.");
 
-        if (tutorManaged) {
-            tutorStudentService.enrollParentInTutorClass(parent, classGroup, request.childName(), request.childBirthYear());
-            return new AuthResponse(
-                    jwtService.issue(new CurrentUser(parent.getId(), Role.PARENT, null, null)), UserSummary.of(parent));
-        }
-        publishParentJoined(parent, classGroup);
-
-        CurrentUser currentUser = new CurrentUser(
-                parent.getId(), Role.PARENT, classGroup.getOrganization().getId(), classGroup.getId());
-        return new AuthResponse(jwtService.issue(currentUser), UserSummary.of(parent));
+        tutorStudentService.enrollParentInClass(parent, classGroup, request.childName(), request.childBirthYear());
+        return authResponse(parent);
     }
 
-    /**
-     * 독립 학부모가 가입 후 반 코드를 입력해 기관 수업과 연결하는 경로다. 새 계정을 만들지 않고
-     * 현재 계정의 organization/classGroup만 채운 뒤, JWT도 새 소속 claim으로 다시 발급한다.
-     * 한 학부모 계정은 하나의 기관 반만 가지며, 이미 반이 있으면 replaceExisting=true일 때만 새 반으로
-     * 옮긴다. 지난 완주 기록은 완료 시점의 소속 스냅샷을 그대로 유지한다.
-     */
+    /** 이미 계정이 있는 학부모가 반 코드로 아이를 한 명 더 올린다. 아이마다 한 번씩 거치면 된다. */
     @Transactional
     public AuthResponse joinExistingParent(CurrentUser caller, JoinExistingClassRequest request) {
         AppUser parent = userRepository.findByIdAndDeletedAtIsNull(caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
-        ClassGroup classGroup = resolveClassGroup(request.classCode(), request.inviteToken());
-        if (classGroup.getTutor() != null) {
-            // 선생님 운영 반은 기관 반 소속(app_user.class_group)과 무관하게 학생 명단으로 들어간다.
-            tutorStudentService.enrollParentInTutorClass(parent, classGroup, request.childName(), request.childBirthYear());
-            CurrentUser unchanged = new CurrentUser(
-                    parent.getId(), Role.PARENT,
-                    parent.getOrganization() == null ? null : parent.getOrganization().getId(),
-                    parent.getClassGroup() == null ? null : parent.getClassGroup().getId());
-            return new AuthResponse(jwtService.issue(unchanged), UserSummary.of(parent));
-        }
-        ClassGroup previousClass = parent.getClassGroup();
-        if (previousClass != null && !request.replacing()) {
-            throw ApiException.contractError(
-                    ErrorCode.VALIDATION_FAILED,
-                    "이미 기관 반에 참여 중이에요. 다른 반으로 옮기려면 옮기기를 선택해 주세요.",
-                    409);
-        }
-        if (previousClass != null && previousClass.getId().equals(classGroup.getId())) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "이미 이 반에 참여 중이에요.", 409);
-        }
-        parent.setOrganization(classGroup.getOrganization());
-        parent.setClassGroup(classGroup);
-        userRepository.save(parent);
-        publishParentJoined(parent, classGroup);
+        ClassGroup classGroup = resolveClassGroup(request.classCode());
+        tutorStudentService.enrollParentInClass(parent, classGroup, request.childName(), request.childBirthYear());
+        return authResponse(parent);
+    }
 
-        CurrentUser refreshedUser = new CurrentUser(
-                parent.getId(), Role.PARENT, classGroup.getOrganization().getId(), classGroup.getId());
-        return new AuthResponse(jwtService.issue(refreshedUser), UserSummary.of(parent));
+    @Transactional(readOnly = true)
+    public List<ClassMembershipResponse> listMemberships(CurrentUser caller) {
+        return tutorStudentRepository.findByLinkedParentUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(caller.userId()).stream()
+                .filter(student -> student.getClassGroup() != null)
+                .map(ClassMembershipResponse::of)
+                .toList();
     }
 
     /**
-     * A parent has exactly one institutional class relationship. Leaving clears both foreign keys and
-     * returns a replacement JWT, after which the same account can join a different class code.
+     * 학부모가 아이를 반에서 뺀다. 학생 행은 지우지 않고 학부모 연결만 푼다(PENDING_PARENT) - 부모 계정 탈퇴와
+     * 같은 처리라, 담임이 다시 초대하거나 명단에서 지울 수 있고 지난 수업 기록은 그대로 남는다.
      */
     @Transactional
-    public AuthResponse leaveExistingParent(CurrentUser caller) {
-        AppUser parent = userRepository.findByIdAndDeletedAtIsNull(caller.userId())
-                .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
-        if (parent.getClassGroup() == null) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "연결된 기관 반이 없어요.", 409);
+    public void leaveClass(CurrentUser caller, UUID studentId) {
+        TutorStudent student = tutorStudentRepository.findById(studentId)
+                .filter(found -> found.getDeletedAt() == null
+                        && found.getLinkedParentUser() != null
+                        && found.getLinkedParentUser().getId().equals(caller.userId()))
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "연결된 학생을 찾을 수 없어요.", 404));
+        student.setLinkedParentUser(null);
+        student.setChild(null);
+        student.setStatus(TutorStudentStatus.PENDING_PARENT);
+        tutorStudentRepository.save(student);
+    }
+
+    private AuthResponse authResponse(AppUser parent) {
+        return new AuthResponse(jwtService.issue(new CurrentUser(parent.getId(), Role.PARENT, null)), userSummaryFactory.of(parent));
+    }
+
+    private ClassGroup resolveClassGroup(String classCode) {
+        if (classCode == null || classCode.isBlank()) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "반 코드가 필요해요.");
         }
-        parent.setClassGroup(null);
-        parent.setOrganization(null);
-        userRepository.save(parent);
-        return new AuthResponse(
-                jwtService.issue(new CurrentUser(parent.getId(), Role.PARENT, null, null)),
-                UserSummary.of(parent));
+        return classGroupRepository.findByJoinCode(classCode.trim().toUpperCase())
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_JOIN_CODE, "반 코드를 다시 확인해 주세요.", 404));
     }
 
-    private ClassGroup resolveClassGroup(String classCode, String inviteToken) {
-        boolean hasCode = classCode != null && !classCode.isBlank();
-        boolean hasInvite = inviteToken != null && !inviteToken.isBlank();
-        if (hasCode == hasInvite) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "반 코드 또는 초대 링크가 필요해요.");
-        }
-        if (hasInvite) {
-            return requireOrganizationClass(resolveByInvite(inviteToken.trim()));
-        }
-        return requireOrganizationClass(classGroupRepository.findByJoinCode(classCode.trim().toUpperCase())
-                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_JOIN_CODE, "반 코드를 다시 확인해 주세요.", 404)));
+    private AppUser requireOrganizationTutor(UUID organizationId, UUID tutorId) {
+        return organizationTutorRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId)
+                .map(link -> link.getTutor())
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "이 기관에 소속된 선생님이 아니에요.", 404));
     }
 
-    /**
-     * 반 코드/초대로 들어갈 수 있는 반은 기관 반이거나 선생님이 운영하는 반이다. 선생님 운영 반은 부모 계정에
-     * 반 소속을 남기지 않고 학생 명단으로 등록되므로(TutorStudentService.enrollParentInTutorClass) 기관
-     * 인원수와 선생님 명단이 어긋나지 않는다.
-     */
-    private static ClassGroup requireOrganizationClass(ClassGroup classGroup) {
-        if (classGroup.getOrganization() == null && classGroup.getTutor() == null) {
-            throw ApiException.contractError(ErrorCode.INVALID_JOIN_CODE, "반 코드를 다시 확인해 주세요.", 404);
-        }
-        return classGroup;
-    }
-
-    /** 새 가입/기존 계정 연결 모두에서 같은 기관 관리자 알림을 발행한다. */
-    private void publishParentJoined(AppUser parent, ClassGroup classGroup) {
-        userRepository
-                .findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(classGroup.getOrganization().getId(), Role.DIRECTOR)
-                .ifPresent(director -> notificationPublisher.publish(
-                        director.getId(),
-                        "class-parent-joined",
-                        "새 학부모가 반에 합류했어요",
-                        parent.getDisplayName() + "님이 " + classGroup.getName() + " 반에 참여했어요.",
-                        "/organization/classes/" + classGroup.getId(),
-                        "class-parent-joined:" + parent.getId()));
-    }
-
-    private ClassGroup resolveByInvite(String rawToken) {
-        ClassInvite invite = classInviteRepository.findByTokenHash(DigestUtil.sha256Hex(rawToken))
-                .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_INVITE, "초대 링크가 올바르지 않아요.", 410));
-        TokenValidation.requireUsable(invite.getUsedAt(), invite.getExpiresAt(),
-                ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 초대 링크예요.", 410);
-        invite.setUsedAt(Instant.now());
-        classInviteRepository.save(invite);
-        return invite.getClassGroup();
-    }
-
-    /** DIRECTOR는 자신의 소속 기관에 있는 어떤 반이든 볼 수 있고, CLASS_ACCOUNT는 자기 자신만 볼 수 있다. */
-    private ClassGroup requireVisible(CurrentUser caller, UUID classId) {
+    private ClassGroup requireOwnedByDirector(CurrentUser caller, UUID classId) {
         ClassGroup classGroup = classGroupRepository.findById(classId)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
-        boolean isOwningOrganizationOwner = caller.role() == Role.DIRECTOR
-                && classGroup.getOrganization() != null
-                && classGroup.getOrganization().getId().equals(caller.orgId());
-        boolean isThisClassAccount = caller.role() == Role.CLASS_ACCOUNT && classId.equals(caller.classId());
-        if (!isOwningOrganizationOwner && !isThisClassAccount) {
+        if (caller.role() != Role.DIRECTOR || classGroup.getOrganization() == null
+                || !classGroup.getOrganization().getId().equals(caller.orgId())) {
             throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 반에 접근할 권한이 없어요.", 403);
         }
         return classGroup;
     }
 
-    private String classAccountLoginId(ClassGroup classGroup) {
-        return "class." + classGroup.getId();
+    /** 반을 볼 수 있는 사람: 그 반이 속한 기관의 원장, 그리고 담임 선생님. */
+    private ClassGroup requireVisible(CurrentUser caller, UUID classId) {
+        ClassGroup classGroup = classGroupRepository.findById(classId)
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
+        boolean isOwningDirector = caller.role() == Role.DIRECTOR
+                && classGroup.getOrganization() != null
+                && classGroup.getOrganization().getId().equals(caller.orgId());
+        boolean isHomeroomTutor = caller.role() == Role.TUTOR
+                && classGroup.getTutor() != null
+                && classGroup.getTutor().getId().equals(caller.userId());
+        if (!isOwningDirector && !isHomeroomTutor) {
+            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 반에 접근할 권한이 없어요.", 403);
+        }
+        return classGroup;
     }
 
     private String generateUniqueJoinCode() {

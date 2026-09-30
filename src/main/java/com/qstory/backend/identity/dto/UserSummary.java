@@ -11,20 +11,19 @@ public record UserSummary(
         String email,
         String displayName,
         UUID organizationId,
-        UUID classId,
         String subscriptionStatus,
         boolean grantsAccess,
         String childName,
         String profileImageUrl,
         Instant subscriptionExpiresAt) {
 
-    public static UserSummary of(AppUser user) {
+    /** grantsAccess는 개인·기관 구독을 합친 값이라 호출자가 계산해 넘긴다(UserSummaryFactory). */
+    public static UserSummary of(AppUser user, boolean grantsAccess) {
         return new UserSummary(
                 user.getId(), user.getRole().name(), user.getLoginId(), user.getEmail(), user.getDisplayName(),
                 user.getOrganization() == null ? null : user.getOrganization().getId(),
-                user.getClassGroup() == null ? null : user.getClassGroup().getId(),
                 user.getSubscriptionStatus().effectiveAt(user.getSubscriptionExpiresAt(), Instant.now()).name(),
-                user.getSubscriptionStatus().grantsAccessAt(user.getSubscriptionExpiresAt(), Instant.now()),
+                grantsAccess,
                 user.getChildName(),
                 user.getProfileImageUrl(),
                 user.getSubscriptionExpiresAt());

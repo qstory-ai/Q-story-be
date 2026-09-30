@@ -23,7 +23,7 @@ import org.hibernate.annotations.UuidGenerator;
 
 /**
  * 기관-선생님 소속 관계 한 건. IA "기관 관리자 > 선생님 관리"의 기본 단위. AppUser.organization
- * (DIRECTOR/CLASS_ACCOUNT 필드)와 별개로 두는 이유는 TUTOR 한 명이 이론상 여러 기관에 소속될
+ * (DIRECTOR 필드)와 별개로 두는 이유는 TUTOR 한 명이 이론상 여러 기관에 소속될
  * 수 있게 열어 두려는 것 - 지금 UI는 한 기관만 노출한다.
  */
 @Entity

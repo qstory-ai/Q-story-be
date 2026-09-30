@@ -56,6 +56,10 @@ public class PaymentOrder {
     @Column(nullable = false)
     private int amount;
 
+    /** 기관 주문에서 결제 시점의 학생 수(amount = studentCount x 학생당 금액). 보호자 주문은 null. */
+    @Column(name = "student_count")
+    private Integer studentCount;
+
     @Column(name = "order_name", nullable = false)
     private String orderName;
 

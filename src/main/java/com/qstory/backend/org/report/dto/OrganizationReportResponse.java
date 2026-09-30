@@ -15,7 +15,7 @@ public record OrganizationReportResponse(
     public record ClassSummary(
             UUID classId,
             String className,
-            long parentCount,
+            long studentCount,
             long completionCount,
             long questionCount,
             Instant lastActivityAt) {}
