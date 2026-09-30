@@ -148,7 +148,8 @@ public class TutorStudentService {
      */
     @Transactional
     public TutorStudent enrollParentInClass(
-            AppUser parent, ClassGroup classGroup, String childNameInput, Integer birthYearInput, UUID childId) {
+            AppUser parent, ClassGroup classGroup, String childNameInput, Integer birthYearInput, UUID childId,
+            UUID rosterStudentId) {
         // 이미 등록한 아이를 고르면 이름·출생연도는 그 아이 프로필에서 가져온다.
         Child chosenChild = childId == null ? null : childRepository.findByIdAndParent_Id(childId, parent.getId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
@@ -165,7 +166,10 @@ public class TutorStudentService {
         Instant now = Instant.now();
         // 선생님이 미리 올려 둔(아직 학부모가 없는) 같은 이름의 학생이 있으면 새로 만들지 않고 그 학생에 잇는다 -
         // 일괄 등록 뒤 반 코드를 공유했거나, 학부모가 아이를 뺐다가 다시 올린 경우 명단에 같은 아이가 둘 생기지 않게.
-        TutorStudent pending = findPendingClassmate(classGroup, childName, birthYear);
+        // 학부모가 명단에서 직접 고른 학생이 있으면 그 학생, 아니면 같은 이름의 학생에 잇는다.
+        TutorStudent pending = rosterStudentId != null
+                ? requirePendingRosterStudent(classGroup, rosterStudentId)
+                : findPendingClassmate(classGroup, childName, birthYear);
         TutorStudent student;
         if (pending != null) {
             student = pending;
@@ -188,7 +192,8 @@ public class TutorStudentService {
         }
         // 아이 프로필을 먼저 정하고 중복을 확인한 뒤에 학생에 붙인다 - 기존 학생(pending)에 먼저 붙이면 조회 전
         // 자동 flush로 그 행이 먼저 저장돼 자기 자신이 "이미 등록된 아이"로 잡힌다.
-        Child child = resolveChild(parent, student, childId);
+        // 명단의 다른 이름 학생을 골랐어도 아이 프로필은 학부모가 적은 이름으로 찾거나 만든다.
+        Child child = resolveChild(parent, student, childId, childName.trim());
         // 담임이 없는 반은 (tutor_id, child_id) 유니크 인덱스가 걸리지 않아 같은 아이가 중복으로 올라올 수 있다.
         if (tutorStudentRepository.existsByClassGroup_IdAndChild_IdAndDeletedAtIsNull(classGroup.getId(), child.getId())) {
             throw ApiException.contractError(ErrorCode.DUPLICATE_CHILD_LINK, "이 아이는 이미 이 반에 등록되어 있어요.", 409);
@@ -229,6 +234,22 @@ public class TutorStudentService {
         return tutorStudentRepository.lockById(chosen.getId())
                 .filter(locked -> locked.getLinkedParentUser() == null && locked.getDeletedAt() == null)
                 .orElse(null);
+    }
+
+    /** 학부모가 고른 명단 학생 - 이 반의, 아직 학부모가 없는 학생이어야 한다. 잠가서 두 학부모가 동시에 잇지 못하게 한다. */
+    private TutorStudent requirePendingRosterStudent(ClassGroup classGroup, UUID rosterStudentId) {
+        return tutorStudentRepository.lockById(rosterStudentId)
+                .filter(student -> student.getDeletedAt() == null
+                        && student.getClassGroup() != null
+                        && student.getClassGroup().getId().equals(classGroup.getId()))
+                .map(student -> {
+                    if (student.getLinkedParentUser() != null) {
+                        throw ApiException.contractError(
+                                ErrorCode.DUPLICATE_CHILD_LINK, "이 학생은 이미 다른 보호자와 연결되어 있어요. 선생님께 확인해 주세요.", 409);
+                    }
+                    return student;
+                })
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반 명단에서 학생을 찾을 수 없어요.", 404));
     }
 
     /** 담임에게, 담임이 아직 없으면 기관 원장에게 알린다. */
@@ -488,7 +509,7 @@ public class TutorStudentService {
         student.setStatus(TutorStudentStatus.CONFIRMED);
         // 부모 쪽 아이 프로필까지 연결해야 "수락"이 완결된다 - 이 행이 없으면 부모 홈의 아이 목록에
         // 아무것도 없고, 선생님 세션의 완주 기록도 아이에게 이어지지 않는다.
-        student.setChild(resolveChild(parent, student, request == null ? null : request.childId()));
+        student.setChild(resolveChild(parent, student, request == null ? null : request.childId(), null));
         try {
             tutorStudentRepository.saveAndFlush(student);
         } catch (DataIntegrityViolationException duplicate) {
@@ -519,7 +540,8 @@ public class TutorStudentService {
      * 새 아이를 만든다. 새로 만드는 경우 아바타는 프론트 프리셋 첫 번째('fox')와 같은 기본값이라
      * 부모가 프로필에서 바꿀 수 있다. 이미 이 학생에 아이가 붙어 있으면(같은 부모의 재수락) 그대로 둔다.
      */
-    private Child resolveChild(AppUser parent, TutorStudent student, UUID requestedChildId) {
+    private Child resolveChild(AppUser parent, TutorStudent student, UUID requestedChildId, String preferredName) {
+        String childName = preferredName != null && !preferredName.isBlank() ? preferredName : student.getName();
         if (requestedChildId != null) {
             return childRepository.findByIdAndParent_Id(requestedChildId, parent.getId())
                     .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
@@ -529,7 +551,7 @@ public class TutorStudentService {
         }
         // 이름 매칭 - 선생님이 적은 별명이라 형제나 같은 별명의 아이와 겹칠 수 있다. 후보가 여럿이면
         // 출생연도로 좁히고, 그래도 여럿이면 조용히 첫 아이를 고르지 않고 부모가 childId로 고르게 한다.
-        String wanted = normalizeName(student.getName());
+        String wanted = normalizeName(childName);
         List<Child> matches = new ArrayList<>();
         for (Child existing : childRepository.findByParent_IdOrderByCreatedAtAsc(parent.getId())) {
             if (normalizeName(existing.getName()).equals(wanted)) matches.add(existing);
@@ -549,7 +571,7 @@ public class TutorStudentService {
         Instant now = Instant.now();
         return childRepository.save(Child.builder()
                 .parent(parent)
-                .name(student.getName())
+                .name(childName)
                 .ageBand(student.getBirthYear() != null
                         ? ChildAge.parentBand(student.getBirthYear())
                         : childAgeBandFor(student.getAgeBand()))

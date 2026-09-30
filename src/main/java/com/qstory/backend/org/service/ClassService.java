@@ -13,6 +13,7 @@ import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassPreviewResponse;
+import com.qstory.backend.org.dto.ClassRosterEntryResponse;
 import com.qstory.backend.org.dto.ClassResponse;
 import com.qstory.backend.org.dto.ClassStudentResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
@@ -24,6 +25,7 @@ import com.qstory.backend.org.repository.ClassGroupRepository;
 import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.org.util.JoinCodeGenerator;
 import com.qstory.backend.tutor.TutorStudentStatus;
+import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.entity.TutorStudent;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import com.qstory.backend.tutor.service.TutorStudentService;
@@ -53,13 +55,15 @@ public class ClassService {
     private final JwtService jwtService;
     private final TutorStudentService tutorStudentService;
     private final UserSummaryFactory userSummaryFactory;
+    private final StoryCompletionRepository storyCompletionRepository;
 
     public ClassService(
             ClassGroupRepository classGroupRepository, TutorStudentRepository tutorStudentRepository,
             OrganizationTutorRepository organizationTutorRepository, AppUserRepository userRepository,
             OrganizationService organizationService, JoinCodeGenerator joinCodeGenerator,
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
-            TutorStudentService tutorStudentService, UserSummaryFactory userSummaryFactory) {
+            TutorStudentService tutorStudentService, UserSummaryFactory userSummaryFactory,
+            StoryCompletionRepository storyCompletionRepository) {
         this.classGroupRepository = classGroupRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.organizationTutorRepository = organizationTutorRepository;
@@ -71,6 +75,7 @@ public class ClassService {
         this.jwtService = jwtService;
         this.tutorStudentService = tutorStudentService;
         this.userSummaryFactory = userSummaryFactory;
+        this.storyCompletionRepository = storyCompletionRepository;
     }
 
     @Transactional
@@ -155,7 +160,8 @@ public class ClassService {
                 .build();
         parent = userRepository.saveOrThrowDuplicate(parent, "이미 사용 중인 아이디예요.");
 
-        tutorStudentService.enrollParentInClass(parent, classGroup, request.childName(), request.childBirthYear(), null);
+        tutorStudentService.enrollParentInClass(
+                parent, classGroup, request.childName(), request.childBirthYear(), null, request.rosterStudentId());
         return authResponse(parent);
     }
 
@@ -167,7 +173,8 @@ public class ClassService {
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
         ClassGroup classGroup = resolveClassGroup(request.classCode());
         tutorStudentService.enrollParentInClass(
-                parent, classGroup, request.childName(), request.childBirthYear(), request.childId());
+                parent, classGroup, request.childName(), request.childBirthYear(), request.childId(),
+                request.rosterStudentId());
         return authResponse(parent);
     }
 
@@ -175,6 +182,16 @@ public class ClassService {
     @Transactional(readOnly = true)
     public ClassPreviewResponse preview(String classCode) {
         return ClassPreviewResponse.of(resolveClassGroup(classCode));
+    }
+
+    /** 반 코드로 본 명단 중 아직 학부모가 없는 학생 - 이름이 명단과 다를 때 학부모가 우리 아이를 골라 잇는다. */
+    @Transactional(readOnly = true)
+    public List<ClassRosterEntryResponse> pendingRoster(String classCode) {
+        ClassGroup classGroup = resolveClassGroup(classCode);
+        return tutorStudentRepository.findByClassGroup_IdAndLinkedParentUserIsNullAndDeletedAtIsNull(classGroup.getId()).stream()
+                .sorted(java.util.Comparator.comparing(TutorStudent::getCreatedAt))
+                .map(ClassRosterEntryResponse::of)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -186,8 +203,8 @@ public class ClassService {
     }
 
     /**
-     * 학부모가 아이를 반에서 뺀다. 학생 행은 지우지 않고 학부모 연결만 푼다(PENDING_PARENT) - 부모 계정 탈퇴와
-     * 같은 처리라, 담임이 다시 초대하거나 명단에서 지울 수 있고 지난 수업 기록은 그대로 남는다.
+     * 학부모가 아이를 반에서 뺀다. 학생 행은 지우지 않고 학부모 연결만 푼다(PENDING_PARENT) - 담임이 다시 초대하거나
+     * 명단에서 지울 수 있다. 지난 수업 리포트는 이 학부모에게 계속 보이지만, 반 소속으로 받던 이용권은 끊긴다.
      */
     @Transactional
     public void leaveClass(CurrentUser caller, UUID studentId) {
@@ -196,6 +213,8 @@ public class ClassService {
                         && found.getLinkedParentUser() != null
                         && found.getLinkedParentUser().getId().equals(caller.userId()))
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "연결된 학생을 찾을 수 없어요.", 404));
+        // 연결을 풀어도 이 아이가 참여했던 지난 수업 리포트는 이 학부모가 계속 볼 수 있게 남긴다(플레이 이용권은 끊긴다).
+        storyCompletionRepository.keepParentAccess(student.getId(), caller.userId());
         student.setLinkedParentUser(null);
         student.setLinkedAt(null);
         student.setChild(null);

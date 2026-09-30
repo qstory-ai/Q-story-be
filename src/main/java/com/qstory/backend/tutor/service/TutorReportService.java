@@ -8,10 +8,12 @@ import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.dto.TutorReportSummary;
 import com.qstory.backend.tutor.lesson.repository.LessonRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
-import com.qstory.backend.tutor.entity.TutorStudent;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -62,12 +64,16 @@ public class TutorReportService {
      */
     @Transactional(readOnly = true)
     public List<TutorReportSummary> listReportsForParent(CurrentUser caller) {
-        return storyCompletionRepository.findVisibleToLinkedParent(caller.userId()).stream()
-                .map(completion -> TutorReportSummary.of(completion, completion.getParticipants().stream()
-                        .filter(student -> student.getLinkedParentUser() != null
-                                && student.getLinkedParentUser().getId().equals(caller.userId()))
-                        .map(TutorStudent::getName)
-                        .collect(Collectors.joining(", "))))
+        // 기록마다 이 부모의 아이 이름 - 반에서 뺀 아이의 지난 기록도 남겨 둔 연결(parent_user_id)로 포함된다.
+        Map<UUID, Set<String>> namesByCompletion = new LinkedHashMap<>();
+        for (Object[] row : storyCompletionRepository.findVisibleParticipantNames(caller.userId())) {
+            namesByCompletion.computeIfAbsent(UUID.fromString((String) row[0]), ignored -> new TreeSet<>())
+                    .add((String) row[1]);
+        }
+        if (namesByCompletion.isEmpty()) return List.of();
+        return storyCompletionRepository.findByIdInOrderByCompletedAtDesc(namesByCompletion.keySet()).stream()
+                .map(completion -> TutorReportSummary.of(
+                        completion, String.join(", ", namesByCompletion.get(completion.getId()))))
                 .toList();
     }
 }

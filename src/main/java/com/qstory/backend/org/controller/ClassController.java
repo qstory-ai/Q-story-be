@@ -6,6 +6,7 @@ import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.org.dto.AssignHomeroomRequest;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassPreviewResponse;
+import com.qstory.backend.org.dto.ClassRosterEntryResponse;
 import com.qstory.backend.org.dto.ClassResponse;
 import com.qstory.backend.org.dto.ClassStudentResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
@@ -74,6 +75,14 @@ public class ClassController {
     @GetMapping("/v1/classes/by-code/{classCode}")
     public ClassPreviewResponse preview(@PathVariable String classCode) {
         return service.preview(classCode);
+    }
+
+    @Operation(summary = "List unlinked students of a class by its join code",
+            description = "No authentication required. Names of roster students who have no parent yet, so a parent whose "
+                    + "child name differs from the roster can pick their child (rosterStudentId on join).")
+    @GetMapping("/v1/classes/by-code/{classCode}/roster")
+    public List<ClassRosterEntryResponse> pendingRoster(@PathVariable String classCode) {
+        return service.pendingRoster(classCode);
     }
 
     @Operation(summary = "Join a class as a parent (this is parent signup)",
