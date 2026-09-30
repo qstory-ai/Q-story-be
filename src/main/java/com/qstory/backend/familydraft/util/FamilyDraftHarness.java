@@ -223,6 +223,15 @@ public class FamilyDraftHarness {
                         + "; text, letters, UI, speech bubbles, watermark, gore, photorealism."));
     }
 
+    /** 생성된 삽화를 스토리지에 올릴 때 쓰는 확장자 - png/jpeg 외에는 webp로 본다. */
+    public String imageExtension(String mimeType) {
+        return switch (mimeType) {
+            case "image/png" -> "png";
+            case "image/jpeg" -> "jpg";
+            default -> "webp";
+        };
+    }
+
     public List<String> toStringList(JsonNode arrayNode) {
         List<String> list = new ArrayList<>();
         arrayNode.forEach(node -> list.add(node.asText()));

@@ -27,10 +27,8 @@ import org.hibernate.type.SqlTypes;
  * 콘텐츠 테이블(story_action_family/story_fallback_segment/story_asset)에 커밋하기 때문이다. 이
  * 테이블은 그 작업의 생명주기(QUEUED -> GENERATING -> READY|FAILED)만 추적한다.
  *
- * <p>Phase 2부터 한 job이 family 하나가 아니라 최대 3개를 만든다(새로 생성된 것 + 부족분을 채우는
- * 기존 family) - 그래서 단일 resultFamilyId 대신 정확히 3개(성공적으로 채워졌다면)의
- * {familyId, label, meaning}을 담는 resultOptions로 바뀌었다(LiveBranchController의 wire 모양도
- * 동일하게 바뀜).
+ * <p>한 job은 최대 3개의 옵션(새로 생성된 family + 부족분을 채우는 기존 family)을 만들고, 그 결과를
+ * resultOptions에 담는다.
  */
 @Entity
 @Table(name = "live_branch_job")
@@ -51,7 +49,7 @@ public class LiveBranchJob {
     @Column(name = "anchor_id", nullable = false)
     private String anchorId;
 
-    /** ShadowFamilyGenerationService.redact()와 동일한 규칙으로 이메일/전화/URL/이름을 지운 아이 발화. */
+    /** FamilyDraftHarness.redact()로 이메일/전화/URL/이름을 지운 아이 발화. */
     @Column(name = "child_transcript_redacted", nullable = false, length = 500)
     private String childTranscriptRedacted;
 

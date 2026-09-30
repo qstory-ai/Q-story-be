@@ -61,12 +61,12 @@ public class ShadowFamilyController {
     @GetMapping("/v1/shadow/families/{anchorId}")
     public ResponseEntity<ShadowFamilyResponse> latestApproved(
             @Parameter(description = "Question anchor id, e.g. \"HG-Q-A\"") @PathVariable String anchorId) {
-        List<ShadowFamilyDraft> drafts = draftRepository
-                .findByCandidate_AnchorIdAndReviewStatusOrderByGeneratedAtDesc(anchorId, ReviewStatus.APPROVED);
-        if (drafts.isEmpty()) {
+        ShadowFamilyDraft draft = draftRepository
+                .findFirstByCandidate_AnchorIdAndReviewStatusOrderByGeneratedAtDesc(anchorId, ReviewStatus.APPROVED)
+                .orElse(null);
+        if (draft == null) {
             return ResponseEntity.noContent().build();
         }
-        ShadowFamilyDraft draft = drafts.get(0);
         String bucket = config.supabase().shadowAssetsBucket();
         String imageUrl = storageClient.createSignedUrl(bucket, draft.getImageObjectName(), SIGNED_URL_TTL_SECONDS);
         String audioUrl = storageClient.createSignedUrl(bucket, draft.getAudioObjectName(), SIGNED_URL_TTL_SECONDS);

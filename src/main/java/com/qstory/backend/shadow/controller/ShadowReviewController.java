@@ -1,11 +1,11 @@
 package com.qstory.backend.shadow.controller;
-import com.qstory.backend.shadow.service.ShadowReviewService;
 
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.shadow.entity.ShadowFamilyDraft;
 import com.qstory.backend.shadow.entity.ShadowIntentCandidate;
 import com.qstory.backend.shadow.service.ShadowFamilyGenerationService;
+import com.qstory.backend.shadow.service.ShadowReviewService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -21,10 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * shadow_intent_candidates에 대한 사람이 검토하는 화면 - 이 콘텐츠는 아이에게 직접 노출되는 일이 절대 없으며
- * (ShadowIntentCollectionService 참고), 검토자가 여기서 승인/거절한 이후에만 저작된 콘텐츠에 반영될 수 있다.
- * 실제 대체 스토리 콘텐츠를 작성하는 작업(후보 family를 쓰기 위해 LLM/이미지 모델을 호출하는 것)은 의도적으로
- * 이 범위에서 제외했으며, 이는 원본 저장소를 그대로 따른 것이다 - 원본에서도 shadow-generation.mjs는
- * 연결된 호출자가 없는 템플릿/검증 라이브러리였다.
+ * (ShadowIntentCollectionService 참고), 검토자가 여기서 승인한 후보만 generate-draft로 family 초안을
+ * 만들 수 있다(ShadowFamilyGenerationService).
  */
 @Tag(name = "Shadow review", description = "Internal reviewer surface for shadow_intent_candidates - normalized, repeated child intents the current content doesn't cover, collected from telemetry")
 @RestController
@@ -59,8 +57,8 @@ public class ShadowReviewController {
 
     @Operation(
             summary = "Approve a candidate",
-            description = "Marks the candidate APPROVED. Never triggers content generation itself - a human "
-                    + "still authors the replacement content elsewhere.")
+            description = "Marks the candidate APPROVED. Never triggers content generation itself - call "
+                    + "POST /{candidateId}/generate-draft separately.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Updated candidate"),
             @ApiResponse(responseCode = "404", description = "Unknown candidate id")

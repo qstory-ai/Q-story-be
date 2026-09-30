@@ -16,8 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * collect_shadow_intent_from_event / refresh_shadow_intent_candidate Postgres 트리거 쌍을
- * Java로 이식한 것이다 (예전 스키마의 나머지 부분과 함께 폐기되었고, 이 백엔드는 DB 트리거 대신
- * 애플리케이션 코드에서 그 동작을 직접 소유한다). question_result 이벤트가 저장된 직후에 동기적으로
+ * 애플리케이션 코드로 이식한 것이다. question_result 이벤트가 저장된 직후에 동기적으로
  * 실행되며, 아이가 마주하는 런타임 경로는 절대 건드리지 않는다.
  */
 @Service
