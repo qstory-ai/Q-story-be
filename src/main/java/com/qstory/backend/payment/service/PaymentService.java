@@ -73,10 +73,10 @@ public class PaymentService {
         } else {
             organization = requireDirectorOrganization(caller, "기관 이용권은 기관 관리자만 결제할 수 있어요.");
             unitAmount = config.payments().toss().organizationStudentMonthlyAmount();
-            studentCount = (int) tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(caller.orgId());
+            studentCount = (int) billableStudentCount(caller.orgId());
             if (studentCount <= 0) {
                 throw ApiException.contractError(
-                        ErrorCode.VALIDATION_FAILED, "결제할 학생이 없어요. 반에 학생이 들어온 뒤 결제해 주세요.");
+                        ErrorCode.VALIDATION_FAILED, "결제할 학생이 없어요. 학부모가 연결된 학생이 생긴 뒤 결제해 주세요.");
             }
             amount = unitAmount * studentCount;
             orderName = "Q-Story 기관 이용권 (학생 " + studentCount + "명 · " + accessDuration().toDays() + "일)";
@@ -156,15 +156,21 @@ public class PaymentService {
         return PaymentOrderResponse.of(order);
     }
 
-    /** 결제 화면에 미리 보여 줄 견적 - 지금 학생 수, 학생당 금액, 합계, 지금 결제돼 있는 인원. */
+    /** 결제 화면에 미리 보여 줄 견적 - 과금 대상 학생 수, 명단 전체 학생 수, 학생당 금액, 합계, 지금 결제된 인원. */
     @Transactional(readOnly = true)
     public OrganizationQuoteResponse quoteOrganization(CurrentUser caller) {
         Organization organization = requireDirectorOrganization(caller, "기관 이용권은 기관 관리자만 볼 수 있어요.");
-        int studentCount = (int) tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(caller.orgId());
+        int studentCount = (int) billableStudentCount(caller.orgId());
+        int rosterStudentCount = (int) tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(caller.orgId());
         int unitAmount = Math.max(0, config.payments().toss().organizationStudentMonthlyAmount());
         return new OrganizationQuoteResponse(
-                studentCount, unitAmount, unitAmount * studentCount, organization.getSubscriptionSeats(),
+                studentCount, rosterStudentCount, unitAmount, unitAmount * studentCount, organization.getSubscriptionSeats(),
                 Math.max(1, config.payments().toss().accessDays()));
+    }
+
+    /** 과금 대상 = 기관 반에서 학부모가 연결된 학생(이용권 혜택을 실제로 받는 학생). */
+    private long billableStudentCount(UUID organizationId) {
+        return tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(organizationId);
     }
 
     private Organization requireDirectorOrganization(CurrentUser caller, String forbiddenMessage) {

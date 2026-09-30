@@ -67,7 +67,7 @@ class PaymentServiceOrganizationTest {
     @Test
     void orderAmountIsStudentCountTimesUnitAmount() {
         PaymentService service = serviceWithUnit(UNIT);
-        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(orgId)).thenReturn(12L);
+        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(orgId)).thenReturn(12L);
 
         PaymentOrderResponse order = service.create(director, organizationOrder());
 
@@ -78,14 +78,14 @@ class PaymentServiceOrganizationTest {
     @Test
     void orderIsRefusedWhenThePerStudentAmountIsNotConfigured() {
         PaymentService service = serviceWithUnit(0);
-        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(orgId)).thenReturn(12L);
+        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(orgId)).thenReturn(12L);
         assertThrows(ApiException.class, () -> service.create(director, organizationOrder()));
     }
 
     @Test
     void orderIsRefusedWhenThereAreNoStudents() {
         PaymentService service = serviceWithUnit(UNIT);
-        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(orgId)).thenReturn(0L);
+        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(orgId)).thenReturn(0L);
         assertThrows(ApiException.class, () -> service.create(director, organizationOrder()));
     }
 
@@ -93,11 +93,13 @@ class PaymentServiceOrganizationTest {
     void quoteShowsCurrentStudentsAndPaidSeats() {
         PaymentService service = serviceWithUnit(UNIT);
         organization.setSubscriptionSeats(8);
-        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(orgId)).thenReturn(10L);
+        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(orgId)).thenReturn(10L);
+        when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(orgId)).thenReturn(13L);
 
         OrganizationQuoteResponse quote = service.quoteOrganization(director);
 
         assertEquals(10, quote.studentCount());
+        assertEquals(13, quote.rosterStudentCount());
         assertEquals(UNIT, quote.unitAmount());
         assertEquals(10 * UNIT, quote.amount());
         assertEquals(8, quote.currentSeats());

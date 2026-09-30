@@ -24,7 +24,7 @@ import org.springframework.stereotype.Service;
  * <p>접근권은 기관 구독과 개인 구독의 OR이다. 기관 구독이 적용되는 사람은 셋이다:
  * 원장(자기 기관), 선생님(소속 기관 중 하나라도 구독이 유효하면), 학부모(아이가 들어간 기관 반의 기관
  * 구독이 유효하고 아이가 결제한 인원 안에 들 때). 학부모의 근거는 계정 소속이 아니라 학생 명단이고, 결제
- * 인원(subscription_seats)은 기관 안에서 먼저 등록된 학생부터 채운다 - 인원 기록이 없는 예전 구독은 제한이
+ * 인원(subscription_seats)은 학부모가 연결된 학생 중 먼저 등록된 학생부터 채운다 - 인원 기록이 없는 예전 구독은 제한이
  * 없다. 모든 값을 JWT 클레임이 아니라 매 호출마다 DB에서 새로 읽는다 - 구독 상태와 명단은 토큰 발급
  * 이후에도 바뀔 수 있어서다.
  */
@@ -73,7 +73,7 @@ public class EntitlementService {
         };
     }
 
-    /** 결제한 인원 안에 드는가 - 기관 안에서 먼저 등록된 학생부터 채운다. 인원 기록이 없으면 제한이 없다. */
+    /** 결제한 인원 안에 드는가 - 학부모가 연결된 학생 중 먼저 등록된 학생부터 채운다. 인원 기록이 없으면 제한이 없다. */
     private boolean withinPaidSeats(ParentClassSeat seat) {
         Integer seats = seat.organization().getSubscriptionSeats();
         if (seats == null) {

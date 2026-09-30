@@ -56,9 +56,16 @@ public interface TutorStudentRepository extends JpaRepository<TutorStudent, UUID
             + "where s.linkedParentUser.id = :parentUserId and s.deletedAt is null")
     List<ParentClassSeat> findClassSeatsOfParent(@Param("parentUserId") UUID parentUserId);
 
-    /** 기관 안에서 이 학생보다 먼저 등록된 학생 수 - 결제한 인원 안에 드는지(순번) 판단한다. */
+    /**
+     * 기관 이용권의 과금 대상 - 기관 반에 올라 있고 학부모가 연결된 학생. 기관 이용권의 혜택(학부모의 이야기 이용)은
+     * 학부모가 연결돼야 생기므로, 초대만 받고 연결 전이거나 학부모가 반에서 뺀 학생은 세지 않는다.
+     */
+    long countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(UUID organizationId);
+
+    /** 기관 안에서 이 학생보다 먼저 등록된 과금 대상 학생 수 - 결제한 인원 안에 드는지(순번) 판단한다. */
     @Query("select count(s) from TutorStudent s where s.classGroup.organization.id = :organizationId "
-            + "and s.deletedAt is null and (s.createdAt < :createdAt or (s.createdAt = :createdAt and s.id < :studentId))")
+            + "and s.deletedAt is null and s.linkedParentUser is not null "
+            + "and (s.createdAt < :createdAt or (s.createdAt = :createdAt and s.id < :studentId))")
     long countEarlierInOrganization(
             @Param("organizationId") UUID organizationId, @Param("createdAt") Instant createdAt,
             @Param("studentId") UUID studentId);
