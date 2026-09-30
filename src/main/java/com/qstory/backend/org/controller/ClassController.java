@@ -5,6 +5,7 @@ import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.org.dto.AssignHomeroomRequest;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
+import com.qstory.backend.org.dto.ClassPreviewResponse;
 import com.qstory.backend.org.dto.ClassResponse;
 import com.qstory.backend.org.dto.ClassStudentResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
@@ -68,6 +69,13 @@ public class ClassController {
         return service.assignHomeroom(currentUserResolver.requireRole(Role.DIRECTOR), classId, request.tutorId());
     }
 
+    @Operation(summary = "Preview a class by its join code",
+            description = "No authentication required. Class, organization, and homeroom tutor names for the class invite link.")
+    @GetMapping("/v1/classes/by-code/{classCode}")
+    public ClassPreviewResponse preview(@PathVariable String classCode) {
+        return service.preview(classCode);
+    }
+
     @Operation(summary = "Join a class as a parent (this is parent signup)",
             description = "No authentication required. Creates the parent account and adds the child to the class roster using the reusable class code.")
     @PostMapping("/v1/classes/join")
@@ -77,7 +85,7 @@ public class ClassController {
     }
 
     @Operation(summary = "Add a child to a class with an existing parent account",
-            description = "PARENT only. Adds the child to the class roster using the class code; call once per child.")
+            description = "PARENT only. Adds the child to the class roster using the class code; call once per child. childId links an existing child profile instead of childName/childBirthYear.")
     @PostMapping("/v1/classes/join-existing")
     public AuthResponse joinExisting(@RequestBody JoinExistingClassRequest request) {
         return service.joinExistingParent(currentUserResolver.requireRole(Role.PARENT), request);

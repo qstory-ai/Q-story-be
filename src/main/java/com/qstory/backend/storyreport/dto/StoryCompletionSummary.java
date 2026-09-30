@@ -23,7 +23,10 @@ public record StoryCompletionSummary(
         /** 선생님 세션이면 어느 학생의 기록인지(id만 - 이름은 수업의 students로 조인). 가정 세션은 null. */
         UUID tutorStudentId,
         /** 수업 상세에서 시작한 세션이면 그 수업 id. */
-        UUID lessonId) {
+        UUID lessonId,
+        /** CLASS(반 수업 - 참여 학생 전원이 한 기록), TUTOR(개별 수업), HOME(집에서 읽은 기록). */
+        String sessionKind,
+        int participantCount) {
 
     public static StoryCompletionSummary of(StoryCompletion completion) {
         return new StoryCompletionSummary(
@@ -34,6 +37,8 @@ public record StoryCompletionSummary(
                 completion.getChild() == null ? null : completion.getChild().getId(),
                 completion.getCompanionChatSummary(),
                 completion.getTutorStudent() == null ? null : completion.getTutorStudent().getId(),
-                completion.getLesson() == null ? null : completion.getLesson().getId());
+                completion.getLesson() == null ? null : completion.getLesson().getId(),
+                completion.sessionKind(),
+                completion.getParticipants().size());
     }
 }

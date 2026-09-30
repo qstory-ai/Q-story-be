@@ -11,17 +11,22 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
@@ -39,10 +44,9 @@ import org.hibernate.type.SqlTypes;
  * 조회 시점에 이 데이터와 스토리 자체의 reportCopy로부터 리포트를 다시 만들어내며, 이는 방금 완료된
  * 세션에 대해 하는 것과 동일한 방식이다.
  *
- * <p>tutorStudent는 이 세션이 선생님이 그 학생과 진행한 수업이면 채워지고, 가정에서 부모가
- * 자유롭게 본 세션이면 null이다 - "누가 진행했는지"를 나타내는 별도 플래그를 새로 두는 대신, user가
- * 이미 실제로 세션을 진행한 계정(선생님이 진행하면 user=선생님)이라는 사실을 그대로 활용한다.
- * 이 구분 하나로 "선생님이 진행한 수업만" 부모에게 공유하는 게 가능해진다(TutorReportService 참고).
+ * <p>세션은 세 종류다. 가정 세션(부모가 진행, participants 비어 있음), 개별 수업(선생님이 학생 한 명과
+ * 진행, tutorStudent·child 채워짐), 반 수업(groupSession, participants가 참여 학생 전원). 부모는
+ * participants로 연결된 선생님 세션만 "수업 리포트"로 보고, 가정 기록과는 섞지 않는다(TutorReportService 참고).
  */
 @Entity
 @Table(name = "story_completion")
@@ -86,9 +90,26 @@ public class StoryCompletion {
     private Child child;
 
     /**
-     * 수업 상세에서 시작한 세션이면 그 수업(050). 한 번의 반 수업 세션은 참여 학생 수만큼 완주 기록을
-     * 남기고 모두 같은 lesson_id를 가진다. 수업이 삭제되면 null로 남는다.
+     * 선생님 세션에 참여한 학생(059). 개별 수업은 tutorStudent 한 명, 반 수업은 참여 학생 전원이다.
+     * 부모의 열람 권한과 "수업 리포트" 목록은 이 목록의 linkedParentUser로 정한다. 가정 세션은 비어 있다.
      */
+    @ManyToMany
+    @JoinTable(
+            name = "story_completion_participant",
+            joinColumns = @JoinColumn(name = "completion_id"),
+            inverseJoinColumns = @JoinColumn(name = "tutor_student_id"))
+    @BatchSize(size = 50)
+    @Builder.Default
+    private Set<TutorStudent> participants = new LinkedHashSet<>();
+
+    /**
+     * 반 수업 기록(059) - 여러 아이가 한 화면으로 함께 읽은 세션 하나를 한 행으로 남긴다. 발화가 누구의
+     * 것인지 알 수 없으므로 tutorStudent·child는 비워 두고, 부모에게는 "우리 반 수업 리포트"로 보여 준다.
+     */
+    @Column(name = "group_session", nullable = false)
+    private boolean groupSession;
+
+    /** 수업 상세에서 시작한 세션이면 그 수업(050). 수업이 삭제되면 null로 남는다. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "lesson_id")
     private Lesson lesson;
@@ -125,4 +146,11 @@ public class StoryCompletion {
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    /** 리포트 화면의 구분 - CLASS(반 수업), TUTOR(선생님 개별 수업), HOME(집에서 읽은 기록). */
+    public String sessionKind() {
+        if (groupSession) return "CLASS";
+        if (lesson != null || tutorStudent != null || !participants.isEmpty()) return "TUTOR";
+        return "HOME";
+    }
 }
