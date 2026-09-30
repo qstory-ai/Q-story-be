@@ -213,8 +213,11 @@ public class ClassService {
                         && found.getLinkedParentUser() != null
                         && found.getLinkedParentUser().getId().equals(caller.userId()))
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "연결된 학생을 찾을 수 없어요.", 404));
-        // 연결을 풀어도 이 아이가 참여했던 지난 수업 리포트는 이 학부모가 계속 볼 수 있게 남긴다(플레이 이용권은 끊긴다).
-        storyCompletionRepository.keepParentAccess(student.getId(), caller.userId());
+        // 연결돼 있던 동안의 수업 리포트는 연결을 풀어도 이 학부모가 계속 볼 수 있게 남긴다(플레이 이용권은 끊긴다).
+        // linkedAt이 없는 예전 연결은 기간을 알 수 없어 그 학생의 기록 전체를 남긴다.
+        storyCompletionRepository.keepParentAccess(
+                student.getId(), caller.userId(),
+                student.getLinkedAt() != null ? student.getLinkedAt() : java.time.Instant.EPOCH);
         student.setLinkedParentUser(null);
         student.setLinkedAt(null);
         student.setChild(null);

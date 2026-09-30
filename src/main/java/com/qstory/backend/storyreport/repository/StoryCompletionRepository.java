@@ -43,13 +43,18 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
     boolean isVisibleToLinkedParent(@Param("completionId") UUID completionId, @Param("parentId") UUID parentId);
 
     /**
-     * 학부모가 아이를 반에서 뺄 때 - 그 학생이 참여한 지난 수업마다 이 학부모를 남겨, 연결을 풀어도 리포트는 계속
-     * 보이게 한다. 이미 다른 학부모가 남아 있는 행은 건드리지 않는다.
+     * 학부모가 아이를 반에서 뺄 때 - 그 학생이 참여한 수업 중 이 학부모가 연결돼 있던 동안(linkedSince 이후)의
+     * 기록마다 학부모를 남겨, 연결을 풀어도 그 리포트는 계속 보이게 한다. 연결 전 기록까지 남기면 남의 아이를 잠깐
+     * 골라 잇고 빠지는 것만으로 그 아이의 지난 리포트를 영구히 보게 된다. 이미 다른 학부모가 남아 있는 행은 그대로 둔다.
      */
     @org.springframework.data.jpa.repository.Modifying
-    @Query(value = "update story_completion_participant set parent_user_id = :parentId "
-            + "where tutor_student_id = :studentId and parent_user_id is null", nativeQuery = true)
-    int keepParentAccess(@Param("studentId") UUID studentId, @Param("parentId") UUID parentId);
+    @Query(value = "update story_completion_participant p set parent_user_id = :parentId "
+            + "from story_completion c "
+            + "where c.id = p.completion_id and p.tutor_student_id = :studentId and p.parent_user_id is null "
+            + "and c.completed_at >= :linkedSince", nativeQuery = true)
+    int keepParentAccess(
+            @Param("studentId") UUID studentId, @Param("parentId") UUID parentId,
+            @Param("linkedSince") java.time.Instant linkedSince);
 
     /** 부모의 아이별 가정 기록 - 선생님 수업은 "수업 리포트"에서 따로 보므로 여기 섞지 않는다. */
     List<StoryCompletion> findByUser_IdAndChild_IdOrderByCompletedAtDesc(UUID userId, UUID childId);
