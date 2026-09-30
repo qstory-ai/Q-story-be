@@ -23,9 +23,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 내부 관리자용 엔드포인트: fe/q-story-web의 generate-story-package.mjs가 생성한 컴파일 결과물을
- * 이 백엔드의 DB에 반영한다(StoryImportService 참고). 어린이 대상 API의 일부가 아니며,
- * qstory.supabase.voice-research-cleanup-token과 동일한 방식으로 공유 비밀(shared-secret) 헤더로
+ * 내부 관리자용 엔드포인트: fe의 generate-story-package.mjs가 생성한 컴파일 결과물을 이 백엔드의 DB에
+ * 반영한다(StoryImportService 참고). 어린이 대상 API의 일부가 아니며, 공유 비밀(X-Admin-Token) 헤더로
  * 보호된다.
  */
 @Tag(name = "Story admin", description = "Internal content-authoring surface, guarded by a shared-secret header - not part of the child-facing API")
