@@ -24,18 +24,37 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
     List<StoryCompletion> findByParticipant(@Param("studentId") UUID studentId);
 
     /**
-     * 부모가 받는 "수업 리포트" - 참여 학생의 linked_parent_user_id로 조인하므로 가정 완주 기록(참여 학생 없음)은
-     * 절대 섞이지 않는다. 아이 둘이 같은 반 수업에 있어도 기록은 한 번만 나온다.
+     * 부모가 받는 "수업 리포트"의 (기록 id, 우리 아이 이름) - 참여 학생의 지금 연결된 부모이거나, 연결을 풀 때
+     * 남겨 둔 부모(060 parent_user_id)면 보인다. 가정 완주 기록(참여 학생 없음)은 절대 섞이지 않는다.
      */
-    @EntityGraph(attributePaths = {"user", "classGroup", "classGroup.organization"})
-    @Query("select distinct c from StoryCompletion c join c.participants p "
-            + "where p.linkedParentUser.id = :parentId order by c.completedAt desc")
-    List<StoryCompletion> findVisibleToLinkedParent(@Param("parentId") UUID parentId);
+    @Query(value = "select cast(p.completion_id as varchar), s.name from story_completion_participant p "
+            + "join tutor_student s on s.id = p.tutor_student_id "
+            + "where s.linked_parent_user_id = :parentId or p.parent_user_id = :parentId", nativeQuery = true)
+    List<Object[]> findVisibleParticipantNames(@Param("parentId") UUID parentId);
 
-    /** 상세 열람 권한 - 호출자가 이 세션 참여 학생의 연결된 부모인가. */
-    @Query("select count(p) > 0 from StoryCompletion c join c.participants p "
-            + "where c.id = :completionId and p.linkedParentUser.id = :parentId")
+    @EntityGraph(attributePaths = {"user", "classGroup", "classGroup.organization"})
+    List<StoryCompletion> findByIdInOrderByCompletedAtDesc(java.util.Collection<UUID> ids);
+
+    /** 상세 열람 권한 - 호출자가 이 세션 참여 학생의 연결된(또는 연결을 풀기 전 연결됐던) 부모인가. */
+    @Query(value = "select exists (select 1 from story_completion_participant p "
+            + "join tutor_student s on s.id = p.tutor_student_id "
+            + "where p.completion_id = :completionId "
+            + "and (s.linked_parent_user_id = :parentId or p.parent_user_id = :parentId))", nativeQuery = true)
     boolean isVisibleToLinkedParent(@Param("completionId") UUID completionId, @Param("parentId") UUID parentId);
+
+    /**
+     * 학부모가 아이를 반에서 뺄 때 - 그 학생이 참여한 수업 중 이 학부모가 연결돼 있던 동안(linkedSince 이후)의
+     * 기록마다 학부모를 남겨, 연결을 풀어도 그 리포트는 계속 보이게 한다. 연결 전 기록까지 남기면 남의 아이를 잠깐
+     * 골라 잇고 빠지는 것만으로 그 아이의 지난 리포트를 영구히 보게 된다. 이미 다른 학부모가 남아 있는 행은 그대로 둔다.
+     */
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = "update story_completion_participant p set parent_user_id = :parentId "
+            + "from story_completion c "
+            + "where c.id = p.completion_id and p.tutor_student_id = :studentId and p.parent_user_id is null "
+            + "and c.completed_at >= :linkedSince", nativeQuery = true)
+    int keepParentAccess(
+            @Param("studentId") UUID studentId, @Param("parentId") UUID parentId,
+            @Param("linkedSince") java.time.Instant linkedSince);
 
     /** 부모의 아이별 가정 기록 - 선생님 수업은 "수업 리포트"에서 따로 보므로 여기 섞지 않는다. */
     List<StoryCompletion> findByUser_IdAndChild_IdOrderByCompletedAtDesc(UUID userId, UUID childId);

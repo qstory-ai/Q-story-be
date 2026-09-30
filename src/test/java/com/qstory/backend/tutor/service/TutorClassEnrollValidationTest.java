@@ -13,12 +13,12 @@ class TutorClassEnrollValidationTest {
 
     @Test
     void rejectsMissingChildName() {
-        assertThrows(ApiException.class, () -> service.enrollParentInClass(null, null, "  ", 2019, null));
-        assertThrows(ApiException.class, () -> service.enrollParentInClass(null, null, null, 2019, null));
+        assertThrows(ApiException.class, () -> service.enrollParentInClass(null, null, "  ", 2019, null, null));
+        assertThrows(ApiException.class, () -> service.enrollParentInClass(null, null, null, 2019, null, null));
     }
 
     @Test
     void rejectsMissingBirthYear() {
-        assertThrows(ApiException.class, () -> service.enrollParentInClass(null, null, "민서", null, null));
+        assertThrows(ApiException.class, () -> service.enrollParentInClass(null, null, "민서", null, null, null));
     }
 }
