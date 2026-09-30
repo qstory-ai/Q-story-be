@@ -118,13 +118,13 @@ public class StoryCompletionService {
             lessonRepository.save(lesson);
         }
 
-        if (lesson != null && participants.isEmpty()) {
-            // 참여 학생이 없는 수업의 기록은 선생님 계정에만 남아 어느 부모·기관도 볼 수 없다 - 저장을 거절해
-            // 선생님이 학생을 먼저 넣게 한다.
+        if (lesson != null && lesson.getClassGroup() == null && participants.isEmpty()) {
+            // 반도 학생도 없는 수업의 기록은 선생님 계정에만 남아 어느 부모·기관도 볼 수 없다 - 저장을 거절해
+            // 선생님이 학생을 먼저 넣게 한다. 반 수업은 아직 아무도 들어오지 않았어도 반 기록으로 남긴다.
             throw ApiException.contractError(
                     ErrorCode.VALIDATION_FAILED, "이 수업에 참여 학생이 없어요. 수업에 학생을 추가한 뒤 기록해 주세요.", 400);
         }
-        if (participants.isEmpty()) {
+        if (participants.isEmpty() && (lesson == null || lesson.getClassGroup() == null)) {
             // 가정 세션 - 기록 하나.
             return StoryCompletionSummary.of(
                     saveCompletion(user, lesson, null, child, List.of(), false, request, companionChatSummary, now));

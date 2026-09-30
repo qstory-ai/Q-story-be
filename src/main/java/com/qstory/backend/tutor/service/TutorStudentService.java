@@ -155,6 +155,7 @@ public class TutorStudentService {
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
         String childName = chosenChild != null ? chosenChild.getName() : childNameInput;
         if (chosenChild != null && chosenChild.getBirthYear() != null) birthYearInput = chosenChild.getBirthYear();
+        if (chosenChild != null && birthYearInput == null) birthYearInput = birthYearFromAgeBand(chosenChild.getAgeBand());
         if (isBlank(childName)) {
             throw ApiException.contractError(ErrorCode.CHILD_INFO_REQUIRED, "아이 이름을 입력해 주세요.");
         }
@@ -387,8 +388,12 @@ public class TutorStudentService {
 
     /** 반에 새로 들어온 학생을 그 반의 아직 예정(SCHEDULED)인 수업에 참여자로 넣는다. */
     private void addToScheduledClassLessons(UUID tutorId, TutorStudent student, ClassGroup classGroup) {
-        for (Lesson lesson : lessonRepository.findByTutor_IdAndClassGroup_IdAndStatus(
-                tutorId, classGroup.getId(), LessonStatus.SCHEDULED)) {
+        // 예정 수업뿐 아니라 진행 중인 수업에도 - 수업을 연 뒤 반 초대 링크로 들어온 아이도 그 수업 기록에 함께 남는다.
+        List<Lesson> openLessons = new ArrayList<>(lessonRepository.findByTutor_IdAndClassGroup_IdAndStatus(
+                tutorId, classGroup.getId(), LessonStatus.SCHEDULED));
+        openLessons.addAll(lessonRepository.findByTutor_IdAndClassGroup_IdAndStatus(
+                tutorId, classGroup.getId(), LessonStatus.IN_PROGRESS));
+        for (Lesson lesson : openLessons) {
             if (lesson.getStudents().stream().noneMatch(p -> p.getId().equals(student.getId()))) {
                 lesson.getStudents().add(student);
                 lesson.setUpdatedAt(Instant.now());
@@ -580,6 +585,13 @@ public class TutorStudentService {
                 .createdAt(now)
                 .updatedAt(now)
                 .build());
+    }
+
+    /** 출생연도 없이 연령대("6-7")만 있는 예전 아이 프로필 - 낮은 나이로 출생연도를 짐작한다. 모르면 null. */
+    private static Integer birthYearFromAgeBand(String ageBand) {
+        if (ageBand == null) return null;
+        java.util.regex.Matcher age = DIGITS.matcher(ageBand);
+        return age.find() ? ChildAge.currentYear() - Integer.parseInt(age.group()) : null;
     }
 
     private static String normalizeName(String name) {

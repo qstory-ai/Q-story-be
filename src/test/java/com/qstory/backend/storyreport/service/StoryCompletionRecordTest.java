@@ -89,6 +89,17 @@ class StoryCompletionRecordTest {
     }
 
     @Test
+    void classLessonIsSavedEvenBeforeAnyoneJoins() {
+        ClassGroup moonClass = ClassGroup.builder().id(UUID.randomUUID()).name("달님반").build();
+        Lesson emptyLesson = lesson(moonClass);
+
+        StoryCompletionSummary empty = service.record(caller, request(emptyLesson.getId()));
+        assertEquals("CLASS", empty.sessionKind());
+        assertEquals(0, empty.participantCount());
+
+    }
+
+    @Test
     void individualLessonStaysTheStudentsRecord() {
         TutorStudent minseo = student("민서", parent());
         Lesson lesson = lesson(null, minseo);
