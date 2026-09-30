@@ -37,7 +37,7 @@ spring:
     hibernate:
       # The SQL under db/schema owns the schema; Hibernate only checks that the entities still
       # match it, so a mapping change without matching SQL fails at boot instead of silently
-      # altering a table the way ddl-auto=update used to.
+      # altering a table.
       ddl-auto: validate
     properties:
       hibernate:
@@ -62,14 +62,12 @@ qstory:
     open-router:
       api-key: ${OPENROUTER_API_KEY:}
       llm-model: ${OPENROUTER_LLM_MODEL:google/gemini-3.6-flash}
-      # Phase 2 3단계 파이프라인의 1단계(safety_scope_gate) 전용 - 빠르고 저렴한 모델. 별도로
-      # 지정하지 않으면 llm-model과 같은 모델을 쓰도록 기본값을 llm-model에 겹쳐 둔다(동작 변화 없음).
+      # 3단계 라우팅 파이프라인의 1단계(safety_scope_gate) 전용 - 빠르고 저렴한 모델. 따로 지정하지
+      # 않으면 llm-model과 같은 모델을 쓴다.
       safety-model: ${OPENROUTER_SAFETY_MODEL:${OPENROUTER_LLM_MODEL:google/gemini-3.6-flash}}
       image-model: ${OPENROUTER_IMAGE_MODEL:google/gemini-3.1-flash-image}
     # TTS는 OpenRouter를 거치지 않고 Gemini의 Interactions API(generativelanguage.googleapis.com)를
-    # 직접 호출한다 - google/gemini-3.1-flash-tts-preview는 OpenRouter 모델 카탈로그에 없어서(직접
-    # 조회로 확인) OpenRouter 경유로는 매번 OPENROUTER_TTS_FAILED로 실패했다. Sulafat 등 프리셋
-    # 목소리 이름도 Gemini 자체 API 전용이라 OpenRouter의 다른 provider에서는 통하지 않는다.
+    # 직접 호출한다 - gemini-*-tts-preview 모델과 Sulafat 등 프리셋 목소리는 OpenRouter 카탈로그에 없다.
     gemini:
       api-key: ${GEMINI_API_KEY:}
       tts-model: ${GEMINI_TTS_MODEL:gemini-3.1-flash-tts-preview}
@@ -89,13 +87,12 @@ qstory:
     shadow-assets-bucket: ${SUPABASE_SHADOW_ASSETS_BUCKET:qstory-shadow-assets}
     # 임포트된 정적 내레이션/브릿지 오디오(`<slug>/audio/x.mp3`, fe `npm run assets:upload`가 올림)와
     # 편집된 문장에서 재렌더링된 내레이션(`<storyId>/<segmentId>.mp3`)이 함께 사는 공개 버킷.
-    # GET /v1/stories/{id}/content의 asset.url은 여기 공개 URL이다(StoryContentAssemblyService.assetUrl).
+    # GET /v1/stories/{id}/content의 asset.url은 여기 공개 URL이다(StoryAssetUrls).
     story-audio-bucket: ${SUPABASE_STORY_AUDIO_BUCKET:qstory-story-audio}
     # 임포트된 정적 삽화(`<slug>/illustrations/x.jpg`)와 LiveBranchExecutionWorker가 실시간으로 생성한
     # 분기 삽화가 함께 사는 공개 버킷. 역시 asset.url이 여기를 가리킨다.
     story-image-bucket: ${SUPABASE_STORY_IMAGE_BUCKET:qstory-story-images}
     profile-image-bucket: ${SUPABASE_PROFILE_IMAGE_BUCKET:qstory-profile-images}
-    voice-research-cleanup-token: ${QSTORY_RESEARCH_CLEANUP_TOKEN:}
   admin:
     story-import-token: ${QSTORY_STORY_IMPORT_TOKEN:}
   conversation-record:

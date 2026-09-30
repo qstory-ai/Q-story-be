@@ -37,6 +37,7 @@ import com.qstory.backend.identity.util.AuthValidator;
 import java.time.Duration;
 import java.time.Instant;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import javax.imageio.ImageIO;
 import java.util.Optional;
@@ -54,7 +55,7 @@ public class AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
-    /** 의도적으로 짧게 유지한다 - 학급 초대(class invite)와 달리, 이 토큰은 계정의 비밀번호를 다시 쓸 수 있다. */
+    /** 의도적으로 짧게 유지한다 - 초대 토큰과 달리, 이 토큰은 계정의 비밀번호를 다시 쓸 수 있다. */
     private static final Duration PASSWORD_RESET_TTL = Duration.ofMinutes(30);
 
     /** 탈퇴 사유 - 자유 텍스트 대신 고정 목록으로 받아 통계를 낼 수 있게 한다. 문구는 프론트 MyPageDeleteAccountPage와 맞춰야 한다. */
@@ -111,20 +112,14 @@ public class AuthService {
     }
 
     /**
-     * 반 코드 없이 가입하는 "독립" 학부모 - 아이가 제휴 유치원에 다니지 않는 경우다. organization/
-     * classGroup 둘 다 null이며(AppUser.java 참고), 접근은 EntitlementService의 개인 구독 경로로만
-     * 판단된다(기관 구독 경로는 orgId가 없으니 자동으로 매치되지 않는다). 반 코드로 가입하는
-     * 학부모는 여전히 ClassService.join()을 통해서만 만들어진다.
+     * 반 코드 없이 가입하는 "독립" 학부모. 반 코드로 가입하는 학부모는 ClassService.join()이 만든다.
      */
     @Transactional
     public AuthResponse signupParent(SignupOrganizationOwnerRequest request) {
         return createAccount(Role.PARENT, request);
     }
 
-    /**
-     * 선생님 - 1:1 수업을 진행하는 셀프서비스 고객 역할이다. organization/
-     * classGroup 둘 다 null이며, tutor 패키지의 TutorStudent가 이 계정이 등록한 학생을 소유한다.
-     */
+    /** 선생님 - 셀프서비스 고객 역할. 이 계정이 등록한 학생은 tutor 패키지의 TutorStudent가 소유한다. */
     @Transactional
     public AuthResponse signupTutor(SignupOrganizationOwnerRequest request) {
         return createAccount(Role.TUTOR, request);
@@ -286,7 +281,7 @@ public class AuthService {
         BufferedImage decoded;
         try {
             bytes = image.getBytes();
-            decoded = ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+            decoded = ImageIO.read(new ByteArrayInputStream(bytes));
         } catch (IOException exception) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "이미지 파일을 읽을 수 없어요.");
         }

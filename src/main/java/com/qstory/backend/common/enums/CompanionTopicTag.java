@@ -34,8 +34,4 @@ public enum CompanionTopicTag {
 
     public static final List<String> ALL_LABELS =
             Arrays.stream(values()).map(CompanionTopicTag::label).toList();
-
-    public static CompanionTopicTag fromLabel(String label) {
-        return Arrays.stream(values()).filter(tag -> tag.label.equals(label)).findFirst().orElse(null);
-    }
 }

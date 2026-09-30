@@ -30,12 +30,9 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     Optional<AppUser> findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(UUID organizationId, Role role);
 
     /**
-     * AuthService.createAccount()/loginOrSignupWithOAuth(), ClassService.create()/join(),
-     * TutorStudentService.newParent()가 각자 따로 갖고 있던 "saveAndFlush 하고
-     * DataIntegrityViolationException이면 LOGIN_ID_ALREADY_REGISTERED로 변환" 패턴을 하나로
-     * 모았다. saveAndFlush를 쓰는 이유(save가 아니라)는 AuthService.createAccount()의 원래
-     * 주석 참고 - 클라이언트가 미리 만든 @UuidGenerator id를 쓰면 INSERT가 커밋 시점까지
-     * 지연될 수 있어, 여기서 강제로 flush해야 제약 조건 위반을 동기적으로 catch할 수 있다.
+     * 새 계정을 저장하고 unique 제약 위반(주로 login_id 중복)을 LOGIN_ID_ALREADY_REGISTERED로 변환한다.
+     * save가 아니라 saveAndFlush인 이유: INSERT가 커밋 시점까지 지연될 수 있어, 여기서 flush해야
+     * 제약 위반을 동기적으로 catch할 수 있다.
      */
     default AppUser saveOrThrowDuplicate(AppUser user, String safeDetail) {
         try {

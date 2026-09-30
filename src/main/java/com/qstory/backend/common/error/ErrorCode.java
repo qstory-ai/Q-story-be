@@ -2,16 +2,13 @@ package com.qstory.backend.common.error;
 
 /**
  * {@link ApiException}으로 던져지는 모든 코드 - 파이프라인이 실행되기 전에 걸러지는 요청 형식
- * 위반(검증, 크기 제한, CORS, 알 수 없는 라우트)이다. server.mjs, question-contract.mjs,
- * narration-contract.mjs, story-registry.mjs의 contractError() 호출부에서 취합했다.
- * defaultStatus는 그 호출부들이 실제로 사용했던 HTTP 상태 코드다.
+ * 위반, 인증/인가 실패 등. 모두 {ok:false, failure:{code,...}} 한 가지 형태로 응답된다.
  */
 public enum ErrorCode {
     MISSING_REQUEST_CONTEXT(400),
     INVALID_REQUEST_CONTEXT(400),
     UNSUPPORTED_AUDIO_TYPE(415),
     INVALID_TEXT_QUESTION(400),
-    ORIGIN_NOT_ALLOWED(403),
     AUDIO_TOO_LARGE(413),
     EMPTY_AUDIO(400),
     UNSUPPORTED_CONTENT_TYPE(415),
@@ -40,7 +37,6 @@ public enum ErrorCode {
     INVALID_INVITE(410),
     INVALID_PASSWORD_RESET_TOKEN(410),
     ORGANIZATION_ALREADY_EXISTS(409),
-    ORGANIZATION_NOT_CREATED(404),
     OAUTH_TOKEN_INVALID(401),
     OAUTH_ROLE_REQUIRED(400),
     OAUTH_EMAIL_ALREADY_REGISTERED(409),
@@ -49,11 +45,6 @@ public enum ErrorCode {
     STALE_REVISION(409),
     ENTITLEMENT_REQUIRED(402),
 
-    // 예전에는 별도의 EdgeErrorCode/EdgeException 체계({ok:false, error:'snake_case'} 응답 형태)로
-    // 처리되던 코드들 - beta-events/voice-research/story-import가 옛 Supabase Edge Function을 그대로
-    // 이식하면서 그 응답 형태까지 함께 들여온 것이었는데, 실제로 이 형태를 파싱하는 프론트엔드
-    // 소비자가 하나도 없어서(다들 response.ok만 확인) 굳이 두 체계를 유지할 이유가 없었다. 여기로
-    // 합쳐서 모든 요청 검증 실패가 하나의 {ok:false, failure:{code,...}} 형태로 응답한다.
     PAYLOAD_TOO_LARGE(413),
     INVALID_PAYLOAD(400),
     UNSUPPORTED_FIELD(400),
@@ -69,8 +60,7 @@ public enum ErrorCode {
     /** 같은 선생님의 다른 학생 등록에 이미 연결된 아이 프로필. */
     DUPLICATE_CHILD_LINK(409),
     /** 선생님 운영 반에 반 코드로 들어올 때 학생 명단에 올릴 아이 이름·출생연도가 필요하다. */
-    CHILD_INFO_REQUIRED(400),
-    UNSUPPORTED_ACTION(400);
+    CHILD_INFO_REQUIRED(400);
 
     private final int defaultStatus;
 

@@ -28,8 +28,4 @@ public enum CompanionValueTag {
 
     public static final List<String> ALL_LABELS =
             Arrays.stream(values()).map(CompanionValueTag::label).toList();
-
-    public static CompanionValueTag fromLabel(String label) {
-        return Arrays.stream(values()).filter(tag -> tag.label.equals(label)).findFirst().orElse(null);
-    }
 }

@@ -11,9 +11,8 @@ import java.io.InputStream;
 import java.util.Base64;
 
 /**
- * server.mjs의 readAudioBody()/readJsonBody()/decodeBase64Audio()와 동일하게, 크기를 직접
- * 검사하는 수동 루프로 요청 바디를 읽는다 - Spring의 자동 바디 바인딩은 이런 제한을 그에 맞는
- * 에러 코드와 함께 강제해주지 않으므로, 여기서는 대신 바디를 raw 바이트로 직접 읽는다.
+ * 크기를 직접 검사하는 수동 루프로 요청 바디를 raw 바이트로 읽는다 - Spring의 자동 바디 바인딩은
+ * 이런 제한을 그에 맞는 에러 코드(AUDIO_TOO_LARGE 등)와 함께 강제해주지 않는다.
  */
 public final class HttpBodyReader {
 
