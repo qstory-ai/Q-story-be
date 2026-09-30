@@ -65,7 +65,9 @@ public class OrganizationUsageService {
                         completion.getStoryId(),
                         completion.getTutorStudent() != null
                                 ? completion.getTutorStudent().getName()
-                                : completion.getUser().getDisplayName(),
+                                : completion.isGroupSession() && completion.getClassGroup() != null
+                                        ? completion.getClassGroup().getName()
+                                        : completion.getUser().getDisplayName(),
                         completion.getCompletedAt()))
                 .toList();
 

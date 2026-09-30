@@ -147,7 +147,13 @@ public class TutorStudentService {
      * 같은 부모가 아이 여러 명을 올리려면 아이마다 이 경로를 한 번씩 거치면 된다.
      */
     @Transactional
-    public TutorStudent enrollParentInClass(AppUser parent, ClassGroup classGroup, String childName, Integer birthYearInput) {
+    public TutorStudent enrollParentInClass(
+            AppUser parent, ClassGroup classGroup, String childNameInput, Integer birthYearInput, UUID childId) {
+        // 이미 등록한 아이를 고르면 이름·출생연도는 그 아이 프로필에서 가져온다.
+        Child chosenChild = childId == null ? null : childRepository.findByIdAndParent_Id(childId, parent.getId())
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
+        String childName = chosenChild != null ? chosenChild.getName() : childNameInput;
+        if (chosenChild != null && chosenChild.getBirthYear() != null) birthYearInput = chosenChild.getBirthYear();
         if (isBlank(childName)) {
             throw ApiException.contractError(ErrorCode.CHILD_INFO_REQUIRED, "아이 이름을 입력해 주세요.");
         }
@@ -182,7 +188,7 @@ public class TutorStudentService {
         }
         // 아이 프로필을 먼저 정하고 중복을 확인한 뒤에 학생에 붙인다 - 기존 학생(pending)에 먼저 붙이면 조회 전
         // 자동 flush로 그 행이 먼저 저장돼 자기 자신이 "이미 등록된 아이"로 잡힌다.
-        Child child = resolveChild(parent, student, null);
+        Child child = resolveChild(parent, student, childId);
         // 담임이 없는 반은 (tutor_id, child_id) 유니크 인덱스가 걸리지 않아 같은 아이가 중복으로 올라올 수 있다.
         if (tutorStudentRepository.existsByClassGroup_IdAndChild_IdAndDeletedAtIsNull(classGroup.getId(), child.getId())) {
             throw ApiException.contractError(ErrorCode.DUPLICATE_CHILD_LINK, "이 아이는 이미 이 반에 등록되어 있어요.", 409);
@@ -425,8 +431,11 @@ public class TutorStudentService {
 
     private static TutorInvitePreviewResponse previewOf(TutorInvite invite) {
         TutorStudent student = invite.getTutorStudent();
+        ClassGroup classGroup = student.getClassGroup();
         return new TutorInvitePreviewResponse(
-                student.getName(), student.currentAgeBand(), student.getTutor().getDisplayName(), student.getBirthYear());
+                student.getName(), student.currentAgeBand(), student.getTutor().getDisplayName(), student.getBirthYear(),
+                classGroup == null ? null : classGroup.getName(),
+                classGroup == null || classGroup.getOrganization() == null ? null : classGroup.getOrganization().getName());
     }
 
     /**

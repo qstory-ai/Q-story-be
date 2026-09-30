@@ -12,6 +12,7 @@ import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
+import com.qstory.backend.org.dto.ClassPreviewResponse;
 import com.qstory.backend.org.dto.ClassResponse;
 import com.qstory.backend.org.dto.ClassStudentResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
@@ -154,7 +155,7 @@ public class ClassService {
                 .build();
         parent = userRepository.saveOrThrowDuplicate(parent, "이미 사용 중인 아이디예요.");
 
-        tutorStudentService.enrollParentInClass(parent, classGroup, request.childName(), request.childBirthYear());
+        tutorStudentService.enrollParentInClass(parent, classGroup, request.childName(), request.childBirthYear(), null);
         return authResponse(parent);
     }
 
@@ -165,8 +166,15 @@ public class ClassService {
         AppUser parent = userRepository.lockActiveById(caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
         ClassGroup classGroup = resolveClassGroup(request.classCode());
-        tutorStudentService.enrollParentInClass(parent, classGroup, request.childName(), request.childBirthYear());
+        tutorStudentService.enrollParentInClass(
+                parent, classGroup, request.childName(), request.childBirthYear(), request.childId());
         return authResponse(parent);
+    }
+
+    /** 반 초대 링크 미리보기 - 로그인 없이 반 코드만으로 기관·반·담임 이름을 보여 준다. */
+    @Transactional(readOnly = true)
+    public ClassPreviewResponse preview(String classCode) {
+        return ClassPreviewResponse.of(resolveClassGroup(classCode));
     }
 
     @Transactional(readOnly = true)

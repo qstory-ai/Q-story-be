@@ -8,8 +8,10 @@ import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.dto.TutorReportSummary;
 import com.qstory.backend.tutor.lesson.repository.LessonRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
+import com.qstory.backend.tutor.entity.TutorStudent;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,7 +36,7 @@ public class TutorReportService {
         this.lessonRepository = lessonRepository;
     }
 
-    /** 수업 하나의 완주 기록(참여 학생별 한 행) - 소유하지 않은 수업 id면 404. */
+    /** 수업 하나의 완주 기록 - 소유하지 않은 수업 id면 404. */
     @Transactional(readOnly = true)
     public List<StoryCompletionSummary> listLessonCompletions(CurrentUser caller, UUID lessonId) {
         lessonRepository.findByIdAndTutor_Id(lessonId, caller.userId())
@@ -44,25 +46,28 @@ public class TutorReportService {
                 .toList();
     }
 
-    /** 선생님 자신이 등록한 학생 하나에 대한 세션 기록 - 소유하지 않은 학생 id면 404. */
+    /** 선생님 자신이 등록한 학생 하나가 참여한 세션 기록(반 수업 포함) - 소유하지 않은 학생 id면 404. */
     @Transactional(readOnly = true)
     public List<StoryCompletionSummary> listStudentCompletions(CurrentUser caller, UUID studentId) {
         tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(studentId, caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
-        return storyCompletionRepository.findByTutorStudent_IdOrderByCompletedAtDesc(studentId).stream()
+        return storyCompletionRepository.findByParticipant(studentId).stream()
                 .map(StoryCompletionSummary::of)
                 .toList();
     }
 
     /**
-     * 부모가 연결된 선생님(들)로부터 받은 기록 - 부모 자신의 가정 완주 기록은 여기 절대 섞이지
-     * 않는다. @Transactional(readOnly=true) 필수 - TutorReportSummary.of()가 지연 로딩된
-     * completion.getTutorStudent().getName()/.getTutor().getDisplayName()을 읽는다.
+     * 부모가 연결된 선생님(들)로부터 받은 기록(개별·반 수업) - 부모 자신의 가정 완주 기록은 여기 절대 섞이지
+     * 않는다. 학생 이름은 참여 학생 중 이 부모에게 연결된 아이만 - 반 친구 이름은 내보내지 않는다.
      */
     @Transactional(readOnly = true)
     public List<TutorReportSummary> listReportsForParent(CurrentUser caller) {
-        return storyCompletionRepository.findByTutorStudent_LinkedParentUser_IdOrderByCompletedAtDesc(caller.userId()).stream()
-                .map(TutorReportSummary::of)
+        return storyCompletionRepository.findVisibleToLinkedParent(caller.userId()).stream()
+                .map(completion -> TutorReportSummary.of(completion, completion.getParticipants().stream()
+                        .filter(student -> student.getLinkedParentUser() != null
+                                && student.getLinkedParentUser().getId().equals(caller.userId()))
+                        .map(TutorStudent::getName)
+                        .collect(Collectors.joining(", "))))
                 .toList();
     }
 }
