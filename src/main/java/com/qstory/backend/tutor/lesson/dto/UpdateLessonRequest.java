@@ -23,6 +23,4 @@ public record UpdateLessonRequest(
         List<String> storyIds,
         Boolean applyToFutureInSeries,
         /** null이면 그대로. 반을 바꾸면서 studentIds를 안 보내면 새 반의 학생으로 참여 학생을 다시 채운다. */
-        UUID classGroupId,
-        /** true면 반 수업을 개인 수업으로 바꾼다(classGroupId가 null이어야 한다 - null은 "그대로"라서 따로 둔다). */
-        Boolean clearClassGroup) {}
+        UUID classGroupId) {}
