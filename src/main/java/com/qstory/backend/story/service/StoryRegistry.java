@@ -1,7 +1,7 @@
 package com.qstory.backend.story.service;
-import com.qstory.backend.story.repository.StoryContentRepository;
-import com.qstory.backend.story.StoryManifest;
 
+import com.qstory.backend.story.StoryManifest;
+import com.qstory.backend.story.repository.StoryContentRepository;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -18,8 +18,6 @@ import org.springframework.stereotype.Component;
 @Component
 @Order(1)
 public class StoryRegistry implements ApplicationRunner {
-
-    public static final String DEFAULT_BETA_STORY_ID = "HG";
 
     private final StoryContentRepository contentRepository;
 
@@ -57,9 +55,5 @@ public class StoryRegistry implements ApplicationRunner {
     /** 공개 요청 페이로드(예: voice-research 업로드)는 내부 id가 아니라 slug로 스토리를 지정한다. */
     public StoryManifest getBySlug(String slug) {
         return registryBySlug.get(slug);
-    }
-
-    public StoryManifest getDefaultBetaStory() {
-        return registry.get(DEFAULT_BETA_STORY_ID);
     }
 }

@@ -2,7 +2,6 @@ package com.qstory.backend.choicecopy.service;
 
 import com.qstory.backend.choicecopy.ChoiceCopyVariant;
 import com.qstory.backend.provider.openrouter.RouteOption;
-import com.qstory.backend.story.ActionFamily;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -15,10 +14,6 @@ public class ChoiceCopyService {
 
     public ChoiceCopyService(ChoiceCopyRegistry copyBank) {
         this.copyBank = copyBank;
-    }
-
-    public record CopyExample(String actionFamilyId, List<Example> examples) {
-        public record Example(String label, String meaning) {}
     }
 
     /** choice-copy.mjs의 stableIndex()와 동일한, UTF-8 코드 포인트에 대한 31배수 문자열 해시. */
@@ -44,15 +39,5 @@ public class ChoiceCopyService {
             result.add(option.withCopy(variant.label(), variant.meaning()));
         }
         return result;
-    }
-
-    public List<CopyExample> choiceCopyBankForFamilies(List<ActionFamily> families) {
-        return families.stream()
-                .map(family -> new CopyExample(
-                        family.id(),
-                        copyBank.variantsFor(family.id()).stream()
-                                .map(variant -> new CopyExample.Example(variant.label(), variant.meaning()))
-                                .toList()))
-                .toList();
     }
 }

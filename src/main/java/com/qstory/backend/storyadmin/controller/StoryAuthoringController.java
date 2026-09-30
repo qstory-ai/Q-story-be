@@ -30,10 +30,9 @@ import org.springframework.web.bind.annotation.RestController;
  * 이것들은 저작 도구가 필요로 하는 조각 단위 쓰기 작업이며, 그중 어느 것을 호출하든 스토리의
  * 리비전 이력에 기록이 추가된다.
  *
- * <p>Role.DIRECTOR가 아니라 Role.STAFF 권한으로 제한된다 - DIRECTOR는 공개 가입을 통해 얻을 수
- * 있는 셀프서비스 고객 역할이며, 예전에 이 자리에서 DIRECTOR를 재사용했을 때는 가입한 고객이라면
- * 누구나 아무 스토리든 수정/되돌리기(revert)할 수 있었다. STAFF는 AuthController의 관리자
- * 토큰으로 보호되는 경로를 통해서만 발급될 수 있다.
+ * <p>Role.DIRECTOR가 아니라 Role.STAFF 권한으로 제한된다 - DIRECTOR는 공개 가입으로 얻는 셀프서비스
+ * 고객 역할이라 이것을 쓰면 가입한 누구나 스토리를 수정/되돌리기할 수 있게 된다. STAFF는
+ * AuthController의 관리자 토큰으로 보호되는 경로를 통해서만 발급된다.
  */
 @Tag(name = "Story authoring", description = "Per-piece story edits with revision history")
 @RestController

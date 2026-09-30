@@ -1,5 +1,4 @@
 package com.qstory.backend.storyadmin.controller;
-import com.qstory.backend.storyadmin.service.StoryImportService;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -7,7 +6,7 @@ import com.qstory.backend.common.error.FailureBody;
 import com.qstory.backend.common.util.AdminTokenGuard;
 import com.qstory.backend.common.util.HttpBodyReader;
 import com.qstory.backend.common.util.HttpJsonWriter;
-import com.qstory.backend.config.AppProperties;
+import com.qstory.backend.storyadmin.service.StoryImportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
@@ -50,9 +49,9 @@ public class StoryImportController {
             description = "Body is {generatedContent, packageData} - the two JSON files "
                     + "fe/q-story-web's generate-story-package.mjs produces, posted together verbatim by the "
                     + "frontend's scripts/import-story-to-backend.mjs. Every import is a full delete-and-reinsert "
-                    + "of the target story's scenes/segments (StoryEntity's own anchors/action-families/cast rows "
-                    + "are untouched, except each fallback response's requiresFamilyId/rejoinSlot/rejoinTarget "
-                    + "fields, which are updated in place). Reloads the in-memory content cache on success, so "
+                    + "of the target story's scenes/segments, cast and assets, and of its AUTHORED action families "
+                    + "(anchors are upserted by id; LIVE_GENERATED families and their branch art are preserved). "
+                    + "Reloads the in-memory content cache on success, so "
                     + "GET /v1/stories/{id}/content reflects the new content immediately. Max 4MB.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Import counts",

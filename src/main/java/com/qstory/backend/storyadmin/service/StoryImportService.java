@@ -47,6 +47,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -165,9 +168,8 @@ public class StoryImportService {
 
         // LiveBranchExecutionWorker가 사람 검수 없이 실시간으로 커밋한 origin=LIVE_GENERATED
         // family(그리고 그 fallback segment/삽화 asset)는 재임포트가 절대 건드리면 안 된다. 그래서
-        // 예전처럼 anchor를 통째로 delete-cascade(-> family 전부 cascade 삭제)하지 않는다: anchor는
-        // id로 업서트(save()가 이미 동일 id 행을 병합-갱신한다 - importCast/importAssets 주석 참고)
-        // 하고, family는 origin=AUTHORED인 것만 먼저 지운 뒤 이 페이로드의 family로 새로 채운다.
+        // anchor를 delete-cascade하지 않고 id로 업서트(save()가 동일 id 행을 병합-갱신)하며, family는
+        // origin=AUTHORED인 것만 먼저 지운 뒤 이 페이로드의 family로 새로 채운다.
         List<String> existingAnchorIds = anchorRepository.findByStory_Id(storyId).stream()
                 .map(StoryAnchor::getId)
                 .toList();
@@ -179,23 +181,21 @@ public class StoryImportService {
 
         castRepository.deleteAll(castRepository.findByStory_Id(storyId));
         // 재삽입 전에 flush(): 하나의 트랜잭션 안에서 Hibernate는 모든 INSERT를 모든 DELETE보다
-        // 앞에 실행하는데, StoryCast는 여기서 유일하게 생성된 UUID 키에 더해 비즈니스 유니크 키
-        // (story_id, cast_tag)까지 가진 엔티티다 - 그래서 새 행이, 아직 삭제되지 않은 기존 행과
-        // 그 제약 조건에서 충돌한다. 나머지 엔티티들은 할당된 문자열 id를 사용하며, 이 경우 재임포트는
-        // 삽입이 아니라 병합(merge)된다. 이 flush가 없으면 스토리를 두 번 임포트할 때마다 항상
-        // 실패했다.
+        // 앞에 실행하는데, StoryCast는 생성된 UUID 키에 더해 비즈니스 유니크 키(story_id, cast_tag)까지
+        // 가져서 새 행이 아직 삭제되지 않은 기존 행과 그 제약 조건에서 충돌한다. 할당된 문자열 id를
+        // 쓰는 엔티티들은 재임포트 시 삽입이 아니라 병합(merge)되므로 이 문제가 없다.
         castRepository.flush();
         importCast(cast, story);
 
         // asset은 family처럼 origin 컬럼이 없으므로(StoryAsset.familyId는 조인이 아니라 평범한
         // 문자열 컬럼), LIVE_GENERATED family에 속한 삽화(BRANCH_ART, familyId로 연결됨)만 골라
-        // 삭제 대상에서 뺀다 - 그 외 asset(권위 있는 SCENE_ART/BRANCH_ART/BRIDGE/NARRATION 전부)은
-        // 예전처럼 전부 지우고 이 페이로드로 다시 채운다. 재삽입 전에 flush하는 이유는 위 cast와
-        // 동일하다(identity 키 + 비즈니스 유니크 키 (story_id, slug)).
-        List<String> liveGeneratedFamilyIds = familyRepository
+        // 삭제 대상에서 뺀다 - 그 외 asset(SCENE_ART/BRANCH_ART/BRIDGE/NARRATION)은 전부 지우고 이
+        // 페이로드로 다시 채운다. 재삽입 전에 flush하는 이유는 위 cast와 동일하다(identity 키 +
+        // 비즈니스 유니크 키 (story_id, slug)).
+        Set<String> liveGeneratedFamilyIds = familyRepository
                 .findByAnchor_Story_IdAndOrigin(storyId, FamilyOrigin.LIVE_GENERATED).stream()
                 .map(StoryActionFamily::getId)
-                .toList();
+                .collect(Collectors.toSet());
         List<StoryAsset> assetsToDelete = assetRepository.findByStory_IdOrderBySlugAsc(storyId).stream()
                 .filter(asset -> asset.getFamilyId() == null || !liveGeneratedFamilyIds.contains(asset.getFamilyId()))
                 .toList();
@@ -203,15 +203,10 @@ public class StoryImportService {
         assetRepository.flush();
         int assetCount = importAssets(packageData.path("assets"), story);
         importRoutePrompt(packageData.path("prompt"));
-        // 프론트 콘텐츠 빌드 파이프라인이 아직 이 두 섹션을 만들어 보내지 않을 수 있다(Phase 2
-        // §1/§4의 backend-only 시점 - StoryImportServiceTest 참고) - 그 경우 조용히 건너뛰고 SQL
-        // 시드 마이그레이션이 채운 행을 그대로 둔다.
+        // visualReferencePacks/personas는 프론트 파이프라인이 아직 보내지 않는 페이로드도 있을 수 있어,
+        // 없으면 조용히 건너뛰고 기존(시드 마이그레이션) 행을 그대로 둔다. 함께 실려 오는
+        // discussionBank/visualProvenance/languageRules는 런타임이 읽지 않는 저작 문서라 DB에 넣지 않는다.
         importVisualReferencePacks(packageData.path("visualReferencePacks"), story);
-        // §2.3 페르소나 - 프론트 파이프라인이 아직 이 필드를 보내지 않는 구버전 페이로드도 있을 수
-        // 있으므로(위 visualReferencePacks와 동일한 이유) 객체가 아니면 조용히 건너뛴다.
-        // 패키지에 함께 실려 오는 discussionBank/visualProvenance/languageRules는 저작(authoring)
-        // 문서라 런타임이 읽는 곳이 없어 DB에 넣지 않는다(예전 story_discussion_topic/
-        // story_visual_provenance/language_policy 테이블은 047 마이그레이션에서 제거됨).
         importPersonas(packageData.path("personas"), cast, story);
 
         // DB 레벨의 ON DELETE CASCADE(StorySegment 참고)가 scene segment 행들을 자동으로
@@ -275,10 +270,8 @@ public class StoryImportService {
             family.setRejoinTarget(rejoin.path("target").asText(""));
             familyRepository.save(family);
             fallbackCount++;
-            // family 행 자체는 바로 위(importAnchors)에서 방금 새로 재생성되었으므로, 기존에
-            // 존재하던 fallback segment가 있을 수 없다 - 즉 매 임포트마다 아무 일도 하지 않는
-            // no-op이지만, 나중에 anchor 전체 교체 방식을 벗어나게 되더라도 오래된 segment가
-            // 조용히 남지 않도록 하기 위해 남겨둔다.
+            // AUTHORED family는 위에서 삭제 후 재생성되어 보통은 no-op이지만, 오래된 segment가
+            // 조용히 남지 않도록 방어적으로 지운다.
             fallbackSegmentRepository.deleteAll(fallbackSegmentRepository.findByFamily_IdOrderByDisplayOrderAsc(familyId));
             fallbackSegmentCount += importSegments(fallbackNode.path("segments"), segments ->
                     fallbackSegmentRepository.save(StoryFallbackSegment.builder()
@@ -366,7 +359,7 @@ public class StoryImportService {
                     .voice(requireText(speakerNode, "voice"))
                     .profile(requireText(speakerNode, "profile"))
                     .direction(requireText(speakerNode, "direction"))
-                    .samePersonKey(speakerNode.path("samePersonKey").isMissingNode() ? null : speakerNode.path("samePersonKey").asText(null))
+                    .samePersonKey(optionalText(speakerNode, "samePersonKey"))
                     .build());
         }
     }
@@ -383,7 +376,7 @@ public class StoryImportService {
                     .category(AssetCategory.valueOf(requireText(asset, "category")))
                     .file(requireText(asset, "file"))
                     .integrity(requireText(asset, "integrity"))
-                    .familyId(asset.path("familyId").isMissingNode() ? null : asset.path("familyId").asText(null))
+                    .familyId(optionalText(asset, "familyId"))
                     .panel(panel.isMissingNode() || panel.isNull() ? null : panel.asInt())
                     .build());
         }
@@ -410,7 +403,7 @@ public class StoryImportService {
     /**
      * Phase 2의 3단계 파이프라인(safety_scope_gate/route_classifier/content_generator) 전용
      * 프롬프트. 콘텐츠 빌드 파이프라인이 아직 packageData.prompt.stages를 만들어 보내지 않을 수
-     * 있으므로(이 백엔드 작업 범위 밖 - 최종 보고 참고) 그 필드가 없으면 조용히 건너뛰고, 이미
+     * 있으므로 그 필드가 없으면 조용히 건너뛰고, 이미
      * 시드 마이그레이션이 채워 둔 route_prompt_stage 행을 그대로 둔다. 기대하는 모양:
      * {@code prompt.stages.{safety,classifier,generator} = {system: string[], examples: [{input, output}]}}.
      */
@@ -450,7 +443,7 @@ public class StoryImportService {
 
     /**
      * StoryVisualReferencePack(§4) - 콘텐츠 빌드 파이프라인이 아직 이 섹션을 만들어 보내지 않을 수
-     * 있으므로(이 백엔드 작업 범위 밖) 없으면 조용히 건너뛰고 시드 마이그레이션이 채운 행을 그대로
+     * 있으므로 없으면 조용히 건너뛰고 시드 마이그레이션이 채운 행을 그대로
      * 둔다. 기대하는 모양: {@code packageData.visualReferencePacks = [{id, kind, label, immutableFacts: string[]}]}.
      */
     private void importVisualReferencePacks(JsonNode packs, Story story) {
@@ -505,7 +498,7 @@ public class StoryImportService {
                     .knowledgeKnows(toStringList(personaNode.path("knowledgeBoundary").path("knows")))
                     .knowledgeDoesNotKnow(toStringList(personaNode.path("knowledgeBoundary").path("doesNotKnow")))
                     .knowledgeNeverRevealsFirst(toStringList(personaNode.path("knowledgeBoundary").path("neverRevealsFirst")))
-                    .samePersonKey(speakerNode.path("samePersonKey").isMissingNode() ? null : speakerNode.path("samePersonKey").asText(null))
+                    .samePersonKey(optionalText(speakerNode, "samePersonKey"))
                     .build());
         }
     }
@@ -542,7 +535,7 @@ public class StoryImportService {
     private record SegmentToSave(int order, String kind, boolean isBranchPoint, Map<String, Object> payload) {}
 
     /** scene.segments[]와 fallback.segments[] 양쪽에서 공유하는 세그먼트 단위 루프 - 형태는 동일하고 소유자만 다르다. */
-    private int importSegments(JsonNode segmentsNode, java.util.function.Consumer<SegmentToSave> save) {
+    private int importSegments(JsonNode segmentsNode, Consumer<SegmentToSave> save) {
         int order = 0;
         int count = 0;
         for (JsonNode segmentNode : segmentsNode) {
@@ -561,6 +554,12 @@ public class StoryImportService {
 
     private Map<String, Object> toMap(JsonNode node) {
         return JacksonConversion.toMap(objectMapper, node);
+    }
+
+    /** 필드가 없거나 null이면 null. */
+    private String optionalText(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.isMissingNode() ? null : value.asText(null);
     }
 
     private JsonNode requireObject(JsonNode body, String field) {
