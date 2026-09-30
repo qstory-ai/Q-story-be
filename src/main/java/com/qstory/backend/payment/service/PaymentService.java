@@ -71,11 +71,7 @@ public class PaymentService {
             unitAmount = amount;
             orderName = "Q-Story 보호자 이용권 (30일)";
         } else {
-            if (caller.role() != Role.DIRECTOR || caller.orgId() == null) {
-                throw ApiException.contractError(ErrorCode.FORBIDDEN, "기관 이용권은 기관 관리자만 결제할 수 있어요.", 403);
-            }
-            organization = organizationRepository.findById(caller.orgId())
-                    .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "기관을 찾을 수 없어요.", 404));
+            organization = requireDirectorOrganization(caller, "기관 이용권은 기관 관리자만 결제할 수 있어요.");
             unitAmount = config.payments().toss().organizationStudentMonthlyAmount();
             studentCount = (int) tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(caller.orgId());
             if (studentCount <= 0) {
@@ -163,16 +159,20 @@ public class PaymentService {
     /** 결제 화면에 미리 보여 줄 견적 - 지금 학생 수, 학생당 금액, 합계, 지금 결제돼 있는 인원. */
     @Transactional(readOnly = true)
     public OrganizationQuoteResponse quoteOrganization(CurrentUser caller) {
-        if (caller.role() != Role.DIRECTOR || caller.orgId() == null) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "기관 이용권은 기관 관리자만 볼 수 있어요.", 403);
-        }
-        Organization organization = organizationRepository.findById(caller.orgId())
-                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "기관을 찾을 수 없어요.", 404));
+        Organization organization = requireDirectorOrganization(caller, "기관 이용권은 기관 관리자만 볼 수 있어요.");
         int studentCount = (int) tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNull(caller.orgId());
         int unitAmount = Math.max(0, config.payments().toss().organizationStudentMonthlyAmount());
         return new OrganizationQuoteResponse(
                 studentCount, unitAmount, unitAmount * studentCount, organization.getSubscriptionSeats(),
                 Math.max(1, config.payments().toss().accessDays()));
+    }
+
+    private Organization requireDirectorOrganization(CurrentUser caller, String forbiddenMessage) {
+        if (caller.role() != Role.DIRECTOR || caller.orgId() == null) {
+            throw ApiException.contractError(ErrorCode.FORBIDDEN, forbiddenMessage, 403);
+        }
+        return organizationRepository.findById(caller.orgId())
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "기관을 찾을 수 없어요.", 404));
     }
 
     private Duration accessDuration() {

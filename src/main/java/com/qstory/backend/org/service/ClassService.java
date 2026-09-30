@@ -213,38 +213,42 @@ public class ClassService {
     }
 
     private ClassGroup requireOwnedByDirector(CurrentUser caller, UUID classId) {
-        ClassGroup classGroup = classGroupRepository.findById(classId)
-                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
-        if (caller.role() != Role.DIRECTOR || classGroup.getOrganization() == null
-                || !classGroup.getOrganization().getId().equals(caller.orgId())) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 반에 접근할 권한이 없어요.", 403);
+        ClassGroup classGroup = requireClass(classId);
+        if (!isOwningDirector(caller, classGroup)) {
+            throw forbidden();
         }
         return classGroup;
     }
 
     /** 반을 볼 수 있는 사람: 그 반이 속한 기관의 원장, 그리고 담임 선생님. */
     private ClassGroup requireVisible(CurrentUser caller, UUID classId) {
-        ClassGroup classGroup = classGroupRepository.findById(classId)
-                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
-        boolean isOwningDirector = caller.role() == Role.DIRECTOR
-                && classGroup.getOrganization() != null
-                && classGroup.getOrganization().getId().equals(caller.orgId());
+        ClassGroup classGroup = requireClass(classId);
         boolean isHomeroomTutor = caller.role() == Role.TUTOR
                 && classGroup.getTutor() != null
                 && classGroup.getTutor().getId().equals(caller.userId());
-        if (!isOwningDirector && !isHomeroomTutor) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 반에 접근할 권한이 없어요.", 403);
+        if (!isOwningDirector(caller, classGroup) && !isHomeroomTutor) {
+            throw forbidden();
         }
         return classGroup;
     }
 
+    private ClassGroup requireClass(UUID classId) {
+        return classGroupRepository.findById(classId)
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반을 찾을 수 없어요.", 404));
+    }
+
+    private static boolean isOwningDirector(CurrentUser caller, ClassGroup classGroup) {
+        return caller.role() == Role.DIRECTOR
+                && classGroup.getOrganization() != null
+                && classGroup.getOrganization().getId().equals(caller.orgId());
+    }
+
+    private static ApiException forbidden() {
+        return ApiException.contractError(ErrorCode.FORBIDDEN, "이 반에 접근할 권한이 없어요.", 403);
+    }
+
     private String generateUniqueJoinCode() {
-        for (int attempt = 0; attempt < 10; attempt++) {
-            String code = joinCodeGenerator.generate();
-            if (!classGroupRepository.existsByJoinCode(code)) {
-                return code;
-            }
-        }
-        throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "반 코드를 생성하지 못했어요. 다시 시도해 주세요.", 500);
+        return joinCodeGenerator.generateUnique(classGroupRepository::existsByJoinCode,
+                () -> ApiException.contractError(ErrorCode.INTERNAL_ERROR, "반 코드를 생성하지 못했어요. 다시 시도해 주세요.", 500));
     }
 }

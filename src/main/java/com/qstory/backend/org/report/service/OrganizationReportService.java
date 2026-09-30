@@ -1,6 +1,5 @@
 package com.qstory.backend.org.report.service;
 
-import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.security.CurrentUser;
@@ -10,6 +9,7 @@ import com.qstory.backend.org.repository.OrganizationRepository;
 import com.qstory.backend.org.report.dto.OrganizationReportResponse;
 import com.qstory.backend.storyreport.entity.StoryCompletion;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
+import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -28,6 +28,7 @@ public class OrganizationReportService {
     private final ClassGroupRepository classGroupRepository;
     private final StoryCompletionRepository completionRepository;
     private final TutorStudentRepository tutorStudentRepository;
+
     public OrganizationReportService(
             OrganizationRepository organizationRepository,
             ClassGroupRepository classGroupRepository,
@@ -60,13 +61,18 @@ public class OrganizationReportService {
             }
         }
 
+        Map<UUID, Long> studentCounts = new HashMap<>();
+        for (Object[] row : tutorStudentRepository.countByClassGroupInOrganization(organizationId)) {
+            studentCounts.put((UUID) row[0], (Long) row[1]);
+        }
+
         List<OrganizationReportResponse.ClassSummary> classSummaries = classes.stream()
                 .map(classGroup -> {
                     Aggregate aggregate = byClass.getOrDefault(classGroup.getId(), new Aggregate());
                     return new OrganizationReportResponse.ClassSummary(
                             classGroup.getId(),
                             classGroup.getName(),
-                            tutorStudentRepository.countByClassGroup_IdAndDeletedAtIsNull(classGroup.getId()),
+                            studentCounts.getOrDefault(classGroup.getId(), 0L),
                             aggregate.completionCount,
                             aggregate.questionCount,
                             aggregate.lastActivityAt);

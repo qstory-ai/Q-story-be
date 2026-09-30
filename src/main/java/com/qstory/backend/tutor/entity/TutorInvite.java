@@ -19,8 +19,8 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 /**
- * 학생 한 명에 대한 1회용, 만료 가능한 부모 초대 - org.entity.ClassInvite와 완전히 같은 모양이다:
- * 원본 토큰은 발급 시 한 번만 반환되고 절대 저장되지 않으며, tokenHash만 저장된다.
+ * 학생 한 명에 대한 1회용, 만료 가능한 부모 초대. 원본 토큰은 발급 시 한 번만 반환되고 절대 저장되지
+ * 않으며, tokenHash만 저장된다.
  */
 @Entity
 @Table(name = "tutor_invite")

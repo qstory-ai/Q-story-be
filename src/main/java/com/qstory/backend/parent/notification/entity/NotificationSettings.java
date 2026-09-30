@@ -21,9 +21,7 @@ import org.hibernate.annotations.OnDeleteAction;
 
 /**
  * 사용자별 알림 preference를 담는 sidecar 테이블 - app_user에 컬럼을 늘리지 않고 별도 테이블에
- * 둔 이유는 db/schema/031-notification-settings.sql 헤더 참조. 지금은 marketing_enabled 하나뿐
- * 이라 굳이 엔티티까지 만들지 않아도 되지만, 곧 항목이 늘 것을 감안해 지금부터 도메인 자리를
- * 잡아 둔다.
+ * 둔 이유는 db/schema/031-notification-settings.sql 헤더 참조.
  */
 @Entity
 @Table(name = "notification_settings")

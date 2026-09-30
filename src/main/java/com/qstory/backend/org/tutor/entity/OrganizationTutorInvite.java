@@ -21,7 +21,7 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 /**
- * 기관 관리자가 선생님을 초대할 때 발급하는 1회용, 만료 가능한 토큰. ClassInvite/TutorInvite와
+ * 기관 관리자가 선생님을 초대할 때 발급하는 1회용, 만료 가능한 토큰. TutorInvite와
  * 같은 규약: 원본 token은 발급 시 한 번만 반환되고 저장은 sha-256 해시로만, 함께 발급되는
  * short_code(8자)는 손으로 옮길 수 있어 URL 없이도 코드 입력만으로 수락이 가능하다.
  */

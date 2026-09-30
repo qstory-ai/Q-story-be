@@ -1,5 +1,4 @@
 package com.qstory.backend.org.controller;
-import com.qstory.backend.org.service.OrganizationService;
 
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.dto.AuthResponse;
@@ -7,6 +6,7 @@ import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.org.dto.CreateOrganizationRequest;
 import com.qstory.backend.org.dto.EntitlementResponse;
 import com.qstory.backend.org.dto.OrganizationResponse;
+import com.qstory.backend.org.service.OrganizationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.UUID;

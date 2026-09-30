@@ -4,6 +4,7 @@ import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.tutor.entity.TutorStudent;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,13 +20,19 @@ public interface TutorStudentRepository extends JpaRepository<TutorStudent, UUID
 
     Optional<TutorStudent> findByIdAndTutor_IdAndDeletedAtIsNull(UUID id, UUID tutorId);
 
+    /** 수업 참여 학생을 한 번에 확인한다 - 이 선생님의 학생이 아닌 id는 결과에서 빠진다(LessonService). */
+    List<TutorStudent> findByIdInAndTutor_IdAndDeletedAtIsNull(Collection<UUID> ids, UUID tutorId);
+
     /** 반 수업을 만들 때 그 반의 학생을 참여 학생으로 자동 채운다(LessonService). */
     List<TutorStudent> findByClassGroup_IdAndTutor_IdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID classGroupId, UUID tutorId);
 
-    /** 반 상세의 학생 명단과 기관 리포트의 반 인원수 - 담임이 없는 반의 학생도 포함한다. */
+    /** 반 상세의 학생 명단 - 담임이 없는 반의 학생도 포함한다. */
     List<TutorStudent> findByClassGroup_IdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID classGroupId);
 
-    long countByClassGroup_IdAndDeletedAtIsNull(UUID classGroupId);
+    /** 기관 리포트의 반별 인원수 - [classGroupId, count] 행. 학생이 없는 반은 결과에 없다. */
+    @Query("select s.classGroup.id, count(s) from TutorStudent s "
+            + "where s.classGroup.organization.id = :organizationId and s.deletedAt is null group by s.classGroup.id")
+    List<Object[]> countByClassGroupInOrganization(@Param("organizationId") UUID organizationId);
 
     /** 담임이 배정되기 전에 들어온 학생 - 배정하면 이 학생들이 담임의 학생이 된다(ClassService.assignHomeroom). */
     List<TutorStudent> findByClassGroup_IdAndTutorIsNullAndDeletedAtIsNull(UUID classGroupId);

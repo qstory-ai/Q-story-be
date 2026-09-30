@@ -1,30 +1,25 @@
 package com.qstory.backend.tutor.service;
 
-import org.springframework.dao.DataIntegrityViolationException;
-import java.util.ArrayList;
-import com.qstory.backend.tutor.lesson.repository.LessonRepository;
-import com.qstory.backend.tutor.lesson.entity.Lesson;
-import com.qstory.backend.tutor.lesson.LessonStatus;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.ChildAge;
 import com.qstory.backend.common.util.DigestUtil;
 import com.qstory.backend.common.util.SecureTokenGenerator;
 import com.qstory.backend.common.util.TokenValidation;
-import com.qstory.backend.org.util.JoinCodeGenerator;
+import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
-import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.notification.service.NotificationPublisher;
+import com.qstory.backend.org.entity.ClassGroup;
+import com.qstory.backend.org.util.JoinCodeGenerator;
 import com.qstory.backend.parent.child.entity.Child;
 import com.qstory.backend.parent.child.repository.ChildRepository;
-import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.tutor.TutorLessonType;
 import com.qstory.backend.tutor.TutorStudentStatus;
 import com.qstory.backend.tutor.Weekday;
@@ -42,6 +37,9 @@ import com.qstory.backend.tutor.dto.UpdateTutorStudentRequest;
 import com.qstory.backend.tutor.entity.TutorInvite;
 import com.qstory.backend.tutor.entity.TutorSchedule;
 import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.tutor.lesson.LessonStatus;
+import com.qstory.backend.tutor.lesson.entity.Lesson;
+import com.qstory.backend.tutor.lesson.repository.LessonRepository;
 import com.qstory.backend.tutor.repository.TutorInviteRepository;
 import com.qstory.backend.tutor.repository.TutorScheduleRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
@@ -50,18 +48,21 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 선생님의 학생 등록/일정/부모 초대 - org.service.ClassService의 초대 메커니즘(랜덤 토큰 생성,
- * SHA-256 해시 저장, 14일 TTL, 1회용 소진)을 그대로 재사용한다. ClassService.join()과 다른 점 하나:
- * 초대 수락자는 새로 가입하는 경우도, 이미 로그인된 기존 PARENT 계정인 경우도 있을 수 있다(자녀가
- * 이미 다른 경로로 부모 계정을 갖고 있는 흔한 케이스) - acceptInvite()가 둘 다 받는다.
+ * 선생님의 학생 등록/일정/부모 초대. 초대는 랜덤 토큰(SHA-256 해시만 저장) + short code, 14일 TTL, 1회용이다.
+ * 초대 수락자는 새로 가입하는 경우도, 이미 로그인된 기존 PARENT 계정인 경우도 있다 - acceptInvite()가 둘 다 받는다.
  */
 @Service
 public class TutorStudentService {
@@ -70,6 +71,8 @@ public class TutorStudentService {
 
     /** fe entities/child/model/avatars.ts CHILD_AVATARS[0].key와 동일. */
     private static final String DEFAULT_CHILD_AVATAR_KEY = "fox";
+
+    private static final Pattern DIGITS = Pattern.compile("\\d+");
 
     private final TutorStudentRepository tutorStudentRepository;
     private final TutorScheduleRepository tutorScheduleRepository;
@@ -85,6 +88,7 @@ public class TutorStudentService {
     private final TutorClassService tutorClassService;
     private final LessonRepository lessonRepository;
     private final UserSummaryFactory userSummaryFactory;
+
     public TutorStudentService(
             TutorStudentRepository tutorStudentRepository, TutorScheduleRepository tutorScheduleRepository,
             TutorInviteRepository tutorInviteRepository, AppUserRepository userRepository,
@@ -142,7 +146,7 @@ public class TutorStudentService {
                 .classGroup(classGroup)
                 .createdAt(Instant.now())
                 .build());
-        if (classGroup != null) addToScheduledClassLessons(caller, student, classGroup);
+        if (classGroup != null) addToScheduledClassLessons(caller.userId(), student, classGroup);
         return TutorStudentResponse.of(student);
     }
 
@@ -284,14 +288,13 @@ public class TutorStudentService {
             }
             student.setLessonType(lessonType);
         }
-        // 반이 바뀌면 예정된 반 수업의 참여자도 따라간다 - 예전엔 수업 생성 시점의 명단이 그대로 남아,
-        // 반을 옮긴 학생에게 옛 반 수업의 완주 기록·알림이 가고 새 반 수업에서는 빠졌다.
+        // 반이 바뀌면 예정된 반 수업의 참여자도 따라간다 - 옛 반 수업에 남으면 그 수업의 완주 기록·알림이 잘못 간다.
         ClassGroup nextClass = student.getClassGroup();
         UUID previousId = previousClass == null ? null : previousClass.getId();
         UUID nextId = nextClass == null ? null : nextClass.getId();
-        if (!java.util.Objects.equals(previousId, nextId)) {
+        if (!Objects.equals(previousId, nextId)) {
             if (previousClass != null) removeFromScheduledClassLessons(caller, student, previousClass);
-            if (nextClass != null) addToScheduledClassLessons(caller, student, nextClass);
+            if (nextClass != null) addToScheduledClassLessons(caller.userId(), student, nextClass);
         }
         return TutorStudentResponse.of(tutorStudentRepository.save(student));
     }
@@ -304,10 +307,8 @@ public class TutorStudentService {
     }
 
     /**
-     * 소프트 삭제(053). 행을 지우면 story_completion.tutor_student_id가 null이 되어 부모가 이 학생의
-     * 선생님 리포트에 접근할 경로(학생↔linked_parent_user)를 전부 잃고 알림 링크가 404가 됐다. 이제
-     * deletedAt만 채운다 - 목록·일정·수업 조회는 전부 deletedAt is null로 거르고, 예정 수업 참여자에서
-     * 빼고, 열려 있던 초대는 닫는다. 이미 끝난 수업·완주 기록은 그대로 남는다.
+     * 소프트 삭제(053) - 행을 남겨야 story_completion이 이 학생을 계속 가리켜 부모가 선생님 리포트를 잃지 않는다.
+     * deletedAt을 채우고, 예정 수업 참여자에서 빼고, 열려 있던 초대는 닫는다. 이미 끝난 수업·완주 기록은 그대로다.
      */
     @Transactional
     public void deleteStudent(CurrentUser caller, UUID studentId) {
@@ -325,10 +326,6 @@ public class TutorStudentService {
     }
 
     /** 반에 새로 들어온 학생을 그 반의 아직 예정(SCHEDULED)인 수업에 참여자로 넣는다. */
-    private void addToScheduledClassLessons(CurrentUser caller, TutorStudent student, ClassGroup classGroup) {
-        addToScheduledClassLessons(caller.userId(), student, classGroup);
-    }
-
     private void addToScheduledClassLessons(UUID tutorId, TutorStudent student, ClassGroup classGroup) {
         for (Lesson lesson : lessonRepository.findByTutor_IdAndClassGroup_IdAndStatus(
                 tutorId, classGroup.getId(), LessonStatus.SCHEDULED)) {
@@ -401,8 +398,10 @@ public class TutorStudentService {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "휴대폰 번호를 입력해 주세요.");
         }
         String rawToken = tokenGenerator.generate();
-        String shortCode = generateUniqueShortCode();
-        Instant expiresAt = Instant.now().plus(INVITE_TTL);
+        String shortCode = joinCodeGenerator.generateUnique(tutorInviteRepository::existsByShortCode,
+                () -> ApiException.contractError(ErrorCode.INTERNAL_ERROR, "초대 코드를 만들지 못했어요. 잠시 후 다시 시도해 주세요."));
+        Instant now = Instant.now();
+        Instant expiresAt = now.plus(INVITE_TTL);
         tutorInviteRepository.save(TutorInvite.builder()
                 .tutorStudent(student)
                 .tokenHash(DigestUtil.sha256Hex(rawToken))
@@ -410,19 +409,9 @@ public class TutorStudentService {
                 .method(request.method())
                 .phoneNumber(request.phoneNumber())
                 .expiresAt(expiresAt)
-                .createdAt(Instant.now())
+                .createdAt(now)
                 .build());
         return new TutorInviteResponse(rawToken, shortCode, expiresAt);
-    }
-
-    /** ClassGroup.joinCode 생성과 동일한 접근 - 8자 코드가 이미 존재하면 다시 시도한다.
-     *  탈출은 이론상 필요 없지만(31^8이 매우 크지만), 방어적으로 최대 10회 시도만. */
-    private String generateUniqueShortCode() {
-        for (int attempt = 0; attempt < 10; attempt++) {
-            String code = joinCodeGenerator.generate();
-            if (!tutorInviteRepository.existsByShortCode(code)) return code;
-        }
-        throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "초대 코드를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
 
     /**
@@ -577,7 +566,7 @@ public class TutorStudentService {
      * (fe entities/child/model/age-band.ts의 ageBandFromLabel과 같은 규칙). 숫자가 없으면 "6-7".
      */
     static String childAgeBandFor(String tutorAgeBand) {
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\d+").matcher(tutorAgeBand == null ? "" : tutorAgeBand);
+        Matcher matcher = DIGITS.matcher(tutorAgeBand == null ? "" : tutorAgeBand);
         if (!matcher.find()) return "6-7";
         int age = Integer.parseInt(matcher.group());
         if (age <= 5) return "4-5";

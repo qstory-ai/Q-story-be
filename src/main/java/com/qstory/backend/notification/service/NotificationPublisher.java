@@ -6,7 +6,6 @@ import com.qstory.backend.notification.entity.Notification;
 import com.qstory.backend.notification.repository.NotificationRepository;
 import com.qstory.backend.parent.notification.repository.NotificationSettingsRepository;
 import java.time.Instant;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -61,13 +60,9 @@ public class NotificationPublisher {
             log.debug("notification.settings-skip userId={} kind={}", userId, kind);
             return;
         }
-        if (dedupKey != null) {
-            Optional<Notification> existing =
-                    notificationRepository.findByUser_IdAndDedupKey(userId, dedupKey);
-            if (existing.isPresent()) {
-                log.debug("notification.dedup-skip userId={} dedupKey={}", userId, dedupKey);
-                return;
-            }
+        if (dedupKey != null && notificationRepository.existsByUser_IdAndDedupKey(userId, dedupKey)) {
+            log.debug("notification.dedup-skip userId={} dedupKey={}", userId, dedupKey);
+            return;
         }
         AppUser user = userRepository.getReferenceById(userId);
         Notification saved = notificationRepository.save(Notification.builder()
@@ -89,16 +84,12 @@ public class NotificationPublisher {
      * 표에 없는 kind는 끌 수 없는 알림으로 취급해 항상 true.
      */
     private boolean isEnabled(UUID userId, String kind) {
-        if (LESSON_REMINDER_KINDS.contains(kind)) {
-            return notificationSettingsRepository.findById(userId)
-                    .map(settings -> settings.isLessonReminderEnabled())
-                    .orElse(true);
+        boolean reminder = LESSON_REMINDER_KINDS.contains(kind);
+        if (!reminder && !LESSON_REPORT_KINDS.contains(kind)) {
+            return true;
         }
-        if (LESSON_REPORT_KINDS.contains(kind)) {
-            return notificationSettingsRepository.findById(userId)
-                    .map(settings -> settings.isLessonReportEnabled())
-                    .orElse(true);
-        }
-        return true;
+        return notificationSettingsRepository.findById(userId)
+                .map(settings -> reminder ? settings.isLessonReminderEnabled() : settings.isLessonReportEnabled())
+                .orElse(true);
     }
 }

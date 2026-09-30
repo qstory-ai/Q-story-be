@@ -8,6 +8,7 @@ import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
+import com.qstory.backend.org.SubscriptionStatus;
 import com.qstory.backend.org.dto.CreateOrganizationRequest;
 import com.qstory.backend.org.dto.EntitlementResponse;
 import com.qstory.backend.org.dto.OrganizationResponse;
@@ -36,10 +37,9 @@ public class OrganizationService {
     }
 
     /**
-     * 새로 생성된 OrganizationResponse뿐 아니라 갱신된 AuthResponse를 반환한다 - 호출자가 가진 기존 JWT는
-     * 이 기관이 생성되기 전에 발급된 것이므로, 그 안의 orgId 클레임은 여전히 null이다. 이 이후의 모든
-     * org/class 엔드포인트는 그 클레임을 기반으로 권한을 검사하므로(OrganizationService.requireOwned() 참고),
-     * 클라이언트는 즉시 이 새 토큰으로 교체해야 하며, 그렇지 않으면 이후의 모든 호출이 403을 반환한다.
+     * 갱신된 AuthResponse를 반환한다 - 호출자의 기존 JWT는 기관 생성 전에 발급돼 orgId 클레임이 null이다.
+     * 이후의 org/class 엔드포인트는 그 클레임으로 권한을 검사하므로(requireOwned 참고), 클라이언트가 이 새
+     * 토큰으로 교체하지 않으면 이후 호출이 403을 반환한다.
      */
     @Transactional
     public AuthResponse create(CurrentUser caller, CreateOrganizationRequest request) {
@@ -67,10 +67,11 @@ public class OrganizationService {
 
     public EntitlementResponse entitlement(CurrentUser caller, UUID organizationId) {
         Organization organization = requireOwned(caller, organizationId);
+        SubscriptionStatus status = organization.getSubscriptionStatus();
+        Instant expiresAt = organization.getSubscriptionExpiresAt();
+        Instant now = Instant.now();
         return new EntitlementResponse(
-                organization.getSubscriptionStatus().effectiveAt(organization.getSubscriptionExpiresAt(), Instant.now()).name(),
-                organization.getSubscriptionStatus().grantsAccessAt(organization.getSubscriptionExpiresAt(), Instant.now()),
-                organization.getSubscriptionExpiresAt());
+                status.effectiveAt(expiresAt, now).name(), status.grantsAccessAt(expiresAt, now), expiresAt);
     }
 
     /** ClassService가 반을 생성/조회할 때 동일한 소유권 검사를 재사용할 수 있도록 패키지 가시성으로 둔다. */
