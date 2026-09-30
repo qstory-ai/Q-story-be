@@ -29,6 +29,8 @@ import com.qstory.backend.tutor.TutorLessonType;
 import com.qstory.backend.tutor.TutorStudentStatus;
 import com.qstory.backend.tutor.Weekday;
 import com.qstory.backend.tutor.dto.AcceptTutorInviteRequest;
+import com.qstory.backend.tutor.dto.BulkCreateTutorStudentsRequest;
+import com.qstory.backend.tutor.dto.BulkTutorStudentResult;
 import com.qstory.backend.tutor.dto.CreateTutorInviteRequest;
 import com.qstory.backend.tutor.dto.CreateTutorScheduleRequest;
 import com.qstory.backend.tutor.dto.CreateTutorStudentRequest;
@@ -139,6 +141,36 @@ public class TutorStudentService {
                 .build());
         if (classGroup != null) addToScheduledClassLessons(caller, student, classGroup);
         return TutorStudentResponse.of(student);
+    }
+
+    /** 한 번에 등록할 수 있는 최대 인원 - 반 하나 규모를 넘는 요청은 실수로 보고 거절한다. */
+    static final int BULK_STUDENT_LIMIT = 50;
+
+    /**
+     * 반 학생을 한 번에 등록하고 학생마다 초대를 발급한다. 한 명이라도 검증에 실패하면 전체가
+     * 롤백된다 - 절반만 등록된 채 응답이 실패하면 선생님이 어디까지 됐는지 알 수 없다.
+     */
+    @Transactional
+    public List<BulkTutorStudentResult> createStudentsBulk(CurrentUser caller, BulkCreateTutorStudentsRequest request) {
+        List<BulkCreateTutorStudentsRequest.Student> items = request == null || request.students() == null
+                ? List.of() : request.students();
+        if (items.isEmpty()) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "등록할 학생을 한 명 이상 입력해 주세요.");
+        }
+        if (items.size() > BULK_STUDENT_LIMIT) {
+            throw ApiException.contractError(
+                    ErrorCode.VALIDATION_FAILED, "한 번에 " + BULK_STUDENT_LIMIT + "명까지 등록할 수 있어요.");
+        }
+        List<BulkTutorStudentResult> results = new ArrayList<>();
+        for (BulkCreateTutorStudentsRequest.Student item : items) {
+            Integer birthYear = item.birthYear() != null ? item.birthYear() : request.defaultBirthYear();
+            TutorStudentResponse student = createStudent(caller, new CreateTutorStudentRequest(
+                    item.name(), null, request.classType(), request.prepNote(), request.lessonType(),
+                    request.classGroupId(), birthYear));
+            TutorInviteResponse invite = createInvite(caller, student.id(), new CreateTutorInviteRequest("LINK", null));
+            results.add(new BulkTutorStudentResult(student, invite));
+        }
+        return results;
     }
 
     @Transactional(readOnly = true)

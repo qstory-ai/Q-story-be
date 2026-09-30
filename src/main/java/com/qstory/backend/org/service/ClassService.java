@@ -165,21 +165,25 @@ public class ClassService {
     /**
      * 독립 학부모가 가입 후 반 코드를 입력해 기관 수업과 연결하는 경로다. 새 계정을 만들지 않고
      * 현재 계정의 organization/classGroup만 채운 뒤, JWT도 새 소속 claim으로 다시 발급한다.
-     * 한 학부모 계정은 현재 하나의 기관 반만 가질 수 있으므로 다른 반으로의 교체는 먼저 연결
-     * 해제 정책이 확정된 뒤 별도 흐름으로 제공한다.
+     * 한 학부모 계정은 하나의 기관 반만 가지며, 이미 반이 있으면 replaceExisting=true일 때만 새 반으로
+     * 옮긴다. 지난 완주 기록은 완료 시점의 소속 스냅샷을 그대로 유지한다.
      */
     @Transactional
     public AuthResponse joinExistingParent(CurrentUser caller, JoinExistingClassRequest request) {
         AppUser parent = userRepository.findByIdAndDeletedAtIsNull(caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
-        if (parent.getClassGroup() != null) {
+        ClassGroup previousClass = parent.getClassGroup();
+        if (previousClass != null && !request.replacing()) {
             throw ApiException.contractError(
                     ErrorCode.VALIDATION_FAILED,
-                    "이미 기관 반에 참여 중이에요. 다른 반으로 변경하려면 기관 관리자에게 문의해 주세요.",
+                    "이미 기관 반에 참여 중이에요. 다른 반으로 옮기려면 옮기기를 선택해 주세요.",
                     409);
         }
 
         ClassGroup classGroup = resolveClassGroup(request.classCode(), request.inviteToken());
+        if (previousClass != null && previousClass.getId().equals(classGroup.getId())) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "이미 이 반에 참여 중이에요.", 409);
+        }
         parent.setOrganization(classGroup.getOrganization());
         parent.setClassGroup(classGroup);
         userRepository.save(parent);
