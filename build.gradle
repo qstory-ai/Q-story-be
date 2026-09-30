@@ -25,6 +25,9 @@ dependencies {
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
 
     runtimeOnly 'org.postgresql:postgresql'
+    // db/schema의 SQL을 한 번씩만 실행하고 적용 이력을 flyway_schema_history에 남긴다(application.yml 참고).
+    implementation 'org.flywaydb:flyway-core'
+    runtimeOnly 'org.flywaydb:flyway-database-postgresql'
 
     // Grafana Cloud Loki 로그 전송 - logback-spring.xml의 LOKI appender가 이걸로 동작한다.
     // LOKI_URL이 설정 안 됐으면(로컬/CI) 그 appender 자체가 안 만들어지므로 이 의존성은 로드만 되고
