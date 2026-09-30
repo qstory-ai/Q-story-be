@@ -20,6 +20,11 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     /** 탈퇴(소프트 삭제)된 계정을 제외하고 조회한다 - me()/updateProfile()/changePassword()/deleteAccount()가 사용. */
     Optional<AppUser> findByIdAndDeletedAtIsNull(UUID id);
 
+    /** 한 학부모의 동시 요청(반 코드 가입을 두 번 누르는 등)을 직렬화한다 - 아이 프로필·학생 행이 둘 생기지 않게. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select u from AppUser u where u.id = :id and u.deletedAt is null")
+    Optional<AppUser> lockActiveById(@org.springframework.data.repository.query.Param("id") UUID id);
+
     Optional<AppUser> findByOauthProviderAndOauthSubject(OAuthProvider oauthProvider, String oauthSubject);
 
     /**

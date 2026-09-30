@@ -44,6 +44,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import com.qstory.backend.voiceresearch.service.VoiceResearchService;
+import com.qstory.backend.org.tutor.service.OrganizationTutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -82,6 +83,7 @@ public class AuthService {
     private final TutorStudentRepository tutorStudentRepository;
     private final OrganizationTutorRepository organizationTutorRepository;
     private final VoiceResearchService voiceResearchService;
+    private final OrganizationTutorService organizationTutorService;
     private final UserSummaryFactory userSummaryFactory;
 
     public AuthService(
@@ -91,7 +93,8 @@ public class AuthService {
             GoogleOAuthVerifier googleOAuthVerifier, KakaoOAuthVerifier kakaoOAuthVerifier,
             SecureTokenGenerator tokenGenerator, SupabaseStorageClient storageClient, AppProperties config,
             TutorStudentRepository tutorStudentRepository, OrganizationTutorRepository organizationTutorRepository,
-            UserSummaryFactory userSummaryFactory, VoiceResearchService voiceResearchService) {
+            UserSummaryFactory userSummaryFactory, VoiceResearchService voiceResearchService,
+            OrganizationTutorService organizationTutorService) {
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.accountDeletionFeedbackRepository = accountDeletionFeedbackRepository;
@@ -106,6 +109,7 @@ public class AuthService {
         this.tutorStudentRepository = tutorStudentRepository;
         this.organizationTutorRepository = organizationTutorRepository;
         this.voiceResearchService = voiceResearchService;
+        this.organizationTutorService = organizationTutorService;
         this.userSummaryFactory = userSummaryFactory;
     }
 
@@ -342,7 +346,7 @@ public class AuthService {
             try {
                 voiceResearchService.withdrawForDeletedAccount(user.getId());
             } catch (RuntimeException storageFailure) {
-                // 녹음 삭제가 실패해도 탈퇴는 막지 않는다 - 남은 녹음은 보존 기간(90일) 만료 때 지워진다.
+                // 녹음 정리가 실패해도 탈퇴는 막지 않는다 - 계정 연결은 남아 있어 만료 정리 작업이 이어서 지운다.
                 log.warn("account-delete.voice-research-cleanup-failed userId={}", user.getId(), storageFailure);
             }
         }
@@ -372,11 +376,14 @@ public class AuthService {
         if (user.getRole() == Role.PARENT) {
             for (TutorStudent student : tutorStudentRepository.findByLinkedParentUser_Id(user.getId())) {
                 student.setLinkedParentUser(null);
+                student.setLinkedAt(null);
                 student.setChild(null);
                 student.setStatus(TutorStudentStatus.PENDING_PARENT);
                 tutorStudentRepository.save(student);
             }
         } else if (user.getRole() == Role.TUTOR) {
+            organizationTutorRepository.findByTutor_IdOrderByJoinedAtAsc(user.getId())
+                    .forEach(link -> organizationTutorService.detachTutor(link.getOrganization().getId(), user.getId()));
             organizationTutorRepository.deleteByTutor_Id(user.getId());
         }
     }

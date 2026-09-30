@@ -85,6 +85,10 @@ public class PaymentService {
             throw ApiException.contractError(ErrorCode.PAYMENT_PROVIDER_UNAVAILABLE, "결제 금액 설정을 확인해 주세요.", 503);
         }
         Instant now = Instant.now();
+        if (organization != null) {
+            // 인원이 다른 미결제 주문이 뒤늦게 승인돼 인원을 되돌리지 않게, 새 주문을 만들면 이전 미결제 주문은 닫는다.
+            paymentOrderRepository.voidOpenOrganizationOrders(organization.getId(), now);
+        }
         PaymentOrder order = paymentOrderRepository.save(PaymentOrder.builder()
                 .orderId("qs_" + UUID.randomUUID().toString().replace("-", ""))
                 .user(user)
@@ -137,6 +141,8 @@ public class PaymentService {
             if (organization == null) {
                 throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "기관 결제 주문의 기관 정보가 없어요.", 500);
             }
+            boolean stillActive = organization.getSubscriptionStatus()
+                    .grantsAccessAt(organization.getSubscriptionExpiresAt(), paidAt);
             if (organization.getSubscriptionExpiresAt() != null && organization.getSubscriptionExpiresAt().isAfter(base)) {
                 base = organization.getSubscriptionExpiresAt();
             }
@@ -144,7 +150,7 @@ public class PaymentService {
             organization.setSubscriptionStatus(SubscriptionStatus.ACTIVE);
             organization.setSubscriptionUpdatedAt(paidAt);
             organization.setSubscriptionExpiresAt(expiresAt);
-            organization.setSubscriptionSeats(order.getStudentCount());
+            organization.setSubscriptionSeats(seatsAfterPayment(organization, order.getStudentCount(), stillActive));
             organizationRepository.save(organization);
             order.setAccessExpiresAt(expiresAt);
         }
@@ -154,6 +160,18 @@ public class PaymentService {
         order.setUpdatedAt(Instant.now());
         paymentOrderRepository.save(order);
         return PaymentOrderResponse.of(order);
+    }
+
+    /**
+     * 결제 후 이용 인원. 구독이 유효한 중에 연장 결제하면 남은 기간도 새 인원으로 바뀌므로 기존보다 줄이지 않는다
+     * (100명분 사용 중에 10명분을 연장해도 남은 기간의 90명이 이용권을 잃지 않게). 인원 기록이 없는 예전 정액
+     * 구독(null)은 유효한 동안 제한 없음을 유지한다. 만료 뒤 새로 결제하면 그 결제의 인원으로 시작한다.
+     */
+    private static Integer seatsAfterPayment(Organization organization, Integer paidSeats, boolean stillActive) {
+        if (!stillActive) return paidSeats;
+        Integer current = organization.getSubscriptionSeats();
+        if (current == null || paidSeats == null) return null;
+        return Math.max(current, paidSeats);
     }
 
     /** 결제 화면에 미리 보여 줄 견적 - 과금 대상 학생 수, 명단 전체 학생 수, 학생당 금액, 합계, 지금 결제된 인원. */

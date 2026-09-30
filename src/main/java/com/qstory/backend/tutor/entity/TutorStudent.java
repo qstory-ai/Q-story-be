@@ -101,6 +101,10 @@ public class TutorStudent {
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
+    /** 학부모가 연결된 시각(058). 연결이 풀리면 null. 기관 이용권 좌석을 이 순서로 채운다. */
+    @Column(name = "linked_at")
+    private Instant linkedAt;
+
     /**
      * 소프트 삭제(053). 선생님이 지운 학생은 목록·일정·수업에서 사라지지만 행은 남는다 - story_completion이
      * 이 학생을 계속 가리켜야 부모가 선생님 리포트를 잃지 않는다. 모든 조회는 deletedAt is null로 거른다.

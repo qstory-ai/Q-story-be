@@ -24,7 +24,6 @@ import com.qstory.backend.org.tutor.entity.OrganizationTutorInvite;
 import com.qstory.backend.org.tutor.repository.OrganizationTutorInviteRepository;
 import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.org.util.JoinCodeGenerator;
-import com.qstory.backend.tutor.TutorLessonType;
 import com.qstory.backend.tutor.entity.TutorStudent;
 import com.qstory.backend.tutor.lesson.LessonStatus;
 import com.qstory.backend.tutor.lesson.entity.Lesson;
@@ -214,25 +213,34 @@ public class OrganizationTutorService {
     public void unlinkTutor(CurrentUser caller, UUID organizationId, UUID tutorId) {
         requireOwnedByCaller(caller, organizationId);
         organizationTutorRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId).ifPresent(link -> {
-            Instant now = Instant.now();
-            for (TutorStudent student : tutorStudentRepository
-                    .findByTutor_IdAndClassGroup_Organization_IdAndDeletedAtIsNull(tutorId, organizationId)) {
-                student.setClassGroup(null);
-                student.setLessonType(TutorLessonType.INDIVIDUAL);
-                tutorStudentRepository.save(student);
-            }
-            for (Lesson lesson : lessonRepository
-                    .findByTutor_IdAndClassGroup_Organization_IdAndStatus(tutorId, organizationId, LessonStatus.SCHEDULED)) {
-                lesson.setClassGroup(null);
-                lesson.setUpdatedAt(now);
-                lessonRepository.save(lesson);
-            }
-            for (ClassGroup classGroup : classGroupRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId)) {
-                classGroup.setTutor(null);
-                classGroupRepository.save(classGroup);
-            }
+            detachTutor(link.getOrganization().getId(), tutorId);
             organizationTutorRepository.delete(link);
         });
+    }
+
+    /**
+     * 선생님이 기관을 떠날 때(원장이 내보내거나 선생님이 탈퇴할 때) 기관 반을 정리한다. 기관 반의 명단은 기관 것이라
+     * 학생은 반에 그대로 두고 담임만 비운다(대기 명단) - 학부모의 기관 이용권이 유지되고, 원장이 새 담임을 배정하면
+     * 그대로 넘어간다. 떠나는 선생님의 예정 수업은 반에서 떼어 낸다.
+     */
+    @Transactional
+    public void detachTutor(UUID organizationId, UUID tutorId) {
+        Instant now = Instant.now();
+        for (TutorStudent student : tutorStudentRepository
+                .findByTutor_IdAndClassGroup_Organization_IdAndDeletedAtIsNull(tutorId, organizationId)) {
+            student.setTutor(null);
+            tutorStudentRepository.save(student);
+        }
+        for (Lesson lesson : lessonRepository
+                .findByTutor_IdAndClassGroup_Organization_IdAndStatus(tutorId, organizationId, LessonStatus.SCHEDULED)) {
+            lesson.setClassGroup(null);
+            lesson.setUpdatedAt(now);
+            lessonRepository.save(lesson);
+        }
+        for (ClassGroup classGroup : classGroupRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId)) {
+            classGroup.setTutor(null);
+            classGroupRepository.save(classGroup);
+        }
     }
 
     /* ---------------------------------------------------------- helpers */

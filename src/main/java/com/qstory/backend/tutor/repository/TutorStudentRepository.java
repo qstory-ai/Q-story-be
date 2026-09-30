@@ -51,7 +51,7 @@ public interface TutorStudentRepository extends JpaRepository<TutorStudent, UUID
     long countLinkedParentsByOrganization(@Param("organizationId") UUID organizationId);
 
     /** 학부모의 이용권 근거 - 이 부모의 아이가 들어가 있는 기관 반과 그 기관(EntitlementService). */
-    @Query("select new com.qstory.backend.tutor.repository.ParentClassSeat(s.id, s.createdAt, o) "
+    @Query("select new com.qstory.backend.tutor.repository.ParentClassSeat(s.id, coalesce(s.linkedAt, s.createdAt), o) "
             + "from TutorStudent s join s.classGroup c join c.organization o "
             + "where s.linkedParentUser.id = :parentUserId and s.deletedAt is null")
     List<ParentClassSeat> findClassSeatsOfParent(@Param("parentUserId") UUID parentUserId);
@@ -62,13 +62,22 @@ public interface TutorStudentRepository extends JpaRepository<TutorStudent, UUID
      */
     long countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(UUID organizationId);
 
-    /** 기관 안에서 이 학생보다 먼저 등록된 과금 대상 학생 수 - 결제한 인원 안에 드는지(순번) 판단한다. */
+    /**
+     * 기관 안에서 이 학생보다 먼저 학부모가 연결된 과금 대상 학생 수 - 결제한 인원 안에 드는지(순번) 판단한다. 등록
+     * 순서가 아니라 연결 순서라서, 오래전에 등록만 해 둔 학생이 나중에 연결돼도 이미 이용 중인 학부모를 밀어내지 않는다.
+     */
     @Query("select count(s) from TutorStudent s where s.classGroup.organization.id = :organizationId "
             + "and s.deletedAt is null and s.linkedParentUser is not null "
-            + "and (s.createdAt < :createdAt or (s.createdAt = :createdAt and s.id < :studentId))")
+            + "and (coalesce(s.linkedAt, s.createdAt) < :linkedAt "
+            + "or (coalesce(s.linkedAt, s.createdAt) = :linkedAt and s.id < :studentId))")
     long countEarlierInOrganization(
-            @Param("organizationId") UUID organizationId, @Param("createdAt") Instant createdAt,
+            @Param("organizationId") UUID organizationId, @Param("linkedAt") Instant linkedAt,
             @Param("studentId") UUID studentId);
+
+    /** 반 코드로 들어온 학부모를 선생님이 미리 올려 둔(아직 학부모가 없는) 학생에 잇기 위한 후보. */
+    List<TutorStudent> findByClassGroup_IdAndLinkedParentUserIsNullAndDeletedAtIsNull(UUID classGroupId);
+
+    boolean existsByTutor_IdAndChild_IdAndDeletedAtIsNull(UUID tutorId, UUID childId);
 
     /** 부모 계정 탈퇴 시 연결을 풀어 학생을 다시 초대 가능한 상태로 되돌린다(AuthService). */
     List<TutorStudent> findByLinkedParentUser_Id(UUID parentUserId);

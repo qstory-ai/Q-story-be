@@ -156,17 +156,33 @@ public class TutorStudentService {
             throw ApiException.contractError(ErrorCode.CHILD_INFO_REQUIRED, "아이의 출생연도를 골라 주세요.");
         }
         AppUser tutor = classGroup.getTutor();
-        TutorStudent student = TutorStudent.builder()
-                .tutor(tutor)
-                .name(childName.trim())
-                .ageBand(ChildAge.tutorLabel(birthYear))
-                .birthYear(birthYear)
-                .lessonType(TutorLessonType.CLASS)
-                .classGroup(classGroup)
-                .status(TutorStudentStatus.CONFIRMED)
-                .linkedParentUser(parent)
-                .createdAt(Instant.now())
-                .build();
+        Instant now = Instant.now();
+        // 선생님이 미리 올려 둔(아직 학부모가 없는) 같은 이름의 학생이 있으면 새로 만들지 않고 그 학생에 잇는다 -
+        // 일괄 등록 뒤 반 코드를 공유했거나, 학부모가 아이를 뺐다가 다시 올린 경우 명단에 같은 아이가 둘 생기지 않게.
+        TutorStudent pending = findPendingClassmate(classGroup, childName, birthYear);
+        TutorStudent student;
+        if (pending != null) {
+            student = pending;
+            if (student.getBirthYear() == null) {
+                student.setBirthYear(birthYear);
+                student.setAgeBand(ChildAge.tutorLabel(birthYear));
+            }
+            if (student.getTutor() == null) student.setTutor(tutor);
+            tutorInviteRepository.closeOpenInvites(student.getId(), now);
+        } else {
+            student = TutorStudent.builder()
+                    .tutor(tutor)
+                    .name(childName.trim())
+                    .ageBand(ChildAge.tutorLabel(birthYear))
+                    .birthYear(birthYear)
+                    .lessonType(TutorLessonType.CLASS)
+                    .classGroup(classGroup)
+                    .createdAt(now)
+                    .build();
+        }
+        student.setStatus(TutorStudentStatus.CONFIRMED);
+        student.setLinkedParentUser(parent);
+        student.setLinkedAt(now);
         student.setChild(resolveChild(parent, student, null));
         // 담임이 없는 반은 (tutor_id, child_id) 유니크 인덱스가 걸리지 않아 같은 아이가 중복으로 올라올 수 있다.
         if (tutorStudentRepository.existsByClassGroup_IdAndChild_IdAndDeletedAtIsNull(classGroup.getId(), student.getChild().getId())) {
@@ -183,6 +199,27 @@ public class TutorStudentService {
         }
         notifyClassEnrollment(parent, student, classGroup);
         return student;
+    }
+
+    /**
+     * 같은 반에서 학부모가 아직 없는 같은 이름(공백·대소문자 무시)의 학생. 여럿이면 출생연도가 같은 학생, 그래도
+     * 여럿이면 먼저 등록된 학생. 고른 학생은 잠가서 두 학부모가 동시에 같은 학생에 이어지지 않게 한다.
+     */
+    private TutorStudent findPendingClassmate(ClassGroup classGroup, String childName, Integer birthYear) {
+        String wanted = normalizeName(childName);
+        List<TutorStudent> sameName = tutorStudentRepository
+                .findByClassGroup_IdAndLinkedParentUserIsNullAndDeletedAtIsNull(classGroup.getId()).stream()
+                .filter(candidate -> normalizeName(candidate.getName()).equals(wanted))
+                .sorted(java.util.Comparator.comparing(TutorStudent::getCreatedAt))
+                .toList();
+        if (sameName.isEmpty()) return null;
+        TutorStudent chosen = sameName.stream()
+                .filter(candidate -> birthYear.equals(candidate.getBirthYear()))
+                .findFirst()
+                .orElse(sameName.get(0));
+        return tutorStudentRepository.lockById(chosen.getId())
+                .filter(locked -> locked.getLinkedParentUser() == null && locked.getDeletedAt() == null)
+                .orElse(null);
     }
 
     /** 담임에게, 담임이 아직 없으면 기관 원장에게 알린다. */
@@ -225,6 +262,9 @@ public class TutorStudentService {
         }
         List<BulkTutorStudentResult> results = new ArrayList<>();
         for (BulkCreateTutorStudentsRequest.Student item : items) {
+            if (item == null) {
+                throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "학생 이름을 확인해 주세요.");
+            }
             Integer birthYear = item.birthYear() != null ? item.birthYear() : request.defaultBirthYear();
             TutorStudentResponse student = createStudent(caller, new CreateTutorStudentRequest(
                     item.name(), null, request.classType(), request.prepNote(), request.lessonType(),
@@ -432,6 +472,7 @@ public class TutorStudentService {
         }
         tutorInviteRepository.closeOpenInvites(student.getId(), now);
         student.setLinkedParentUser(parent);
+        student.setLinkedAt(now);
         student.setStatus(TutorStudentStatus.CONFIRMED);
         // 부모 쪽 아이 프로필까지 연결해야 "수락"이 완결된다 - 이 행이 없으면 부모 홈의 아이 목록에
         // 아무것도 없고, 선생님 세션의 완주 기록도 아이에게 이어지지 않는다.

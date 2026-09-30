@@ -80,7 +80,7 @@ public class EntitlementService {
             return true;
         }
         return tutorStudentRepository.countEarlierInOrganization(
-                seat.organization().getId(), seat.studentCreatedAt(), seat.studentId()) < seats;
+                seat.organization().getId(), seat.linkedAt(), seat.studentId()) < seats;
     }
 
     private boolean grantsAccess(Organization organization) {

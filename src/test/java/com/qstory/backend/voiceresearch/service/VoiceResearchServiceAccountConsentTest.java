@@ -109,6 +109,7 @@ class VoiceResearchServiceAccountConsentTest {
         when(repository.consentsOfUser(parentId)).thenReturn(List.of(first, second));
         when(repository.samplesForConsent(first.getId())).thenReturn(List.of(sample(first, "a.webm"), sample(first, "b.webm")));
         when(repository.samplesForConsent(second.getId())).thenReturn(List.of(sample(second, "c.m4a")));
+        when(storageClient.delete(anyString(), anyString())).thenReturn(true);
 
         VoiceResearchConsentStatusResponse status = service.withdrawForAccount(parent);
 
@@ -120,6 +121,45 @@ class VoiceResearchServiceAccountConsentTest {
         verify(storageClient).delete("voice-bucket", "c.m4a");
         verify(repository).deleteConsent(first);
         verify(repository).deleteConsent(second);
+    }
+
+    @Test
+    void failedStorageDeleteKeepsTheRecordsAndSchedulesARetry() {
+        VoiceResearchConsent consent = consent(parentId);
+        VoiceResearchSample kept = sample(consent, "stuck.webm");
+        VoiceResearchSample gone = sample(consent, "ok.webm");
+        when(repository.consentsOfUser(parentId)).thenReturn(List.of(consent));
+        when(repository.samplesForConsent(consent.getId())).thenReturn(List.of(kept, gone));
+        when(storageClient.delete("voice-bucket", "stuck.webm")).thenReturn(false);
+        when(storageClient.delete("voice-bucket", "ok.webm")).thenReturn(true);
+
+        service.withdrawForAccount(parent);
+
+        verify(repository).deleteSample(gone);
+        verify(repository, never()).deleteSample(kept);
+        verify(repository, never()).deleteConsent(consent);
+        verify(repository).saveConsent(consent);
+        assertFalse(consent.getExpiresAt().isAfter(Instant.now()));
+    }
+
+    @Test
+    void sessionConsentOwnedByAnotherAccountIsRejected() {
+        UploadRequest request = uploadRequest();
+        VoiceResearchConsent othersConsent = VoiceResearchConsent.builder()
+                .id(request.consentId())
+                .deletionTokenHash(DigestUtil.sha256Hex(request.deletionToken()))
+                .consentVersion(VoiceResearchService.CONSENT_VERSION)
+                .consentedAt(request.consentedAt())
+                .expiresAt(Instant.now().plus(90, ChronoUnit.DAYS))
+                .createdAt(Instant.now())
+                .userId(java.util.UUID.randomUUID())
+                .build();
+        when(repository.findConsent(eq(request.consentId()))).thenReturn(othersConsent);
+
+        ApiException error = assertThrows(ApiException.class, () -> service.upload(request, parent));
+
+        assertEquals(403, error.statusCode());
+        verify(storageClient, never()).upload(anyString(), anyString(), any(), anyString());
     }
 
     @Test

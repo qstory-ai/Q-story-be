@@ -33,6 +33,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class VoiceResearchService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(VoiceResearchService.class);
+
     public static final String CONSENT_VERSION = "voice-research-v2-shadow-family";
     private static final Duration RETENTION = Duration.ofDays(90);
     /**
@@ -125,9 +127,12 @@ public class VoiceResearchService {
                 || consent.getExpiresAt().isBefore(Instant.now())) {
             throw ApiException.contractError(ErrorCode.CONSENT_INVALID, "동의 정보가 올바르지 않아요.", 403);
         }
-        // 비로그인으로 시작했다가 로그인한 세션 등 - 토큰으로 소유가 확인된 뒤에만 계정을 남긴다.
+        // 비로그인으로 시작했다가 로그인한 세션 등 - 토큰으로 소유가 확인된 뒤에만 계정을 남긴다. 이미 다른 계정에
+        // 연결된 세션 동의로는 올리지 못한다(공용 기기에서 다른 계정의 동의 아래 녹음이 쌓이면 철회로 지워지지 않는다).
         if (accountId != null && consent.getUserId() == null) {
             consent.setUserId(accountId);
+        } else if (accountId != null && !accountId.equals(consent.getUserId())) {
+            throw ApiException.contractError(ErrorCode.CONSENT_INVALID, "다른 계정의 동의로는 녹음을 저장할 수 없어요.", 403);
         }
         return consent;
     }
@@ -223,10 +228,27 @@ public class VoiceResearchService {
         return expired.size();
     }
 
+    /**
+     * 녹음 객체를 지운 뒤에만 그 기록을 지운다. Storage 삭제가 하나라도 실패하면 동의와 남은 녹음 기록을 두고 만료
+     * 시각을 지금으로 당겨, 매일 도는 만료 정리(cleanupExpired)가 다시 시도하게 한다 - 기록을 먼저 지우면 객체가
+     * 버킷에 영구히 남는다. 만료된 동의로는 더 이상 업로드할 수 없다.
+     */
     private void deleteConsentAndSamples(VoiceResearchConsent consent) {
-        List<VoiceResearchSample> samples = repository.samplesForConsent(consent.getId());
-        samples.forEach(sample -> storageClient.delete(bucket, sample.getStorageObjectName()));
-        repository.deleteConsent(consent);
+        boolean allDeleted = true;
+        for (VoiceResearchSample sample : repository.samplesForConsent(consent.getId())) {
+            if (storageClient.delete(bucket, sample.getStorageObjectName())) {
+                repository.deleteSample(sample);
+            } else {
+                allDeleted = false;
+            }
+        }
+        if (allDeleted) {
+            repository.deleteConsent(consent);
+            return;
+        }
+        log.warn("voice-research.delete-retry-scheduled consentId={}", consent.getId());
+        consent.setExpiresAt(Instant.now());
+        repository.saveConsent(consent);
     }
 
     private static String extensionFor(String mimeType) {

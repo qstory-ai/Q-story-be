@@ -36,6 +36,10 @@ public class VoiceResearchRepository {
         consentRepository.delete(consent);
     }
 
+    public void deleteSample(VoiceResearchSample sample) {
+        sampleRepository.delete(sample);
+    }
+
     public VoiceResearchSample saveSample(VoiceResearchSample sample) {
         return sampleRepository.save(sample);
     }

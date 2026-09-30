@@ -128,6 +128,8 @@ public class LessonService {
             lesson.setClassGroup(classGroup);
             // 반을 바꾸면서 학생을 따로 지정하지 않았으면 새 반의 학생으로 참여 학생을 다시 채운다.
             if (request.studentIds() == null) lesson.setStudents(classStudents(caller, classGroup));
+        } else if (Boolean.TRUE.equals(request.clearClassGroup())) {
+            lesson.setClassGroup(null);
         }
         if (request.studentIds() != null) {
             lesson.setStudents(resolveOwnedStudents(caller, request.studentIds()));
@@ -185,7 +187,9 @@ public class LessonService {
             if (request.name() != null) sibling.setName(anchor.getName());
             if (request.goal() != null) sibling.setGoal(anchor.getGoal());
             if (delta != null) sibling.setScheduledAt(sibling.getScheduledAt().plus(delta));
-            if (request.classGroupId() != null) sibling.setClassGroup(anchor.getClassGroup());
+            if (request.classGroupId() != null || Boolean.TRUE.equals(request.clearClassGroup())) {
+                sibling.setClassGroup(anchor.getClassGroup());
+            }
             if (request.classGroupId() != null || request.studentIds() != null) {
                 sibling.setStudents(new LinkedHashSet<>(anchor.getStudents()));
             }
