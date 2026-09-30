@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -168,14 +169,28 @@ public class VoiceResearchService {
      */
     @Transactional
     public VoiceResearchConsentStatusResponse withdrawForAccount(CurrentUser caller) {
+        return statusOf(withdraw(caller.userId()));
+    }
+
+    /**
+     * 회원 탈퇴 시 이 계정에 연결된 녹음을 곧바로 지운다(만료 90일을 기다리지 않는다). 별도 트랜잭션이라 Storage
+     * 삭제가 실패해도 탈퇴는 계속된다 - 호출자(AuthService.deleteAccount)는 app_user 행을 바꾸기 전에 불러야
+     * 한다(이 트랜잭션이 그 행을 참조하는 동안 탈퇴 트랜잭션이 행 잠금을 쥐고 있으면 서로 기다린다).
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void withdrawForDeletedAccount(UUID userId) {
+        withdraw(userId);
+    }
+
+    private VoiceResearchPreference withdraw(UUID userId) {
         Instant now = Instant.now();
-        VoiceResearchPreference preference = preferenceFor(caller.userId(), now);
+        VoiceResearchPreference preference = preferenceFor(userId, now);
         preference.setEnabled(false);
         preference.setWithdrawnAt(now);
         preference.setUpdatedAt(now);
         VoiceResearchPreference saved = repository.savePreference(preference);
-        repository.consentsOfUser(caller.userId()).forEach(this::deleteConsentAndSamples);
-        return statusOf(saved);
+        repository.consentsOfUser(userId).forEach(this::deleteConsentAndSamples);
+        return saved;
     }
 
     private VoiceResearchPreference preferenceFor(UUID userId, Instant now) {

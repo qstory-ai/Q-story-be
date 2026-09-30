@@ -43,6 +43,7 @@ import javax.imageio.ImageIO;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import com.qstory.backend.voiceresearch.service.VoiceResearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -80,6 +81,7 @@ public class AuthService {
     private final AppProperties config;
     private final TutorStudentRepository tutorStudentRepository;
     private final OrganizationTutorRepository organizationTutorRepository;
+    private final VoiceResearchService voiceResearchService;
     private final UserSummaryFactory userSummaryFactory;
 
     public AuthService(
@@ -89,7 +91,7 @@ public class AuthService {
             GoogleOAuthVerifier googleOAuthVerifier, KakaoOAuthVerifier kakaoOAuthVerifier,
             SecureTokenGenerator tokenGenerator, SupabaseStorageClient storageClient, AppProperties config,
             TutorStudentRepository tutorStudentRepository, OrganizationTutorRepository organizationTutorRepository,
-            UserSummaryFactory userSummaryFactory) {
+            UserSummaryFactory userSummaryFactory, VoiceResearchService voiceResearchService) {
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.accountDeletionFeedbackRepository = accountDeletionFeedbackRepository;
@@ -103,6 +105,7 @@ public class AuthService {
         this.config = config;
         this.tutorStudentRepository = tutorStudentRepository;
         this.organizationTutorRepository = organizationTutorRepository;
+        this.voiceResearchService = voiceResearchService;
         this.userSummaryFactory = userSummaryFactory;
     }
 
@@ -335,6 +338,14 @@ public class AuthService {
         }
 
         AppUser user = requireActiveUser(caller.userId());
+        if (user.getRole() == Role.PARENT) {
+            try {
+                voiceResearchService.withdrawForDeletedAccount(user.getId());
+            } catch (RuntimeException storageFailure) {
+                // 녹음 삭제가 실패해도 탈퇴는 막지 않는다 - 남은 녹음은 보존 기간(90일) 만료 때 지워진다.
+                log.warn("account-delete.voice-research-cleanup-failed userId={}", user.getId(), storageFailure);
+            }
+        }
 
         accountDeletionFeedbackRepository.save(AccountDeletionFeedback.builder()
                 .userId(user.getId())
