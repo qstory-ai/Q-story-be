@@ -4,6 +4,7 @@ import com.qstory.backend.story.CastEntry;
 import com.qstory.backend.story.Anchor;
 import com.qstory.backend.story.StoryManifest;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -95,6 +96,19 @@ public class StoryContentAssemblyService implements ApplicationRunner {
     /** 이 스토리가 아직 임포트되지 않았다면 null. */
     public ObjectNode get(String storyId) {
         return assembledByStoryId.get(storyId);
+    }
+
+    /**
+     * 이 스토리의 리포트 문구 팩(report-copy.yaml 그대로 - 전략 표 strategyByFamily 포함)만 꺼낸다.
+     * 아직 임포트되지 않았거나 패키지에 reportCopy가 없으면 null.
+     */
+    public JsonNode reportCopy(String storyId) {
+        ObjectNode content = get(storyId);
+        if (content == null) {
+            return null;
+        }
+        JsonNode reportCopy = content.path("packageData").path("reportCopy");
+        return reportCopy.isObject() ? reportCopy : null;
     }
 
     /** 앱이 이 asset을 가져와야 할 위치 - 규칙은 {@link StoryAssetUrls} 한 곳에 있다. */
