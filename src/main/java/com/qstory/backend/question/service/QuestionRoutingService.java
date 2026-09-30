@@ -17,8 +17,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 /**
- * Phase 2의 3단계 라우팅 파이프라인 오케스트레이터. 예전 {@code OpenRouterClient.generatePlan()} 단일
- * 호출을 대체한다: 1단계 안전게이트(evaluateSafety) -&gt; (REDIRECT면 여기서 끝, PASS면) 2단계
+ * 3단계 라우팅 파이프라인 오케스트레이터: 1단계 안전게이트(evaluateSafety) -&gt; (REDIRECT면 여기서 끝, PASS면) 2단계
  * 분류기(classifyRoute) -&gt; (route==NEW_CHOICES면 stage3 생략하고 실시간 새 선택지 생성만 트리거,
  * 그 외에는) 3단계 생성기(generateContent) -&gt; 최종 RouteDecision 조립 -&gt;
  * RouteResultValidator.guaranteeBetaAgencyChoice/sanitizeGeneratedOptionCopy.
@@ -64,7 +63,7 @@ public class QuestionRoutingService {
             RouteClassification classification = openRouterClient.classifyRoute(
                     new OpenRouterClient.ClassifyRequest(transcript, storyContext, questionRound), deadline);
             // clarificationAlreadyUsed였는데도 분류기가 다시 CLARIFY_ONCE를 고르면, 같은 질문을 또
-            // 확인하지 않고 이야기로 돌아간다 - 예전 generatePlan()이 하던 것과 동일한 규칙.
+            // 확인하지 않고 이야기로 돌아간다.
             if (questionRound > 1 && "CLARIFY_ONCE".equals(classification.route())) {
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_SECOND_CLARIFICATION, "같은 질문을 다시 확인하지 않고 이야기로 돌아갈게요.");
@@ -107,8 +106,7 @@ public class QuestionRoutingService {
     }
 
     /**
-     * Phase 1의 "uncovered + 아무 콘텐츠도 안 붙음" 트리거를 대체한다 - 이제는 라벨이 아니라 분류기
-     * 자신이 명시적으로 고른 NEW_CHOICES route로 판정한다. stage3는 실행하지 않는다: 실제 콘텐츠는
+     * 분류기가 명시적으로 NEW_CHOICES route를 고른 경우. stage3는 실행하지 않는다: 실제 콘텐츠는
      * LiveBranchExecutionWorker가 비동기로 최대 3개까지 만들고, 프런트는 liveBranchJobId를 폴링해
      * READY가 되면 그 결과로 THREE_PATHS를 구성한다(계획 문서 Phase 2 §3).
      */

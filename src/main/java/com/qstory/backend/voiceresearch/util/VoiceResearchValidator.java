@@ -11,7 +11,7 @@ import java.time.Instant;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
-/** voice-research 업로드 라우트에 대한 요청 형식 검증. VoiceResearchService에서 분리했다. */
+/** voice-research 업로드 라우트에 대한 요청 형식 검증. */
 @Component
 public class VoiceResearchValidator {
 

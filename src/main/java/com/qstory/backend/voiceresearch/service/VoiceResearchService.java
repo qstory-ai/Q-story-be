@@ -17,7 +17,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** supabase/functions/voice-research/index.ts를 Java로 이식한 버전. */
+/** 음성 연구 녹음의 동의 확인·Storage 업로드·철회·보존 만료 정리. */
 @Service
 public class VoiceResearchService {
 
@@ -112,7 +112,7 @@ public class VoiceResearchService {
         deleteConsentAndSamples(consent);
     }
 
-    /** 원래의 pg_cron -> 엣지 함수 호출 경로 대신, 예약된 보존 기간 정리 작업(retention sweep)에 의해 호출된다. */
+    /** VoiceResearchRetentionScheduler가 호출한다 - 한 번에 최대 200건의 만료 동의를 정리한다. */
     @Transactional
     public int cleanupExpired() {
         List<VoiceResearchConsent> expired = repository.expiredConsents(Instant.now());

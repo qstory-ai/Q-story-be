@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Service;
 
-/** audio-normalizer.mjs를 Java로 포팅한 것. audio/webm은 별도로 실행한 ffmpeg 프로세스를 거치고, 그 외에는 그대로 통과시킨다. */
+/** STT 입력용 오디오 정규화. audio/webm은 ffmpeg 프로세스로 16kHz mono WAV로 변환하고, 그 외 지원 형식은 그대로 통과시킨다. */
 @Service
 public class AudioNormalizer {
 
@@ -110,7 +110,7 @@ public class AudioNormalizer {
                 try {
                     Files.deleteIfExists(path);
                 } catch (IOException ignored) {
-                    // 최선을 다한 정리(best-effort cleanup)로, Node 구현의 rm(..., { force: true })와 동일하다
+                    // best-effort 정리
                 }
             });
         } catch (IOException ignored) {

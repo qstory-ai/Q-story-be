@@ -13,10 +13,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 완주 후 부모 리포트 화면에서 남기는 "1분 체험 후기"를 받는다. 기존에는 이 문항들을 외부
- * Google Form으로 리다이렉트해서 받았지만, 인앱 모달(CompletionSurveyModal.tsx)로 대체하며
- * 생긴 엔드포인트다 - LaunchNotificationController와 같은 "인증 불필요" 원칙을 따르는 완전
- * 익명 제출이다.
+ * 완주 후 부모 리포트 화면의 인앱 모달(completion-survey-modal.tsx)에서 남기는 "1분 체험 후기"를
+ * 받는다 - LaunchNotificationController와 같은 "인증 불필요" 원칙을 따르는 완전 익명 제출이다.
  */
 @Tag(name = "Completion surveys", description = "Anonymous post-demo experience survey")
 @RestController

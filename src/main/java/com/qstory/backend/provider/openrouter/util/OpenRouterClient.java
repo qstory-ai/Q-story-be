@@ -31,9 +31,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/** providers/openrouter.mjs를 Java로 포팅한 것: chat/completions 라우트 플래닝 + 이미지 생성.
- * TTS(audio/speech)는 더 이상 여기서 다루지 않는다 - google/gemini-*-tts-preview 모델이 OpenRouter
- * 카탈로그에 없어서 GeminiTtsClient로 옮기고 generativelanguage.googleapis.com을 직접 호출한다. */
+/** OpenRouter 클라이언트: chat/completions(라우팅 3단계·컴패니언 챗·구조화 생성) + 이미지 생성.
+ * TTS는 GeminiTtsClient가 맡는다. */
 @Component
 public class OpenRouterClient {
 
@@ -71,9 +70,8 @@ public class OpenRouterClient {
     }
 
     // ---------------------------------------------------------------------------------------
-    // Phase 2: 3단계 라우팅 파이프라인 (safety_scope_gate -> route_classifier -> content_generator)
-    // 예전의 단일 호출 generatePlan()/routeSchema()를 대체한다. 오케스트레이션(REDIRECT/NEW_CHOICES
-    // 분기, guaranteeBetaAgencyChoice/sanitizeGeneratedOptionCopy 적용)은
+    // 3단계 라우팅 파이프라인 (safety_scope_gate -> route_classifier -> content_generator)
+    // 오케스트레이션(REDIRECT/NEW_CHOICES 분기, guaranteeBetaAgencyChoice/sanitizeGeneratedOptionCopy 적용)은
     // question.service.QuestionRoutingService가 맡는다 - 이 클래스는 각 단계의 프롬프트 조립 +
     // 요청/검증만 책임진다.
     // ---------------------------------------------------------------------------------------
@@ -474,8 +472,7 @@ public class OpenRouterClient {
     /**
      * 컴패니언 챗 시스템 프롬프트. 캐릭터 성격은 여기 Java 문자열이 아니라 story_persona 테이블
      * (fe personas.yaml → POST /v1/admin/stories/import → CompanionPersonaRegistry)에서 온
-     * {@link CompanionPersona}로 채운다 - 예전엔 헨젤/그레텔 성격이 이 메서드에 따로 적혀 있어
-     * personas.yaml과 어긋날 수 있었다. 라우팅 시스템 프롬프트(route_prompt)와는 안전 규칙 블록만
+     * {@link CompanionPersona}로 채운다 - 페르소나는 personas.yaml 한 곳에서만 관리된다. 라우팅 시스템 프롬프트(route_prompt)와는 안전 규칙 블록만
      * 공유한다(라우팅 의사결정 트리가 아니기 때문).
      *
      * <p>페르소나 시트의 지식 경계(아는 것/모르는 것/먼저 말하지 않는 것)를 그대로 지시로 옮긴다 -
@@ -551,12 +548,12 @@ public class OpenRouterClient {
     }
 
     /**
-     * OpenRouter 호출(TTS/채팅완성/이미지 생성 전부 공유)이 2xx가 아닌 상태로 실패했을 때 실제
+     * OpenRouter 호출(채팅완성/이미지 생성 전부 공유)이 2xx가 아닌 상태로 실패했을 때 실제
      * 원인을 서버 로그에 남긴다 - 사용자에게는 항상 안전한 고정 문구만 내려가므로, 이 로그가
      * 없으면 429 미만(예: 401/403/400 - 잘못된 키, 잘못된 파라미터, 요청 형식)으로 실패했는지조차
      * 운영 중엔 알 방법이 없다. API 키는 헤더에만 실리고 본문에는 없으므로 응답 본문을 그대로
      * 남겨도 새지 않는다. 태그(openrouter-http.failed)를 모든 호출 지점이 공유하므로, Grafana에서
-     * `{app="qstory-backend"} |= "openrouter-http.failed"` 하나로 TTS/채팅완성/이미지 생성 실패를
+     * `{app="qstory-backend"} |= "openrouter-http.failed"` 하나로 채팅완성/이미지 생성 실패를
      * 전부 모아 볼 수 있다.
      */
     private void logProviderHttpFailure(String context, int statusCode, byte[] responseBody) {
@@ -571,12 +568,12 @@ public class OpenRouterClient {
 
     /**
      * generateCompanionReply()는 자신의 고정된 스키마(CompanionReply)에 강하게 결합돼 있어 재사용하기
-     * 어렵다. shadow-family 생성, live-branch 생성, 그리고 Phase 2의 3단계 라우팅 파이프라인처럼
+     * 어렵다. shadow-family 생성, live-branch 생성, 3단계 라우팅 파이프라인처럼
      * 서로 다른 JSON 스키마를 쓰는 여러 호출자를 위해, 요청 조립·에러 처리 배관(plumbing)만
      * 일반화한 것이다 - 스키마 자체는 호출자가 만든다.
      *
      * <p>few-shot 예시(examples)는 system 메시지 다음, 실제 user 메시지 앞에 user/assistant 메시지
-     * 쌍으로 삽입된다 - 이 코드베이스에 멀티턴 프롬프팅 선례가 이전에 없었다(Phase 2에서 처음 도입).
+     * 쌍으로 삽입된다.
      */
     public JsonNode generateStructuredCompletion(
             String model, String systemPrompt, List<FewShotExample> examples, String userPayloadJson,
@@ -641,7 +638,7 @@ public class OpenRouterClient {
         }
     }
 
-    /** 예전 단일 모델/단일 턴/temperature=0 호출자(ShadowFamilyGenerationService, LiveBranchExecutionWorker)를 위한 하위 호환 오버로드. */
+    /** 기본 llmModel·few-shot 없음·temperature=0 단축 오버로드(ShadowFamilyGenerationService, LiveBranchExecutionWorker, FamilyDraftHarness). */
     public JsonNode generateStructuredCompletion(
             String systemPrompt, String userPayloadJson, ObjectNode schema, String schemaName, int maxTokens,
             ProviderErrorCode failureCode, String failureSafeDetail, RequestDeadline deadline) {
@@ -653,9 +650,7 @@ public class OpenRouterClient {
     public record GeneratedImage(byte[] bytes, String mimeType) {}
 
     /**
-     * shadow-generation.mjs의 generateImage()를 포팅한 것 - 이 백엔드에는 이미지 생성 호출이 이전에
-     * 전혀 없었다(TTS/구조화 채팅완성만 있었음). 참조 이미지 하나(기존 승인 삽화)를 스타일/인물
-     * 고정용으로 함께 보낸다.
+     * 삽화 이미지 생성. 참조 이미지 하나(기존 승인 삽화)를 스타일/인물 고정용으로 함께 보낸다.
      */
     public GeneratedImage generateImage(
             String prompt, byte[] referenceImage, String referenceImageMimeType, RequestDeadline deadline) {

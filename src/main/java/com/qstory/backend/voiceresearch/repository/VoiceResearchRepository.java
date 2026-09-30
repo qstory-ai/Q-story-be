@@ -2,8 +2,6 @@ package com.qstory.backend.voiceresearch.repository;
 
 import com.qstory.backend.voiceresearch.entity.VoiceResearchConsent;
 import com.qstory.backend.voiceresearch.entity.VoiceResearchSample;
-import com.qstory.backend.voiceresearch.repository.VoiceResearchConsentRepository;
-import com.qstory.backend.voiceresearch.repository.VoiceResearchSampleRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;

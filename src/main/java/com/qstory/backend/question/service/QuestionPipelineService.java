@@ -29,7 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/** question-pipeline.mjs를 Java로 이식한 것. */
+/** 질문 파이프라인: 오디오 정규화 → STT → 라우팅(QuestionRoutingService) → (선택) TTS. */
 @Service
 public class QuestionPipelineService {
 
@@ -93,9 +93,10 @@ public class QuestionPipelineService {
                 (Map<String, Object>) transcription.get("diagnostics"), deadline, true, startedAt, attribution);
     }
 
+    /** 현재 route()와 동일하다(오디오를 합성하지 않는다) - /v1/text-questions용. */
     public Map<String, Object> processText(
             ResolvedQuestionContext context, String transcript, RequestDeadline deadline, ConversationAttribution attribution) {
-        return routeTranscript(context, transcript, "ko", "text/plain", newDiagnostics(transcript), deadline, false, System.nanoTime(), attribution);
+        return route(context, transcript, deadline, attribution);
     }
 
     private Map<String, Object> newDiagnostics(String transcript) {
@@ -250,9 +251,7 @@ public class QuestionPipelineService {
                     providerException.code().name(), providerException.stage(), providerException.retryable(),
                     providerException.safeDetail(), storyContext);
         }
-        // AbortException/ProviderException 외의 예외는 원래 조용히 삼켜지고 사용자는 "질문을
-        // 처리하지 못했어요" 하나만 봤다 - 원인 파악이 안 돼 재발 방지 어렵다. 이제 WARN 로그로
-        // 원인을 남기고, 사용자에게는 여전히 안전한 안내 대사를 보여준다.
+        // 예상 밖 예외는 원인을 WARN으로 남기고, 사용자에게는 안전한 안내 대사만 보여준다.
         log.warn("question-pipeline.unexpected-failure storyId={} anchorId={} stage={} type={}",
                 storyContext.storyId(), storyContext.anchorId(), timeoutStage,
                 error.getClass().getName(), error);

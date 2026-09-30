@@ -82,14 +82,13 @@ public class StoryCompletionService {
                 ? null
                 : childRepository.findByIdAndParent_Id(request.childId(), caller.userId())
                         .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
-        // 수업에서 시작한 세션 - caller가 소유한 수업이어야 한다. 반 수업이면 참여 학생 전원에게 기록이
-        // 남는다(예전엔 프론트가 students[0]만 넘겨 첫 학생에게만 남았다).
+        // 수업에서 시작한 세션 - caller가 소유한 수업이어야 한다. 반 수업이면 참여 학생 전원에게 기록이 남는다.
         Lesson lesson = request.lessonId() == null
                 ? null
                 : lessonRepository.findByIdAndTutor_Id(request.lessonId(), caller.userId())
                         .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "수업을 찾을 수 없어요.", 404));
         // 멱등 저장(053) - 같은 세션(conversationId)의 기록이 이미 있으면 새로 만들지 않고 그것을 돌려준다.
-        // 클라이언트 재시도로 record()가 두 번 오면 기록과 부모 알림이 두 배로 늘던 문제.
+        // 클라이언트 재시도로 기록과 부모 알림이 중복되지 않게 한다.
         if (request.companionConversationId() != null) {
             List<StoryCompletion> existing = repository.findBySessionIdAndUser_IdOrderByCreatedAtAsc(
                     request.companionConversationId(), caller.userId());
@@ -199,6 +198,7 @@ public class StoryCompletionService {
      * user_id로 스코프되어 있어(다른 부모의 child_id를 넣으면 결과 자체가 비므로) 별도 예외는
      * 던지지 않고 조용히 빈 목록으로 응답한다.
      */
+    @Transactional(readOnly = true)
     public List<StoryCompletionSummary> list(CurrentUser caller, UUID childId) {
         // 아이별 조회는 연결된 선생님이 그 아이와 진행한 기록도 포함한다(findVisibleToParentByChild 참고).
         var completions = childId == null
@@ -208,6 +208,7 @@ public class StoryCompletionService {
     }
 
     /** 최근 N회의 전체 outcomes를 함께 반환한다 - 프론트가 여러 회차를 가로지르는 누적 트렌드(반복 접근, 관심 주제)를 계산할 때 쓴다. */
+    @Transactional(readOnly = true)
     public List<StoryCompletionDetail> recent(CurrentUser caller, int limit, UUID childId) {
         int boundedLimit = Math.max(1, Math.min(limit, RECENT_LIMIT_MAX));
         var page = PageRequest.of(0, boundedLimit);

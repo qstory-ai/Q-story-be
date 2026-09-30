@@ -11,6 +11,7 @@ import com.qstory.backend.story.service.StoryRegistryService.ResolvedQuestionCon
 import com.qstory.backend.common.util.HttpBodyReader;
 import com.qstory.backend.common.util.HttpJsonWriter;
 import com.qstory.backend.common.util.RequestDeadline;
+import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.common.enums.ConversationInputMode;
 import com.qstory.backend.conversationrecord.ConversationAttribution;
@@ -28,17 +29,13 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 네 개의 질문/전사 엔드포인트에 대한 HTTP 배선으로, server.mjs의 핸들러를 그대로 따른다. */
+/** 질문/전사 엔드포인트의 HTTP 배선 - 검증·컨텍스트 해석 후 QuestionPipelineService에 위임한다. */
 @Tag(name = "Questions", description = "The child's spoken/typed question pipeline: transcribe, route to a story branch, and (for the JSON routes) that in one call")
 @RestController
 public class QuestionController {
-
-    private static final Logger log = LoggerFactory.getLogger(QuestionController.class);
 
     private final AppProperties config;
     private final ObjectMapper objectMapper;
@@ -81,7 +78,7 @@ public class QuestionController {
         QuestionContractValidator.HeaderContext header = contractValidator.parseQuestionContext(request);
         byte[] audio = HttpBodyReader.readAudioBody(request, config.maxAudioBytes());
         var caller = currentUserResolver.currentOrNull();
-        ResolvedQuestionContext context = resolveContext(header, List.of(), false, caller);
+        ResolvedQuestionContext context = resolveContext(header, caller);
         ConversationAttribution attribution = attributionParser.fromHeaders(request, ConversationInputMode.VOICE, caller);
         Map<String, Object> result = pipeline.transcribe(context, audio, deadline(), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
@@ -111,7 +108,7 @@ public class QuestionController {
         QuestionContractValidator.HeaderContext header =
                 contractValidator.parseQuestionContextFromBody(decoded.body(), decoded.mimeType());
         var caller = currentUserResolver.currentOrNull();
-        ResolvedQuestionContext context = resolveContext(header, List.of(), false, caller);
+        ResolvedQuestionContext context = resolveContext(header, caller);
         ConversationAttribution attribution = attributionParser.fromBody(decoded.body(), ConversationInputMode.VOICE, caller);
         Map<String, Object> result = pipeline.transcribe(context, decoded.audio(), deadline(), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
@@ -143,7 +140,7 @@ public class QuestionController {
         QuestionContractValidator.HeaderContext header = contractValidator.parseQuestionContext(request);
         byte[] audio = HttpBodyReader.readAudioBody(request, config.maxAudioBytes());
         var caller = currentUserResolver.currentOrNull();
-        ResolvedQuestionContext context = resolveContext(header, List.of(), false, caller);
+        ResolvedQuestionContext context = resolveContext(header, caller);
         ConversationAttribution attribution = attributionParser.fromHeaders(request, ConversationInputMode.VOICE, caller);
         Map<String, Object> result = pipeline.process(context, audio, deadline(), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
@@ -202,16 +199,16 @@ public class QuestionController {
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
 
+    /** 오디오 라우트는 priorActionFamilyIds/guaranteeAgencyChoice를 받지 않는다. */
     private ResolvedQuestionContext resolveContext(
-            QuestionContractValidator.HeaderContext header, List<String> priorFamilyIds,
-            boolean guaranteeAgencyChoice, com.qstory.backend.identity.security.CurrentUser callerOrNull) {
+            QuestionContractValidator.HeaderContext header, CurrentUser callerOrNull) {
         return storyRegistryService.resolveStoryQuestionContext(
                 header.storyId(), header.sceneId(), header.anchorId(), header.questionRound(),
-                header.sourceMimeType(), priorFamilyIds, guaranteeAgencyChoice, callerOrNull);
+                header.sourceMimeType(), List.of(), false, callerOrNull);
     }
 
     private ResolvedQuestionContext resolveContext(
-            QuestionContractValidator.TextQuestion parsed, com.qstory.backend.identity.security.CurrentUser callerOrNull) {
+            QuestionContractValidator.TextQuestion parsed, CurrentUser callerOrNull) {
         return storyRegistryService.resolveStoryQuestionContext(
                 parsed.storyId(), parsed.sceneId(), parsed.anchorId(), parsed.questionRound(),
                 "text/plain", parsed.priorActionFamilyIds(), parsed.guaranteeAgencyChoice(), callerOrNull);

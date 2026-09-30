@@ -16,11 +16,7 @@ import java.time.Instant;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * beta-events/index.ts의 세션 upsert + 이벤트 insert 로직을 Java로 이식한 것. 엣지 함수(edge function)는
- * Supabase를 거쳐 PostgREST 왕복이 두 번 발생하지만, 이 백엔드는 데이터베이스를 직접 소유하므로 세션 upsert와
- * 이벤트 insert가 대신 하나의 로컬 트랜잭션 안에서 일어난다.
- */
+/** 베타 이벤트의 세션 upsert와 이벤트 insert를 하나의 트랜잭션 안에서 처리한다. */
 @Service
 public class BetaEventService {
 

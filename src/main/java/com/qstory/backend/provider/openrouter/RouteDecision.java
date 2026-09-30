@@ -37,11 +37,4 @@ public record RouteDecision(
                 actionFamilyId, rejoinAnchorId, fallbackFamilyId, options, modelId, storyVersions, jobId,
                 liveBranchCapped);
     }
-
-    public RouteDecision withLiveBranchCapped() {
-        return new RouteDecision(
-                route, childRelevantMeaning, coverageStatus, coverageReason, responseText, speakerId,
-                actionFamilyId, rejoinAnchorId, fallbackFamilyId, options, modelId, storyVersions,
-                liveBranchJobId, true);
-    }
 }
