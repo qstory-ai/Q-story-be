@@ -180,14 +180,17 @@ public class TutorStudentService {
                     .createdAt(now)
                     .build();
         }
+        // 아이 프로필을 먼저 정하고 중복을 확인한 뒤에 학생에 붙인다 - 기존 학생(pending)에 먼저 붙이면 조회 전
+        // 자동 flush로 그 행이 먼저 저장돼 자기 자신이 "이미 등록된 아이"로 잡힌다.
+        Child child = resolveChild(parent, student, null);
+        // 담임이 없는 반은 (tutor_id, child_id) 유니크 인덱스가 걸리지 않아 같은 아이가 중복으로 올라올 수 있다.
+        if (tutorStudentRepository.existsByClassGroup_IdAndChild_IdAndDeletedAtIsNull(classGroup.getId(), child.getId())) {
+            throw ApiException.contractError(ErrorCode.DUPLICATE_CHILD_LINK, "이 아이는 이미 이 반에 등록되어 있어요.", 409);
+        }
         student.setStatus(TutorStudentStatus.CONFIRMED);
         student.setLinkedParentUser(parent);
         student.setLinkedAt(now);
-        student.setChild(resolveChild(parent, student, null));
-        // 담임이 없는 반은 (tutor_id, child_id) 유니크 인덱스가 걸리지 않아 같은 아이가 중복으로 올라올 수 있다.
-        if (tutorStudentRepository.existsByClassGroup_IdAndChild_IdAndDeletedAtIsNull(classGroup.getId(), student.getChild().getId())) {
-            throw ApiException.contractError(ErrorCode.DUPLICATE_CHILD_LINK, "이 아이는 이미 이 반에 등록되어 있어요.", 409);
-        }
+        student.setChild(child);
         try {
             student = tutorStudentRepository.saveAndFlush(student);
         } catch (DataIntegrityViolationException duplicate) {
