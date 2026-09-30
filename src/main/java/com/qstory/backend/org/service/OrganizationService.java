@@ -3,11 +3,11 @@ package com.qstory.backend.org.service;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.dto.AuthResponse;
-import com.qstory.backend.identity.dto.UserSummary;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
+import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.org.dto.CreateOrganizationRequest;
 import com.qstory.backend.org.dto.EntitlementResponse;
 import com.qstory.backend.org.dto.OrganizationResponse;
@@ -24,13 +24,15 @@ public class OrganizationService {
     private final OrganizationRepository organizationRepository;
     private final AppUserRepository userRepository;
     private final JwtService jwtService;
+    private final UserSummaryFactory userSummaryFactory;
 
     public OrganizationService(
             OrganizationRepository organizationRepository, AppUserRepository userRepository,
-            JwtService jwtService) {
+            JwtService jwtService, UserSummaryFactory userSummaryFactory) {
         this.organizationRepository = organizationRepository;
         this.userRepository = userRepository;
         this.jwtService = jwtService;
+        this.userSummaryFactory = userSummaryFactory;
     }
 
     /**
@@ -56,7 +58,7 @@ public class OrganizationService {
         director.setOrganization(organization);
         director = userRepository.save(director);
         CurrentUser refreshed = new CurrentUser(director.getId(), director.getRole(), organization.getId());
-        return new AuthResponse(jwtService.issue(refreshed), UserSummary.of(director));
+        return new AuthResponse(jwtService.issue(refreshed), userSummaryFactory.of(director));
     }
 
     public OrganizationResponse get(CurrentUser caller, UUID organizationId) {

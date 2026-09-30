@@ -79,6 +79,7 @@ public class AuthService {
     private final AppProperties config;
     private final TutorStudentRepository tutorStudentRepository;
     private final OrganizationTutorRepository organizationTutorRepository;
+    private final UserSummaryFactory userSummaryFactory;
 
     public AuthService(
             AppUserRepository userRepository, PasswordResetTokenRepository passwordResetTokenRepository,
@@ -86,7 +87,8 @@ public class AuthService {
             AuthValidator validator, PasswordEncoder passwordEncoder, JwtService jwtService,
             GoogleOAuthVerifier googleOAuthVerifier, KakaoOAuthVerifier kakaoOAuthVerifier,
             SecureTokenGenerator tokenGenerator, SupabaseStorageClient storageClient, AppProperties config,
-            TutorStudentRepository tutorStudentRepository, OrganizationTutorRepository organizationTutorRepository) {
+            TutorStudentRepository tutorStudentRepository, OrganizationTutorRepository organizationTutorRepository,
+            UserSummaryFactory userSummaryFactory) {
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.accountDeletionFeedbackRepository = accountDeletionFeedbackRepository;
@@ -100,6 +102,7 @@ public class AuthService {
         this.config = config;
         this.tutorStudentRepository = tutorStudentRepository;
         this.organizationTutorRepository = organizationTutorRepository;
+        this.userSummaryFactory = userSummaryFactory;
     }
 
     @Transactional
@@ -236,7 +239,7 @@ public class AuthService {
     }
 
     public UserSummary me(CurrentUser caller) {
-        return UserSummary.of(requireActiveUser(caller.userId()));
+        return userSummaryFactory.of(requireActiveUser(caller.userId()));
     }
 
     @Transactional
@@ -254,7 +257,7 @@ public class AuthService {
             user.setChildName(trimmed.isEmpty() ? null : trimmed);
         }
         userRepository.save(user);
-        return UserSummary.of(user);
+        return userSummaryFactory.of(user);
     }
 
     /** Teacher profile photos are validated by content as well as MIME type before server-only storage upload. */
@@ -305,7 +308,7 @@ public class AuthService {
         if (previousObjectName != null && previousObjectName.startsWith("profiles/" + user.getId() + "/")) {
             storageClient.delete(bucket, previousObjectName);
         }
-        return UserSummary.of(user);
+        return userSummaryFactory.of(user);
     }
 
     @Transactional
@@ -431,6 +434,6 @@ public class AuthService {
     private AuthResponse issueResponse(AppUser user) {
         CurrentUser currentUser = new CurrentUser(
                 user.getId(), user.getRole(), user.getOrganization() == null ? null : user.getOrganization().getId());
-        return new AuthResponse(jwtService.issue(currentUser), UserSummary.of(user));
+        return new AuthResponse(jwtService.issue(currentUser), userSummaryFactory.of(user));
     }
 }

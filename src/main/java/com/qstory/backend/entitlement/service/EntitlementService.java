@@ -54,6 +54,13 @@ public class EntitlementService {
         }
     }
 
+    /** 화면이 잠금을 판단하는 "지금 전체 이야기를 이용할 수 있는가" - 개인 구독과 기관 구독을 합친 값이다. */
+    public boolean hasAccess(AppUser user) {
+        boolean personal = user.getSubscriptionStatus().grantsAccessAt(user.getSubscriptionExpiresAt(), Instant.now());
+        return personal || orgGrantsAccess(new CurrentUser(
+                user.getId(), user.getRole(), user.getOrganization() == null ? null : user.getOrganization().getId()));
+    }
+
     private boolean orgGrantsAccess(CurrentUser caller) {
         return switch (caller.role()) {
             case DIRECTOR -> caller.orgId() != null

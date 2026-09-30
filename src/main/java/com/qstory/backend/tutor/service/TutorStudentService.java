@@ -14,12 +14,12 @@ import com.qstory.backend.common.util.TokenValidation;
 import com.qstory.backend.org.util.JoinCodeGenerator;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
-import com.qstory.backend.identity.dto.UserSummary;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
+import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.parent.child.entity.Child;
@@ -84,13 +84,15 @@ public class TutorStudentService {
     private final ChildRepository childRepository;
     private final TutorClassService tutorClassService;
     private final LessonRepository lessonRepository;
+    private final UserSummaryFactory userSummaryFactory;
     public TutorStudentService(
             TutorStudentRepository tutorStudentRepository, TutorScheduleRepository tutorScheduleRepository,
             TutorInviteRepository tutorInviteRepository, AppUserRepository userRepository,
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
             SecureTokenGenerator tokenGenerator, JoinCodeGenerator joinCodeGenerator,
             NotificationPublisher notificationPublisher, ChildRepository childRepository,
-            TutorClassService tutorClassService, LessonRepository lessonRepository) {
+            TutorClassService tutorClassService, LessonRepository lessonRepository,
+            UserSummaryFactory userSummaryFactory) {
         this.tutorStudentRepository = tutorStudentRepository;
         this.tutorScheduleRepository = tutorScheduleRepository;
         this.tutorInviteRepository = tutorInviteRepository;
@@ -104,6 +106,7 @@ public class TutorStudentService {
         this.childRepository = childRepository;
         this.tutorClassService = tutorClassService;
         this.lessonRepository = lessonRepository;
+        this.userSummaryFactory = userSummaryFactory;
     }
 
     @Transactional
@@ -514,7 +517,7 @@ public class TutorStudentService {
                     "tutor-invite-accepted:" + invite.getId());
         }
         CurrentUser currentUser = new CurrentUser(parent.getId(), Role.PARENT, null);
-        return new AuthResponse(jwtService.issue(currentUser), UserSummary.of(parent));
+        return new AuthResponse(jwtService.issue(currentUser), userSummaryFactory.of(parent));
     }
 
     /**

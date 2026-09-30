@@ -5,11 +5,11 @@ import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
-import com.qstory.backend.identity.dto.UserSummary;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
+import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassResponse;
@@ -52,13 +52,14 @@ public class ClassService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final TutorStudentService tutorStudentService;
+    private final UserSummaryFactory userSummaryFactory;
 
     public ClassService(
             ClassGroupRepository classGroupRepository, TutorStudentRepository tutorStudentRepository,
             OrganizationTutorRepository organizationTutorRepository, AppUserRepository userRepository,
             OrganizationService organizationService, JoinCodeGenerator joinCodeGenerator,
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
-            TutorStudentService tutorStudentService) {
+            TutorStudentService tutorStudentService, UserSummaryFactory userSummaryFactory) {
         this.classGroupRepository = classGroupRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.organizationTutorRepository = organizationTutorRepository;
@@ -69,6 +70,7 @@ public class ClassService {
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.tutorStudentService = tutorStudentService;
+        this.userSummaryFactory = userSummaryFactory;
     }
 
     @Transactional
@@ -193,7 +195,7 @@ public class ClassService {
     }
 
     private AuthResponse authResponse(AppUser parent) {
-        return new AuthResponse(jwtService.issue(new CurrentUser(parent.getId(), Role.PARENT, null)), UserSummary.of(parent));
+        return new AuthResponse(jwtService.issue(new CurrentUser(parent.getId(), Role.PARENT, null)), userSummaryFactory.of(parent));
     }
 
     private ClassGroup resolveClassGroup(String classCode) {

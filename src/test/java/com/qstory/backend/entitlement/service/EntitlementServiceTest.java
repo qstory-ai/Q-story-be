@@ -1,6 +1,7 @@
 package com.qstory.backend.entitlement.service;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -141,5 +142,25 @@ class EntitlementServiceTest {
         when(organizationTutorRepository.findOrganizationsOfTutor(tutorId)).thenReturn(List.of());
         assertThrows(ApiException.class,
                 () -> service.assertAccessible(paidStory, new CurrentUser(tutorId, Role.TUTOR, null)));
+    }
+
+    @Test
+    void hasAccessMergesPersonalAndOrganizationSubscriptions() {
+        AppUser orgOnlyParent = AppUser.builder().id(parentId).role(Role.PARENT).build();
+        when(tutorStudentRepository.findClassSeatsOfParent(parentId)).thenReturn(List.of(childIn(activeOrganization(null))));
+        assertEquals(true, service.hasAccess(orgOnlyParent));
+
+        UUID payingParentId = UUID.randomUUID();
+        AppUser payingParent = AppUser.builder()
+                .id(payingParentId).role(Role.PARENT)
+                .subscriptionStatus(SubscriptionStatus.ACTIVE)
+                .subscriptionExpiresAt(Instant.now().plus(5, ChronoUnit.DAYS))
+                .build();
+        when(tutorStudentRepository.findClassSeatsOfParent(payingParentId)).thenReturn(List.of());
+        assertEquals(true, service.hasAccess(payingParent));
+
+        UUID nobodyId = UUID.randomUUID();
+        when(tutorStudentRepository.findClassSeatsOfParent(nobodyId)).thenReturn(List.of());
+        assertEquals(false, service.hasAccess(AppUser.builder().id(nobodyId).role(Role.PARENT).build()));
     }
 }
