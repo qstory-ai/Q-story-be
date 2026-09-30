@@ -43,4 +43,8 @@ public class VoiceResearchConsent {
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
+
+    /** 로그인한 보호자가 올린 세션이면 그 계정 id - 계정 단위 철회가 이 값으로 녹음을 찾는다. 익명 세션은 null. */
+    @Column(name = "user_id")
+    private UUID userId;
 }

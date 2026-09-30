@@ -1,6 +1,7 @@
 package com.qstory.backend.voiceresearch.repository;
 
 import com.qstory.backend.voiceresearch.entity.VoiceResearchConsent;
+import com.qstory.backend.voiceresearch.entity.VoiceResearchPreference;
 import com.qstory.backend.voiceresearch.entity.VoiceResearchSample;
 import java.time.Instant;
 import java.util.List;
@@ -13,11 +14,14 @@ public class VoiceResearchRepository {
 
     private final VoiceResearchConsentRepository consentRepository;
     private final VoiceResearchSampleRepository sampleRepository;
+    private final VoiceResearchPreferenceRepository preferenceRepository;
 
     public VoiceResearchRepository(
-            VoiceResearchConsentRepository consentRepository, VoiceResearchSampleRepository sampleRepository) {
+            VoiceResearchConsentRepository consentRepository, VoiceResearchSampleRepository sampleRepository,
+            VoiceResearchPreferenceRepository preferenceRepository) {
         this.consentRepository = consentRepository;
         this.sampleRepository = sampleRepository;
+        this.preferenceRepository = preferenceRepository;
     }
 
     public VoiceResearchConsent findConsent(UUID consentId) {
@@ -42,5 +46,17 @@ public class VoiceResearchRepository {
 
     public List<VoiceResearchConsent> expiredConsents(Instant before) {
         return consentRepository.findTop200ByExpiresAtBefore(before);
+    }
+
+    public List<VoiceResearchConsent> consentsOfUser(UUID userId) {
+        return consentRepository.findByUserId(userId);
+    }
+
+    public VoiceResearchPreference findPreference(UUID userId) {
+        return preferenceRepository.findById(userId).orElse(null);
+    }
+
+    public VoiceResearchPreference savePreference(VoiceResearchPreference preference) {
+        return preferenceRepository.save(preference);
     }
 }
