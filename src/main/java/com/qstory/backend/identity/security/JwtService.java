@@ -6,6 +6,7 @@ import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.Role;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
@@ -20,7 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/** 이 앱 자체의 액세스 토큰을 발급하고 검증한다 - HMAC 서명 방식의 단일한 장기 유효 토큰이며, 리프레시(refresh) 흐름은 없다(auth plan 문서 참고). */
+/** 이 앱 자체의 액세스 토큰을 발급하고 검증한다 - HMAC 서명 방식의 단일한 장기 유효 토큰이며, 리프레시(refresh) 흐름은 없다. */
 @Component
 public class JwtService {
 
@@ -30,6 +31,13 @@ public class JwtService {
     private static final String CLAIM_ORG_ID = "orgId";
 
     private final AppProperties config;
+
+    /**
+     * 요청마다 다시 만들지 않도록 처음 쓸 때 한 번 만들어 둔다. 부팅 시점에 만들지 않는 이유: secret이
+     * 32바이트 미만이면 Keys.hmacShaKeyFor가 던지는데, 그때도 앱은 떠 있고 인증만 실패해야 한다.
+     */
+    private volatile SecretKey key;
+    private volatile JwtParser parser;
 
     public JwtService(AppProperties config) {
         this.config = config;
@@ -67,7 +75,7 @@ public class JwtService {
             return Optional.empty();
         }
         try {
-            Claims claims = Jwts.parser().verifyWith(key()).build().parseSignedClaims(token).getPayload();
+            Claims claims = parser().parseSignedClaims(token).getPayload();
             UUID userId = UUID.fromString(claims.getSubject());
             Role role = Role.valueOf(claims.get(CLAIM_ROLE, String.class));
             UUID orgId = uuidOrNull(claims.get(CLAIM_ORG_ID, String.class));
@@ -81,7 +89,21 @@ public class JwtService {
         if (!config.auth().configured()) {
             throw ApiException.contractError(ErrorCode.INTERNAL_ERROR, "인증 기능이 아직 준비되지 않았어요.", 500);
         }
-        return Keys.hmacShaKeyFor(config.auth().jwtSecret().getBytes(StandardCharsets.UTF_8));
+        SecretKey current = key;
+        if (current == null) {
+            current = Keys.hmacShaKeyFor(config.auth().jwtSecret().getBytes(StandardCharsets.UTF_8));
+            key = current;
+        }
+        return current;
+    }
+
+    private JwtParser parser() {
+        JwtParser current = parser;
+        if (current == null) {
+            current = Jwts.parser().verifyWith(key()).build();
+            parser = current;
+        }
+        return current;
     }
 
     private static UUID uuidOrNull(String value) {

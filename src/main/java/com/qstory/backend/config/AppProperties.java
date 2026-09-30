@@ -23,6 +23,10 @@ public record AppProperties(
         Payments payments,
         ConversationRecord conversationRecord) {
 
+    private static boolean notBlank(String value) {
+        return value != null && !value.isBlank();
+    }
+
     /** 대화 원장(conversation_record) 보존 일수. 0 이하면 만료 삭제를 하지 않는다. */
     public record ConversationRecord(int retentionDays) {}
 
@@ -30,19 +34,19 @@ public record AppProperties(
 
     public record Toss(String secretKey, int parentMonthlyAmount, int organizationStudentMonthlyAmount, int accessDays) {
         public boolean configured() {
-            return secretKey != null && !secretKey.isBlank();
+            return notBlank(secretKey);
         }
     }
 
     public record Admin(String storyImportToken) {
         public boolean storyImportTokenConfigured() {
-            return storyImportToken != null && !storyImportToken.isBlank();
+            return notBlank(storyImportToken);
         }
     }
 
     public record Auth(String jwtSecret, long accessTokenTtlMinutes) {
         public boolean configured() {
-            return jwtSecret != null && !jwtSecret.isBlank();
+            return notBlank(jwtSecret);
         }
     }
 
@@ -50,8 +54,7 @@ public record AppProperties(
 
     public record Rtzr(String clientId, String clientSecret) {
         public boolean configured() {
-            return clientId != null && !clientId.isBlank()
-                    && clientSecret != null && !clientSecret.isBlank();
+            return notBlank(clientId) && notBlank(clientSecret);
         }
     }
 
@@ -59,13 +62,13 @@ public record AppProperties(
 
     public record Google(String clientId) {
         public boolean configured() {
-            return clientId != null && !clientId.isBlank();
+            return notBlank(clientId);
         }
     }
 
     public record Kakao(String appId) {
         public boolean configured() {
-            return appId != null && !appId.isBlank();
+            return notBlank(appId);
         }
     }
 
@@ -78,20 +81,12 @@ public record AppProperties(
         public boolean imageConfigured() {
             return notBlank(apiKey) && notBlank(imageModel);
         }
-
-        private static boolean notBlank(String value) {
-            return value != null && !value.isBlank();
-        }
     }
 
     /** TTS 전용 - OpenRouter 카탈로그에 없는 Gemini 자체 모델/목소리를 쓰므로 Gemini API를 직접 호출한다. */
     public record Gemini(String apiKey, String ttsModel, String ttsVoice) {
         public boolean ttsConfigured() {
             return notBlank(apiKey) && notBlank(ttsModel) && notBlank(ttsVoice);
-        }
-
-        private static boolean notBlank(String value) {
-            return value != null && !value.isBlank();
         }
     }
 
@@ -102,11 +97,9 @@ public record AppProperties(
             String shadowAssetsBucket,
             String storyAudioBucket,
             String storyImageBucket,
-            String profileImageBucket,
-            String voiceResearchCleanupToken) {
+            String profileImageBucket) {
         public boolean configured() {
-            return url != null && !url.isBlank()
-                    && serviceRoleKey != null && !serviceRoleKey.isBlank();
+            return notBlank(url) && notBlank(serviceRoleKey);
         }
     }
 }

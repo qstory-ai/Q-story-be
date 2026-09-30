@@ -7,12 +7,12 @@ import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
-/** auth 라우트를 위한 요청 형태(request-shape) 검증. AuthService에서 분리되어 나왔다(VoiceResearchValidator의 분리 방식과 동일). */
+/** auth 라우트를 위한 요청 형태(request-shape) 검증. */
 @Component
 public class AuthValidator {
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
-    /** 아이디 - 이메일과 분리되면서 새로 생긴 자유 형식 식별자. 영문/숫자/일부 특수문자, 4~30자. */
+    /** 아이디 - 이메일과 별개인 자유 형식 식별자. 영문/숫자/일부 특수문자, 4~30자. */
     private static final Pattern LOGIN_ID_PATTERN = Pattern.compile("^[a-zA-Z0-9._-]{4,30}$");
     private static final int MIN_PASSWORD_LENGTH = 8;
 
@@ -25,9 +25,7 @@ public class AuthValidator {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "올바른 이메일 주소를 입력해 주세요.");
         }
         validatePassword(request.password());
-        if (isBlank(request.displayName()) || request.displayName().length() > 60) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "이름을 입력해 주세요.");
-        }
+        validateDisplayName(request.displayName());
     }
 
     public void validateLogin(LoginRequest request) {

@@ -1,5 +1,6 @@
 package com.qstory.backend.common.error;
 
+import com.qstory.backend.common.web.RequestIdFilter;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,18 +14,14 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
 /**
- * 파이프라인이 실행되기 전에 걸러지는 모든 요청 형식 위반에 대한 통일된 실패 봉투(envelope)다.
- * Node 백엔드 server.mjs 요청 핸들러 하단의 catch-all 블록을 그대로 옮긴 것이다: status가 500
- * 이상이면 stage=routing/retryable=true로 강제하고 safeDetail을 숨긴다(서버 측 결함을 설명하는
- * 내용이므로, 호출한 쪽이 아니라 로그로 보낸다); 500 미만이면 던져진 safeDetail을 그대로
- * 전달한다.
+ * 모든 요청 형식 위반·예기치 못한 오류에 대한 통일된 실패 봉투(envelope). status가 500 이상이면
+ * stage=routing/retryable=true로 강제하고 safeDetail을 숨긴다(서버 측 결함 설명은 호출자가 아니라
+ * 로그로 보낸다); 500 미만이면 던져진 safeDetail을 그대로 전달한다.
  *
- * 고정된 문구로 대체하지 않고 그냥 숨기는 이유: 이 advice는 모든 엔드포인트를 포괄하는데,
- * 각 호출자는 이미 detail이 없는 실패에 대한 자신만의 폴백 문구를 갖고 있다 - 스토리 런타임은
- * 단계별로 아동에게 안전한 문구를 고르고(fe runtime-view.ts), auth-api.ts는 단순히
- * "요청을 처리하지 못했어요"로 폴백한다. 여기서 메시지를 작성해버리면, 어느 엔드포인트가
- * 실패했는지 모르는 채로 고른 문구가 이 둘을 모두 덮어써 버리는데, 실제로 이런 식으로 회원가입
- * 에러가 "준비된 이야기로 계속할게요"라고 말하게 된 적이 있었다.
+ * <p>고정 문구로 대체하지 않고 숨기기만 하는 이유: 이 advice는 모든 엔드포인트를 포괄하는데, 호출자마다
+ * detail이 없는 실패에 대한 자기 폴백 문구가 있다(스토리 런타임은 단계별 아동용 문구, auth 화면은
+ * "요청을 처리하지 못했어요"). 여기서 문구를 정하면 어느 엔드포인트인지 모른 채 고른 문구가 그 둘을
+ * 덮어써, 회원가입 에러가 "준비된 이야기로 계속할게요"라고 말하게 된다.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -70,7 +67,7 @@ public class GlobalExceptionHandler {
     private String currentRequestId() {
         RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
         if (attributes instanceof ServletRequestAttributes servletAttributes) {
-            Object existing = servletAttributes.getRequest().getAttribute("qstoryRequestId");
+            Object existing = servletAttributes.getRequest().getAttribute(RequestIdFilter.REQUEST_ID_ATTRIBUTE);
             if (existing instanceof String requestId) {
                 return requestId;
             }

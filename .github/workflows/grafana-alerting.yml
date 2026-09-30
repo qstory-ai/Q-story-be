@@ -63,8 +63,7 @@ jobs:
       - run: terraform init -input=false
       - run: terraform validate
 
-      # PR: plan만. -detailed-exitcode로 변경 유무를 노출하지만 실패 처리는 안 한다(변경 있으면
-      # exit 2인데, 그건 PR의 존재 이유이므로 성공으로 봄).
+      # PR: plan만(apply 안 함). 변경이 있어도 성공으로 끝난다(-detailed-exitcode를 쓰지 않음).
       - name: terraform plan
         if: github.event_name == 'pull_request'
         run: terraform plan -input=false -no-color
