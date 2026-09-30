@@ -29,6 +29,8 @@ import com.qstory.backend.tutor.TutorLessonType;
 import com.qstory.backend.tutor.TutorStudentStatus;
 import com.qstory.backend.tutor.Weekday;
 import com.qstory.backend.tutor.dto.AcceptTutorInviteRequest;
+import com.qstory.backend.tutor.dto.BulkCreateTutorStudentsRequest;
+import com.qstory.backend.tutor.dto.BulkTutorStudentResult;
 import com.qstory.backend.tutor.dto.CreateTutorInviteRequest;
 import com.qstory.backend.tutor.dto.CreateTutorScheduleRequest;
 import com.qstory.backend.tutor.dto.CreateTutorStudentRequest;
@@ -141,6 +143,81 @@ public class TutorStudentService {
         return TutorStudentResponse.of(student);
     }
 
+    /**
+     * 부모가 선생님 운영 반의 반 코드/초대로 들어오는 경로 - 부모 계정에는 반 소속을 남기지 않고(소속이
+     * 둘로 갈라져 기관 인원수와 선생님 명단이 어긋나던 문제) 선생님의 학생 한 명(CONFIRMED)으로 등록한다.
+     * 그러면 이후 수업·리포트·알림이 초대 수락 경로와 똑같이 동작한다. 같은 부모가 아이 여러 명을
+     * 등록하려면 아이마다 이 경로를 한 번씩 거치면 된다.
+     */
+    @Transactional
+    public TutorStudent enrollParentInTutorClass(AppUser parent, ClassGroup classGroup, String childName, Integer birthYearInput) {
+        if (isBlank(childName)) {
+            throw ApiException.contractError(ErrorCode.CHILD_INFO_REQUIRED, "이 반은 선생님이 운영하는 반이에요. 아이 이름을 입력해 주세요.");
+        }
+        Integer birthYear = ChildAge.validateBirthYear(birthYearInput);
+        if (birthYear == null) {
+            throw ApiException.contractError(ErrorCode.CHILD_INFO_REQUIRED, "아이의 출생연도를 골라 주세요.");
+        }
+        AppUser tutor = classGroup.getTutor();
+        TutorStudent student = TutorStudent.builder()
+                .tutor(tutor)
+                .name(childName.trim())
+                .ageBand(ChildAge.tutorLabel(birthYear))
+                .birthYear(birthYear)
+                .lessonType(TutorLessonType.CLASS)
+                .classGroup(classGroup)
+                .status(TutorStudentStatus.CONFIRMED)
+                .linkedParentUser(parent)
+                .createdAt(Instant.now())
+                .build();
+        student.setChild(resolveChild(parent, student, null));
+        try {
+            student = tutorStudentRepository.saveAndFlush(student);
+        } catch (DataIntegrityViolationException duplicate) {
+            throw ApiException.contractError(
+                    ErrorCode.DUPLICATE_CHILD_LINK, "이 아이는 이미 이 선생님의 학생으로 등록되어 있어요.", 409);
+        }
+        addToScheduledClassLessons(tutor.getId(), student, classGroup);
+        notificationPublisher.publish(
+                tutor.getId(),
+                "tutor-class-parent-joined",
+                student.getName() + " 부모님이 반 코드로 들어왔어요",
+                parent.getDisplayName() + "님이 " + classGroup.getName() + " 반에 " + student.getName() + "을(를) 등록했어요.",
+                "/tutor/students/" + student.getId(),
+                "tutor-class-parent-joined:" + student.getId());
+        return student;
+    }
+
+    /** 한 번에 등록할 수 있는 최대 인원 - 반 하나 규모를 넘는 요청은 실수로 보고 거절한다. */
+    static final int BULK_STUDENT_LIMIT = 50;
+
+    /**
+     * 반 학생을 한 번에 등록하고 학생마다 초대를 발급한다. 한 명이라도 검증에 실패하면 전체가
+     * 롤백된다 - 절반만 등록된 채 응답이 실패하면 선생님이 어디까지 됐는지 알 수 없다.
+     */
+    @Transactional
+    public List<BulkTutorStudentResult> createStudentsBulk(CurrentUser caller, BulkCreateTutorStudentsRequest request) {
+        List<BulkCreateTutorStudentsRequest.Student> items = request == null || request.students() == null
+                ? List.of() : request.students();
+        if (items.isEmpty()) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "등록할 학생을 한 명 이상 입력해 주세요.");
+        }
+        if (items.size() > BULK_STUDENT_LIMIT) {
+            throw ApiException.contractError(
+                    ErrorCode.VALIDATION_FAILED, "한 번에 " + BULK_STUDENT_LIMIT + "명까지 등록할 수 있어요.");
+        }
+        List<BulkTutorStudentResult> results = new ArrayList<>();
+        for (BulkCreateTutorStudentsRequest.Student item : items) {
+            Integer birthYear = item.birthYear() != null ? item.birthYear() : request.defaultBirthYear();
+            TutorStudentResponse student = createStudent(caller, new CreateTutorStudentRequest(
+                    item.name(), null, request.classType(), request.prepNote(), request.lessonType(),
+                    request.classGroupId(), birthYear));
+            TutorInviteResponse invite = createInvite(caller, student.id(), new CreateTutorInviteRequest("LINK", null));
+            results.add(new BulkTutorStudentResult(student, invite));
+        }
+        return results;
+    }
+
     @Transactional(readOnly = true)
     public TutorStudentResponse getStudent(CurrentUser caller, UUID studentId) {
         return TutorStudentResponse.of(requireOwnedStudent(caller, studentId));
@@ -225,8 +302,12 @@ public class TutorStudentService {
 
     /** 반에 새로 들어온 학생을 그 반의 아직 예정(SCHEDULED)인 수업에 참여자로 넣는다. */
     private void addToScheduledClassLessons(CurrentUser caller, TutorStudent student, ClassGroup classGroup) {
+        addToScheduledClassLessons(caller.userId(), student, classGroup);
+    }
+
+    private void addToScheduledClassLessons(UUID tutorId, TutorStudent student, ClassGroup classGroup) {
         for (Lesson lesson : lessonRepository.findByTutor_IdAndClassGroup_IdAndStatus(
-                caller.userId(), classGroup.getId(), LessonStatus.SCHEDULED)) {
+                tutorId, classGroup.getId(), LessonStatus.SCHEDULED)) {
             if (lesson.getStudents().stream().noneMatch(p -> p.getId().equals(student.getId()))) {
                 lesson.getStudents().add(student);
                 lesson.setUpdatedAt(Instant.now());

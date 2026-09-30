@@ -68,6 +68,8 @@ public enum ErrorCode {
     CHILD_SELECTION_REQUIRED(409),
     /** 같은 선생님의 다른 학생 등록에 이미 연결된 아이 프로필. */
     DUPLICATE_CHILD_LINK(409),
+    /** 선생님 운영 반에 반 코드로 들어올 때 학생 명단에 올릴 아이 이름·출생연도가 필요하다. */
+    CHILD_INFO_REQUIRED(400),
     UNSUPPORTED_ACTION(400);
 
     private final int defaultStatus;

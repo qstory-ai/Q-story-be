@@ -7,6 +7,8 @@ import com.qstory.backend.storyreport.dto.StoryCompletionSummary;
 import com.qstory.backend.tutor.dto.AcceptTutorInviteRequest;
 import com.qstory.backend.tutor.dto.CreateTutorInviteRequest;
 import com.qstory.backend.tutor.dto.CreateTutorScheduleRequest;
+import com.qstory.backend.tutor.dto.BulkCreateTutorStudentsRequest;
+import com.qstory.backend.tutor.dto.BulkTutorStudentResult;
 import com.qstory.backend.tutor.dto.CreateTutorStudentRequest;
 import com.qstory.backend.tutor.dto.TutorInvitePreviewResponse;
 import com.qstory.backend.tutor.dto.TutorInviteResponse;
@@ -49,6 +51,14 @@ public class TutorController {
     @ResponseStatus(HttpStatus.CREATED)
     public TutorStudentResponse createStudent(@RequestBody CreateTutorStudentRequest request) {
         return service.createStudent(currentUserResolver.requireRole(Role.TUTOR), request);
+    }
+
+    @Operation(summary = "Register several students and issue an invite for each",
+            description = "TUTOR only. All-or-nothing, up to 50 students. Shared lessonType/classGroupId/notes; per-student name and birthYear.")
+    @PostMapping("/v1/tutor-students/bulk")
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<BulkTutorStudentResult> createStudentsBulk(@RequestBody BulkCreateTutorStudentsRequest request) {
+        return service.createStudentsBulk(currentUserResolver.requireRole(Role.TUTOR), request);
     }
 
     @Operation(summary = "List the caller's own students", description = "TUTOR only.")
