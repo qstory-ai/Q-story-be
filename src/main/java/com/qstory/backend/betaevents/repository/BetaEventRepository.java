@@ -2,8 +2,6 @@ package com.qstory.backend.betaevents.repository;
 
 import com.qstory.backend.betaevents.entity.StoryEvent;
 import com.qstory.backend.betaevents.entity.StorySession;
-import com.qstory.backend.betaevents.repository.StoryEventRepository;
-import com.qstory.backend.betaevents.repository.StorySessionRepository;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.stereotype.Component;

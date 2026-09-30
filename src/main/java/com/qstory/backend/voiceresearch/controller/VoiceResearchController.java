@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** supabase/functions/voice-research/index.ts의 upload/withdraw 액션을 Java로 이식한 버전. */
+/** 보호자 동의 기반 음성 연구 녹음의 업로드/동의 철회. */
 @Tag(name = "Voice research", description = "Opt-in recording upload/withdrawal for the parent-consented voice research program - separate from the child-facing question pipeline")
 @RestController
 public class VoiceResearchController {

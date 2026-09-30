@@ -12,8 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 완주 후 부모 리포트 화면에서 남기는 "1분 체험 후기" - 기존 외부 Google Form과 동일한 문항을
- * 인앱 모달(CompletionSurveyModal.tsx)로 받는다. LaunchNotificationService와 같은 이유로
+ * 완주 후 부모 리포트 화면에서 남기는 "1분 체험 후기". LaunchNotificationService와 같은 이유로
  * (익명 제출, 인증 세션 없음) 클라이언트 검증을 다시 믿지 않고 여기서 재확인한다.
  *
  * <p>닫힌 선택지(단일 선택이고 "기타" 자유 입력이 없는 문항)만 허용 목록으로 엄격히 검증한다 -

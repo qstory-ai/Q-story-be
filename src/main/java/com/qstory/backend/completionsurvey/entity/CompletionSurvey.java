@@ -18,8 +18,8 @@ import org.hibernate.type.SqlTypes;
 
 /**
  * 완주 후 부모가 남기는 "1분 체험 후기" 한 건 - LaunchNotificationRequest와 마찬가지로 로그인
- * 계정과 무관한 익명 제출이다(무료 데모는 로그인이 없다). 문항은 기존 외부 Google Form과
- * 동일하며(CompletionSurveyController 참고), 원본 음성이나 전체 리포트 텍스트는 포함하지 않는다.
+ * 계정과 무관한 익명 제출이다(무료 데모는 로그인이 없다). 원본 음성이나 전체 리포트 텍스트는
+ * 포함하지 않는다.
  */
 @Entity
 @Table(name = "completion_surveys")

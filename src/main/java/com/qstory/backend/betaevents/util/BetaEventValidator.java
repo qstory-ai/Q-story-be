@@ -18,7 +18,7 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
-/** beta-events/index.ts의 요청 검증 및 메타데이터 허용 목록(allow-list) 로직을 Java로 이식한 것. */
+/** 베타 이벤트 요청 검증과 이벤트별 메타데이터 허용 목록(allow-list). */
 @Component
 public class BetaEventValidator {
 
@@ -116,7 +116,7 @@ public class BetaEventValidator {
         throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
     }
 
-    public String sanitizeQuestionText(String value) {
+    private String sanitizeQuestionText(String value) {
         String normalized = Normalizer.normalize(value, Normalizer.Form.NFKC);
         normalized = EMAIL.matcher(normalized).replaceAll("[이메일]");
         normalized = URL.matcher(normalized).replaceAll("[링크]");

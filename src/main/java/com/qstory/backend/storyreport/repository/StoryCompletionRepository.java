@@ -4,7 +4,6 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.Query;
 import com.qstory.backend.storyreport.entity.StoryCompletion;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -16,14 +15,6 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
 
     /** 최근 N회 누적 트렌드 계산용 - user_id, completed_at desc 복합 인덱스로 커버된다. */
     List<StoryCompletion> findByUser_IdOrderByCompletedAtDesc(UUID userId, Pageable pageable);
-
-    /** 특정 아이(child)에 귀속된 완주만 - 리포트 페이지의 '아이별' 필터에서 사용. */
-    List<StoryCompletion> findByUser_IdAndChild_IdOrderByCompletedAtDesc(UUID userId, UUID childId);
-
-    List<StoryCompletion> findByUser_IdAndChild_IdOrderByCompletedAtDesc(
-            UUID userId, UUID childId, Pageable pageable);
-
-    Optional<StoryCompletion> findByIdAndUser_Id(UUID id, UUID userId);
 
     /** 수업 하나의 완주 기록(참여 학생별로 한 행씩) - LessonController가 수업 소유를 먼저 확인한 뒤 호출한다. */
     List<StoryCompletion> findByLesson_IdOrderByCompletedAtDesc(UUID lessonId);

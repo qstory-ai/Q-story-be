@@ -22,10 +22,6 @@ public record ConversationAttribution(
         UUID userId,
         String userRole) {
 
-    public static ConversationAttribution anonymous(ConversationInputMode inputMode) {
-        return new ConversationAttribution(null, null, null, null, inputMode, null, null);
-    }
-
     public static ConversationAttribution of(
             UUID sessionId, UUID childId, UUID tutorStudentId, UUID lessonId,
             ConversationInputMode inputMode, CurrentUser callerOrNull) {
