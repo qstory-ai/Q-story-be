@@ -58,6 +58,9 @@ qstory:
   max-audio-bytes: ${MAX_AUDIO_BYTES:2621440}
   request-timeout-ms: ${REQUEST_TIMEOUT_MS:40000}
   ffmpeg-path: ${FFMPEG_PATH:ffmpeg}
+  beta:
+    # 베타 기간 선생님·관리자 전체 개방(보호자 제외). 정식 출시 때 false.
+    open-access-tutor-org: ${BETA_OPEN_ACCESS_TUTOR_ORG:true}
   providers:
     rtzr:
       client-id: ${RTZR_CLIENT_ID:}
