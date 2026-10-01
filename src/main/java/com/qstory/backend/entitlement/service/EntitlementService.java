@@ -55,7 +55,7 @@ public class EntitlementService {
             return;
         }
         if (callerOrNull == null || !(betaOpen(callerOrNull.role()) || orgGrantsAccess(callerOrNull) || personalGrantsAccess(callerOrNull))) {
-            throw ApiException.contractError(ErrorCode.ENTITLEMENT_REQUIRED, "이 작품을 이용하려면 구독이 필요해요.", 402);
+            throw ApiException.contractError(ErrorCode.ENTITLEMENT_REQUIRED, "이 이야기는 이용권이 있어야 열려요.", 402);
         }
     }
 
