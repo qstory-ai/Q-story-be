@@ -2,6 +2,8 @@ package com.qstory.backend.entitlement.service;
 
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.config.BetaProperties;
+import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
@@ -35,30 +37,41 @@ public class EntitlementService {
     private final AppUserRepository appUserRepository;
     private final TutorStudentRepository tutorStudentRepository;
     private final OrganizationTutorRepository organizationTutorRepository;
+    private final BetaProperties beta;
 
     public EntitlementService(
             OrganizationRepository organizationRepository, AppUserRepository appUserRepository,
-            TutorStudentRepository tutorStudentRepository, OrganizationTutorRepository organizationTutorRepository) {
+            TutorStudentRepository tutorStudentRepository, OrganizationTutorRepository organizationTutorRepository,
+            BetaProperties beta) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.organizationTutorRepository = organizationTutorRepository;
+        this.beta = beta;
     }
 
     public void assertAccessible(StoryManifest story, CurrentUser callerOrNull) {
         if (!story.requiresEntitlement()) {
             return;
         }
-        if (callerOrNull == null || !(orgGrantsAccess(callerOrNull) || personalGrantsAccess(callerOrNull))) {
+        if (callerOrNull == null || !(betaOpen(callerOrNull.role()) || orgGrantsAccess(callerOrNull) || personalGrantsAccess(callerOrNull))) {
             throw ApiException.contractError(ErrorCode.ENTITLEMENT_REQUIRED, "이 작품을 이용하려면 구독이 필요해요.", 402);
         }
     }
 
     /** 화면이 잠금을 판단하는 "지금 전체 이야기를 이용할 수 있는가" - 개인 구독과 기관 구독을 합친 값이다. */
     public boolean hasAccess(AppUser user) {
+        if (betaOpen(user.getRole())) {
+            return true;
+        }
         boolean personal = user.getSubscriptionStatus().grantsAccessAt(user.getSubscriptionExpiresAt(), Instant.now());
         return personal || orgGrantsAccess(new CurrentUser(
                 user.getId(), user.getRole(), user.getOrganization() == null ? null : user.getOrganization().getId()));
+    }
+
+    /** 베타 기간 선생님·관리자 전체 개방 - 보호자는 해당하지 않는다. */
+    private boolean betaOpen(Role role) {
+        return beta.openAccessTutorOrg() && (role == Role.TUTOR || role == Role.DIRECTOR);
     }
 
     private boolean orgGrantsAccess(CurrentUser caller) {

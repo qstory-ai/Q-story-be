@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.config.BetaProperties;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
@@ -38,7 +39,11 @@ class EntitlementServiceTest {
     private final TutorStudentRepository tutorStudentRepository = mock(TutorStudentRepository.class);
     private final OrganizationTutorRepository organizationTutorRepository = mock(OrganizationTutorRepository.class);
     private final EntitlementService service = new EntitlementService(
-            organizationRepository, appUserRepository, tutorStudentRepository, organizationTutorRepository);
+            organizationRepository, appUserRepository, tutorStudentRepository, organizationTutorRepository,
+            new BetaProperties(false));
+    private final EntitlementService betaOpenService = new EntitlementService(
+            organizationRepository, appUserRepository, tutorStudentRepository, organizationTutorRepository,
+            new BetaProperties(true));
 
     private final StoryManifest paidStory = mock(StoryManifest.class);
     private final UUID parentId = UUID.randomUUID();
@@ -162,5 +167,47 @@ class EntitlementServiceTest {
         UUID nobodyId = UUID.randomUUID();
         when(tutorStudentRepository.findClassSeatsOfParent(nobodyId)).thenReturn(List.of());
         assertEquals(false, service.hasAccess(AppUser.builder().id(nobodyId).role(Role.PARENT).build()));
+    }
+
+    @Test
+    void betaOpenAccessLetsTutorWithoutOrganizationIn() {
+        CurrentUser tutor = new CurrentUser(UUID.randomUUID(), Role.TUTOR, null);
+        when(appUserRepository.findById(tutor.userId()))
+                .thenReturn(Optional.of(AppUser.builder().role(Role.TUTOR).subscriptionStatus(SubscriptionStatus.NONE).build()));
+        when(organizationTutorRepository.findOrganizationsOfTutor(tutor.userId())).thenReturn(List.of());
+        assertDoesNotThrow(() -> betaOpenService.assertAccessible(paidStory, tutor));
+    }
+
+    @Test
+    void betaOpenAccessLetsDirectorWithoutOrganizationIn() {
+        CurrentUser director = new CurrentUser(UUID.randomUUID(), Role.DIRECTOR, null);
+        when(appUserRepository.findById(director.userId()))
+                .thenReturn(Optional.of(AppUser.builder().role(Role.DIRECTOR).subscriptionStatus(SubscriptionStatus.NONE).build()));
+        assertDoesNotThrow(() -> betaOpenService.assertAccessible(paidStory, director));
+    }
+
+    @Test
+    void betaOpenAccessDoesNotApplyToParents() {
+        when(appUserRepository.findById(parentId))
+                .thenReturn(Optional.of(AppUser.builder().role(Role.PARENT).subscriptionStatus(SubscriptionStatus.NONE).build()));
+        when(tutorStudentRepository.findClassSeatsOfParent(parentId)).thenReturn(List.of());
+        assertThrows(ApiException.class, () -> betaOpenService.assertAccessible(paidStory, parent));
+    }
+
+    @Test
+    void tutorWithoutSubscriptionStaysLockedWhenBetaFlagIsOff() {
+        CurrentUser tutor = new CurrentUser(UUID.randomUUID(), Role.TUTOR, null);
+        when(appUserRepository.findById(tutor.userId()))
+                .thenReturn(Optional.of(AppUser.builder().role(Role.TUTOR).subscriptionStatus(SubscriptionStatus.NONE).build()));
+        when(organizationTutorRepository.findOrganizationsOfTutor(tutor.userId())).thenReturn(List.of());
+        assertThrows(ApiException.class, () -> service.assertAccessible(paidStory, tutor));
+    }
+
+    @Test
+    void hasAccessReflectsBetaOpenAccessForTutor() {
+        AppUser tutor = AppUser.builder().id(UUID.randomUUID()).role(Role.TUTOR).subscriptionStatus(SubscriptionStatus.NONE).build();
+        when(organizationTutorRepository.findOrganizationsOfTutor(tutor.getId())).thenReturn(List.of());
+        assertEquals(true, betaOpenService.hasAccess(tutor));
+        assertEquals(false, service.hasAccess(tutor));
     }
 }
