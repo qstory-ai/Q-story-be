@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
@@ -44,9 +45,11 @@ public class StoryContentRepository {
     }
 
     private StoryManifest toDomain(Story storyEntity) {
+        Set<String> hidden = Set.copyOf(
+                familyRepository.findHiddenFamilyIds(storyEntity.getId(), FamilyOrigin.LIVE_GENERATED));
         Map<String, List<ActionFamily>> familiesByAnchor =
                 familyRepository.findAllByStoryIdWithAnchor(storyEntity.getId()).stream()
-                        .filter(StoryContentRepository::isServed)
+                        .filter(family -> !hidden.contains(family.getId()))
                         .collect(Collectors.groupingBy(
                                 family -> family.getAnchor().getId(), LinkedHashMap::new,
                                 Collectors.mapping(this::toDomain, Collectors.toUnmodifiableList())));
@@ -76,11 +79,6 @@ public class StoryContentRepository {
                 anchorEntity.getPrimarySpeakerId(), anchorEntity.getAllowedSpeakerIds(), anchorEntity.getSttKeywords(),
                 anchorEntity.getDefaultFallbackFamilyId(), anchorEntity.getDefaultRejoinAt(), concernChoice,
                 anchorEntity.getForbiddenKnowledge(), families, anchorEntity.isLiveBranchGeneration());
-    }
-
-    /** 실시간 생성을 끈 질문 지점의 LIVE 분기는 보관만 하고 이야기에는 내보내지 않는다. */
-    public static boolean isServed(StoryActionFamily family) {
-        return family.getOrigin() != FamilyOrigin.LIVE_GENERATED || family.getAnchor().isLiveBranchGeneration();
     }
 
     private ActionFamily toDomain(StoryActionFamily familyEntity) {

@@ -33,6 +33,15 @@ public interface StoryActionFamilyRepository extends JpaRepository<StoryActionFa
     @Query("delete from StoryActionFamily f where f.anchor.id in :anchorIds and f.origin = :origin")
     int deleteByAnchor_IdInAndOrigin(@Param("anchorIds") List<String> anchorIds, @Param("origin") FamilyOrigin origin);
 
+    /**
+     * 실시간 생성을 끈 질문 지점(story_anchor.live_branch_generation = false)의 LIVE family id. 이 family는
+     * 지우지 않고 보관만 하며 이야기 콘텐츠·AI 문맥에는 내보내지 않는다. 부팅 시 트랜잭션 밖에서도 쓰이므로
+     * 엔티티의 지연 로딩 대신 id만 읽는다.
+     */
+    @Query("select f.id from StoryActionFamily f "
+            + "where f.anchor.story.id = :storyId and f.origin = :origin and f.anchor.liveBranchGeneration = false")
+    List<String> findHiddenFamilyIds(@Param("storyId") String storyId, @Param("origin") FamilyOrigin origin);
+
     /** LiveBranchGenerationService.enqueue()의 앵커당 상한 체크. */
     long countByAnchor_IdAndOrigin(String anchorId, FamilyOrigin origin);
 
