@@ -1,4 +1,6 @@
 package com.qstory.backend.story.service;
+
+import com.qstory.backend.common.enums.FamilyOrigin;
 import com.qstory.backend.story.ActionFamily;
 import com.qstory.backend.story.CastEntry;
 import com.qstory.backend.story.Anchor;
@@ -23,6 +25,7 @@ import com.qstory.backend.story.repository.StorySegmentRepository;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -121,8 +124,14 @@ public class StoryContentAssemblyService implements ApplicationRunner {
                 segmentRepository.findByScene_Story_IdOrderByScene_SequenceAscDisplayOrderAsc(story.getId()).stream()
                         .collect(Collectors.groupingBy(
                                 segment -> segment.getScene().getId(), LinkedHashMap::new, Collectors.toList()));
+        // 실시간 생성을 끈 질문 지점의 LIVE 분기는 보관만 하고 내보내지 않는다(id만 비교 - 지연 로딩 없음).
+        Set<String> hiddenFamilyIds = Set.copyOf(
+                familyRepository.findHiddenFamilyIds(story.getId(), FamilyOrigin.LIVE_GENERATED));
         List<StoryActionFamily> fallbackFamilies = familyRepository
-                .findByAnchor_Story_IdAndRejoinSlotIsNotNullOrderByAnchor_IdAscDisplayOrderAsc(story.getId());
+                .findByAnchor_Story_IdAndRejoinSlotIsNotNullOrderByAnchor_IdAscDisplayOrderAsc(story.getId())
+                .stream()
+                .filter(family -> !hiddenFamilyIds.contains(family.getId()))
+                .toList();
         Map<String, List<StoryFallbackSegment>> segmentsByFamily =
                 fallbackSegmentRepository.findByFamily_Anchor_Story_IdOrderByFamily_IdAscDisplayOrderAsc(story.getId())
                         .stream()
@@ -266,6 +275,9 @@ public class StoryContentAssemblyService implements ApplicationRunner {
         anchor.sttKeywords().forEach(sttKeywords::add);
         node.put("defaultFallbackFamilyId", anchor.defaultFallbackFamilyId());
         node.put("defaultRejoinAt", anchor.defaultRejoinAt());
+        if (!anchor.liveBranchGeneration()) {
+            node.put("liveBranchGeneration", false);
+        }
         if (anchor.concernChoice() != null) {
             ObjectNode concernChoice = node.putObject("concernChoice");
             ArrayNode familyIds = concernChoice.putArray("familyIds");

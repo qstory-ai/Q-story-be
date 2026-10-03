@@ -53,36 +53,30 @@ public class ShadowFamilyGenerationService {
     private static final Pattern FALSE_SAFETY_PATTERN = Pattern.compile(
             "마음을?\\s*놓|위험하지\\s*않|안전하다고\\s*결론|위험한\\s*소리는?\\s*안|수상한\\s*소리가\\s*나지\\s*않|이상한\\s*소리가\\s*나지\\s*않");
     private static final Set<String> EXISTING_FAMILY_IDS = Set.of(
-            "A_OBSERVE_BIRD", "A_SPEAK_TO_BIRD", "A_CHECK_SURROUNDINGS", "A_TRY_OTHER_PATH",
-            "B_ASK_OLD_WOMAN", "B_CHECK_KEYS", "B_CHECK_HOUSE", "B_STEP_BACK_MARK_EXIT", "B_MAKE_SIBLING_SIGNAL",
-            "C_ASK_DEMONSTRATION", "C_DISTRACT_AND_TAKE_KEYS", "C_USE_SIGNAL", "C_CHECK_LOCK_FROM_DISTANCE",
-            "C_BLOCK_PURSUIT_SAFELY");
+            "A_OBSERVE_BIRD", "A_SPEAK_TO_BIRD", "C_WAIT_FOR_WITCH_TURN", "C_DISTRACT_AND_TAKE_KEYS");
 
     private record AnchorContract(
             String slot, String sceneSummary, List<String> allowedCharacters, String location,
             List<String> rejoinAnchorIds, List<String> existingFamilies, String referenceResourcePath) {}
 
+    /**
+     * Q-30 최종 원고 기준. B(과자집 문 앞)는 대화와 정보 탐색만 하는 질문 지점이라 행동 분기 초안을
+     * 만들지 않는다 - 여기 없는 질문 위치는 generateDraft가 "지원하지 않는 질문 위치"로 거절한다.
+     */
     private static final Map<String, AnchorContract> ANCHOR_CONTRACTS = Map.of(
             "HG-Q-A", new AnchorContract(
                     "A",
-                    "헨젤과 그레텔이 숲에서 길을 잃었고, 낮은 나뭇가지의 하얀 새가 두 아이를 보며 움직인다.",
+                    "길을 잃은 헨젤과 그레텔 앞에서 하얀 새가 앞쪽 가지로 옮겨 가며 남매를 자꾸 돌아본다. 새가 왜 돌아보는지는 아직 모른다.",
                     List.of("HANSEL", "GRETEL", "WHITE_BIRD"), "FOREST",
                     List.of("HG-F04-CANDY-HOUSE-REVEAL"),
-                    List.of("새 관찰", "새에게 말 걸기", "주변 단서 확인", "반대쪽 길 확인"),
+                    List.of("잠깐 새 지켜보기", "하얀 새에게 말 걸기"),
                     "shadow-reference/HG-Q-A.jpg"),
-            "HG-Q-B", new AnchorContract(
-                    "B",
-                    "남매가 과자집 문 앞에 있고 노파가 열쇠고리를 든 채 문을 열었다. 아이들은 노파가 마녀인지 아직 모른다.",
-                    List.of("HANSEL", "GRETEL", "OLD_WOMAN"), "CANDY_EXTERIOR",
-                    List.of("HG-F05-ENTER-HOUSE", "HG-F06-CAPTURED-STATE"),
-                    List.of("노파에게 묻기", "열쇠 확인", "창문·문틀 확인", "물러나 길 확인", "남매 신호 정하기"),
-                    "shadow-reference/HG-Q-B.jpg"),
             "HG-Q-C", new AnchorContract(
                     "C",
-                    "마녀가 열쇠고리를 쥔 채 화덕에서 멀리 서서 그레텔에게만 안을 보라고 명령한다. 헨젤은 손에 무기나 도구 없이 쇠창살 안에 있다.",
+                    "마녀가 요리하려고 열쇠고리를 작업대 끝에 내려놓았다. 작은 은색 열쇠는 헨젤의 쇠창살 문, 큰 검은 열쇠는 복도로 나가는 부엌 문을 연다. 마녀는 요리하며 가끔 남매를 돌아본다. 헨젤은 손에 무기나 도구 없이 쇠창살 안에 있다.",
                     List.of("HANSEL", "GRETEL", "WITCH"), "CANDY_INTERIOR",
-                    List.of("HG-F07-DEMONSTRATION", "HG-F08-AFTER-BRANCH-ESCAPE"),
-                    List.of("시범 요청", "냄비로 시선을 돌리고 열쇠 확보", "두 번 두드리기 신호", "긴 주걱으로 잠금 확인", "사탕 철문으로 추격 지연"),
+                    List.of("HG-F07-KEYS-TAKEN"),
+                    List.of("마녀가 등을 돌릴 때까지 기다리기", "헨젤이 마녀를 부르는 동안 가져오기"),
                     "shadow-reference/HG-Q-C.jpg"));
 
     private final ShadowIntentRepository candidateRepository;

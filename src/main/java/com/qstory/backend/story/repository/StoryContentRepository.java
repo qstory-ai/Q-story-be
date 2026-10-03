@@ -1,5 +1,6 @@
 package com.qstory.backend.story.repository;
 
+import com.qstory.backend.common.enums.FamilyOrigin;
 import com.qstory.backend.story.ActionFamily;
 import com.qstory.backend.story.Anchor;
 import com.qstory.backend.story.CastEntry;
@@ -13,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
@@ -43,8 +45,11 @@ public class StoryContentRepository {
     }
 
     private StoryManifest toDomain(Story storyEntity) {
+        Set<String> hidden = Set.copyOf(
+                familyRepository.findHiddenFamilyIds(storyEntity.getId(), FamilyOrigin.LIVE_GENERATED));
         Map<String, List<ActionFamily>> familiesByAnchor =
                 familyRepository.findAllByStoryIdWithAnchor(storyEntity.getId()).stream()
+                        .filter(family -> !hidden.contains(family.getId()))
                         .collect(Collectors.groupingBy(
                                 family -> family.getAnchor().getId(), LinkedHashMap::new,
                                 Collectors.mapping(this::toDomain, Collectors.toUnmodifiableList())));
@@ -73,7 +78,7 @@ public class StoryContentRepository {
                 anchorEntity.getSlot(), anchorEntity.getSceneId(), anchorEntity.getSummary(),
                 anchorEntity.getPrimarySpeakerId(), anchorEntity.getAllowedSpeakerIds(), anchorEntity.getSttKeywords(),
                 anchorEntity.getDefaultFallbackFamilyId(), anchorEntity.getDefaultRejoinAt(), concernChoice,
-                anchorEntity.getForbiddenKnowledge(), families);
+                anchorEntity.getForbiddenKnowledge(), families, anchorEntity.isLiveBranchGeneration());
     }
 
     private ActionFamily toDomain(StoryActionFamily familyEntity) {
