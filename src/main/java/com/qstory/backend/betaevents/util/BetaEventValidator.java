@@ -182,6 +182,10 @@ public class BetaEventValidator {
         keys.put(EventName.STORY_COMPLETED, Set.of("duration_seconds", "question_count", "changed_scene_count"));
         keys.put(EventName.PARENT_REPORT_OPENED, Set.of());
         keys.put(EventName.SURVEY_OPENED, Set.of());
+        // Q-31 그레텔 대화 한 단계. 아이 말 원문은 남기지 않는다(대화 원문은 conversation_record 보존 정책을 따른다).
+        keys.put(EventName.DIALOGUE_STEP, Set.of(
+                "anchor_id", "scene_id", "entry_mode", "turn_kind", "help_step", "family_id", "via_suggestion",
+                "reply_kind", "elapsed_ms", "turn_number"));
         return Map.copyOf(keys);
     }
 }

@@ -1,5 +1,7 @@
 package com.qstory.backend.companionchat.controller;
 
+import com.qstory.backend.companionchat.DialogueInput;
+import com.qstory.backend.story.Anchor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.common.error.ApiException;
@@ -89,7 +91,9 @@ public class CompanionChatController {
                     content = @Content(schema = @Schema(implementation = FailureBody.class)))
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            description = "{storyId, sceneId, conversationId, transcript, speakerId?, childId?, tutorStudentId?, lessonId?, inputMode?}", required = true)
+            description = "{storyId, sceneId, conversationId, transcript, speakerId?, childId?, tutorStudentId?, lessonId?, inputMode?, "
+                    + "history?: [{role: CHILD|CHARACTER, text}], scene?: {title, storySoFar[], recentLines[], visual}, "
+                    + "executedActions?: [], anchorId? (question invite), wrapUp?: NONE|SUGGEST_RETURN|CLOSE}", required = true)
     @PostMapping("/v1/companion-chat/messages")
     public void sendMessage(HttpServletRequest request, HttpServletResponse response) throws IOException {
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
@@ -110,8 +114,13 @@ public class CompanionChatController {
         ResolvedCompanionContext context = storyRegistryService.resolveCompanionChatContext(
                 storyId, sceneId, speakerId, caller);
         ConversationAttribution attribution = attributionParser.fromBody(body, ConversationInputMode.TEXT, caller);
+        DialogueInput dialogue = DialogueInput.fromBody(body);
+        Anchor inviteAnchor = dialogue.isInvite()
+                ? storyRegistryService.inviteAnchor(context.story(), dialogue.anchorId(), sceneId)
+                : null;
         Map<String, Object> result = pipeline.respond(
-                context, conversationId, transcript, RequestDeadline.startingNow(config.requestTimeoutMs()), attribution);
+                context, conversationId, transcript, dialogue, inviteAnchor,
+                RequestDeadline.startingNow(config.requestTimeoutMs()), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
 
