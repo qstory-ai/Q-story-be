@@ -15,7 +15,6 @@ import com.qstory.backend.story.entity.StoryScene;
 import com.qstory.backend.story.entity.StorySegment;
 import com.qstory.backend.story.repository.StoryActionFamilyRepository;
 import com.qstory.backend.story.repository.StoryRepository;
-import com.qstory.backend.story.repository.StoryContentRepository;
 import com.qstory.backend.story.repository.StoryFallbackSegmentRepository;
 import com.qstory.backend.story.repository.StorySceneRepository;
 import com.qstory.backend.story.entity.StoryAsset;
@@ -123,10 +122,7 @@ public class StoryContentAssemblyService implements ApplicationRunner {
                         .collect(Collectors.groupingBy(
                                 segment -> segment.getScene().getId(), LinkedHashMap::new, Collectors.toList()));
         List<StoryActionFamily> fallbackFamilies = familyRepository
-                .findByAnchor_Story_IdAndRejoinSlotIsNotNullOrderByAnchor_IdAscDisplayOrderAsc(story.getId())
-                .stream()
-                .filter(StoryContentRepository::isServed)
-                .toList();
+                .findByAnchor_Story_IdAndRejoinSlotIsNotNullOrderByAnchor_IdAscDisplayOrderAsc(story.getId());
         Map<String, List<StoryFallbackSegment>> segmentsByFamily =
                 fallbackSegmentRepository.findByFamily_Anchor_Story_IdOrderByFamily_IdAscDisplayOrderAsc(story.getId())
                         .stream()
@@ -270,9 +266,6 @@ public class StoryContentAssemblyService implements ApplicationRunner {
         anchor.sttKeywords().forEach(sttKeywords::add);
         node.put("defaultFallbackFamilyId", anchor.defaultFallbackFamilyId());
         node.put("defaultRejoinAt", anchor.defaultRejoinAt());
-        if (!anchor.liveBranchGeneration()) {
-            node.put("liveBranchGeneration", false);
-        }
         if (anchor.concernChoice() != null) {
             ObjectNode concernChoice = node.putObject("concernChoice");
             ArrayNode familyIds = concernChoice.putArray("familyIds");

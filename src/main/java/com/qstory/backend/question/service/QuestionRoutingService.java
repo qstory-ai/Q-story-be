@@ -1,7 +1,6 @@
 package com.qstory.backend.question.service;
 
 import com.qstory.backend.common.enums.CoverageStatus;
-import com.qstory.backend.common.enums.RouteKind;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.common.util.RequestDeadline;
@@ -61,8 +60,8 @@ public class QuestionRoutingService {
         if (verdict.isRedirect()) {
             decision = buildRedirectDecision(verdict, storyContext);
         } else {
-            RouteClassification classification = availableRoute(openRouterClient.classifyRoute(
-                    new OpenRouterClient.ClassifyRequest(transcript, storyContext, questionRound), deadline), storyContext);
+            RouteClassification classification = openRouterClient.classifyRoute(
+                    new OpenRouterClient.ClassifyRequest(transcript, storyContext, questionRound), deadline);
             // clarificationAlreadyUsed였는데도 분류기가 다시 CLARIFY_ONCE를 고르면, 같은 질문을 또
             // 확인하지 않고 이야기로 돌아간다.
             if (questionRound > 1 && "CLARIFY_ONCE".equals(classification.route())) {
@@ -77,32 +76,6 @@ public class QuestionRoutingService {
         RouteDecision agencyAware = routeResultValidator.guaranteeBetaAgencyChoice(
                 decision, storyContext, transcript, guaranteeAgencyChoice, questionRound);
         return routeResultValidator.sanitizeGeneratedOptionCopy(agencyAware, storyContext, transcript, questionRound);
-    }
-
-    /**
-     * 이 질문 지점에서 열 수 없는 route를 대답 후 기본 이야기로 이어 가기(ANSWER_RESUME)로 낮춘다.
-     * 실시간 분기 생성을 끈 지점은 NEW_CHOICES를, 세 갈래를 만들 분기가 모자라거나 기본 분기가 없는
-     * 지점은 THREE_PATHS를 열지 않는다 - 준비되지 않은 행동을 실현한 것처럼 보이지 않게 하기 위해서다.
-     */
-    private static RouteClassification availableRoute(RouteClassification classification, StoryContext storyContext) {
-        String route = classification.route();
-        boolean newChoicesClosed = "NEW_CHOICES".equals(route) && !storyContext.liveBranchGeneration();
-        boolean threePathsClosed = "THREE_PATHS".equals(route)
-                && (storyContext.actionFamilies().size() < 3 || storyContext.fallbackFamilyId() == null);
-        if (newChoicesClosed || threePathsClosed) {
-            return new RouteClassification(
-                    "ANSWER_RESUME", classification.matchedGate(), classification.coverageStatus(),
-                    classification.coverageReason(), classification.childRelevantMeaning(),
-                    null, null, null, classification.speakerId(), classification.modelId());
-        }
-        if (RouteKind.ACTION_ROUTES.contains(route) && classification.fallbackFamilyId() == null) {
-            return new RouteClassification(
-                    route, classification.matchedGate(), classification.coverageStatus(),
-                    classification.coverageReason(), classification.childRelevantMeaning(),
-                    classification.actionFamilyId(), classification.rejoinAnchorId(), classification.actionFamilyId(),
-                    classification.speakerId(), classification.modelId());
-        }
-        return classification;
     }
 
     private RouteDecision buildRedirectDecision(SafetyVerdict verdict, StoryContext storyContext) {

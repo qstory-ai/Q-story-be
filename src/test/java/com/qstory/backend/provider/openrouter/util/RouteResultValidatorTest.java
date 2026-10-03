@@ -30,7 +30,7 @@ class RouteResultValidatorTest {
                 "A", "HG-F04", "장면 요약", "HG-SPK-GRETEL", List.of("HG-SPK-GRETEL"), List.of(),
                 "A_FAMILY", "HG-F04-REJOIN", null, List.of(), List.of(familyA, familyB, familyC),
                 "HG-Q-A", "HG", "A_FAMILY", "HG-F04-REJOIN",
-                new StoryVersions("QSTORY_ROUTE_PROMPT_V6_COVERAGE", "v1", "v1", "v1"), true);
+                new StoryVersions("QSTORY_ROUTE_PROMPT_V6_COVERAGE", "v1", "v1", "v1"));
     }
 
     private JsonNode json(String json) {
@@ -39,52 +39,6 @@ class RouteResultValidatorTest {
         } catch (Exception error) {
             throw new RuntimeException(error);
         }
-    }
-
-    /** 기본 분기가 없는 질문 지점(Q-30 HG의 A·C) - 두 분기만 있고 기본 이야기로 이어 간다. */
-    private StoryContext noDefaultFallbackContext() {
-        ActionFamily familyA = new ActionFamily("A_FAMILY", "A 의미", "좋아, A 할게.", "A 보고", "a-bridge", "a-asset", List.of());
-        ActionFamily familyB = new ActionFamily("B_FAMILY", "B 의미", "좋아, B 할게.", "B 보고", "b-bridge", "b-asset", List.of());
-        return new StoryContext(
-                "A", "HG-F04", "장면 요약", "HG-SPK-GRETEL", List.of("HG-SPK-GRETEL"), List.of(),
-                null, "HG-F04-REJOIN", null, List.of(), List.of(familyA, familyB),
-                "HG-Q-A", "HG", null, "HG-F04-REJOIN",
-                new StoryVersions("QSTORY_ROUTE_PROMPT_V6_COVERAGE", "v1", "v1", "v1"), false);
-    }
-
-    @Test
-    void actionRouteWithoutDefaultFallbackAcceptsTheChosenFamilyOrNull() {
-        StoryContext ctx = noDefaultFallbackContext();
-        for (String fallback : new String[] {"\"B_FAMILY\"", "null"}) {
-            RouteClassification classification = validator.validateClassification(
-                    json("""
-                    {"route":"DIRECT_ACTION","matchedGate":"G3","coverageStatus":"exact","coverageReason":"사유",
-                     "childRelevantMeaning":"의미","speakerId":"HG-SPK-GRETEL","actionFamilyId":"B_FAMILY",
-                     "rejoinAnchorId":"HG-F04-REJOIN","fallbackFamilyId":%s}
-                    """.formatted(fallback)),
-                    ctx, "model");
-            assertThat(classification).as("fallback %s", fallback).isNotNull();
-        }
-        RouteClassification otherFamily = validator.validateClassification(
-                json("""
-                {"route":"DIRECT_ACTION","matchedGate":"G3","coverageStatus":"exact","coverageReason":"사유",
-                 "childRelevantMeaning":"의미","speakerId":"HG-SPK-GRETEL","actionFamilyId":"B_FAMILY",
-                 "rejoinAnchorId":"HG-F04-REJOIN","fallbackFamilyId":"A_FAMILY"}
-                """),
-                ctx, "model");
-        assertThat(otherFamily).isNull();
-    }
-
-    @Test
-    void simpleRouteWithoutDefaultFallbackStillValidates() {
-        RouteClassification classification = validator.validateClassification(
-                json("""
-                {"route":"ANSWER_RESUME","matchedGate":"G1","coverageStatus":"exact","coverageReason":"사유",
-                 "childRelevantMeaning":"의미","speakerId":"HG-SPK-GRETEL","actionFamilyId":null,
-                 "rejoinAnchorId":null,"fallbackFamilyId":null}
-                """),
-                noDefaultFallbackContext(), "model");
-        assertThat(classification).isNotNull();
     }
 
     @Test

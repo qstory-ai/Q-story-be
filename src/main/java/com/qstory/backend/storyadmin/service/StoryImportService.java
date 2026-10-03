@@ -319,12 +319,11 @@ public class StoryImportService {
                     .primarySpeakerId(requireText(anchorNode, "primarySpeakerId"))
                     .allowedSpeakerIds(toStringList(anchorNode.path("allowedSpeakerIds")))
                     .sttKeywords(toStringList(anchorNode.path("sttKeywords")))
-                    .defaultFallbackFamilyId(optionalText(anchorNode, "defaultFallbackFamilyId"))
+                    .defaultFallbackFamilyId(requireText(anchorNode, "defaultFallbackFamilyId"))
                     .defaultRejoinAt(requireText(anchorNode, "defaultRejoinAt"))
                     .forbiddenKnowledge(toStringList(anchorNode.path("forbiddenKnowledge")))
                     .concernChoiceFamilyIds(concernChoice.isMissingNode() ? null : toStringList(concernChoice.path("familyIds")))
                     .concernChoiceResponseText(concernChoice.isMissingNode() ? null : concernChoice.path("responseText").asText(null))
-                    .liveBranchGeneration(anchorNode.path("liveBranchGeneration").asBoolean(true))
                     .build());
 
             int order = 0;

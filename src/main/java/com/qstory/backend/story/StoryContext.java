@@ -23,8 +23,7 @@ public record StoryContext(
         String storyId,
         String fallbackFamilyId,
         String rejoinAt,
-        StoryVersions versions,
-        boolean liveBranchGeneration) {
+        StoryVersions versions) {
 
     public List<String> actionFamilyIds() {
         return actionFamilies.stream().map(ActionFamily::id).toList();
