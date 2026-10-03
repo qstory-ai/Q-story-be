@@ -1,5 +1,7 @@
 package com.qstory.backend.companionchat.service;
 
+import com.qstory.backend.companionchat.DialogueInput;
+import com.qstory.backend.story.Anchor;
 import com.qstory.backend.common.enums.CompanionInteractionMode;
 import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ProviderErrorCode;
@@ -105,6 +107,16 @@ public class CompanionChatPipelineService {
     public Map<String, Object> respond(
             ResolvedCompanionContext context, UUID conversationId, String transcript, RequestDeadline deadline,
             ConversationAttribution attribution) {
+        return respond(context, conversationId, transcript, DialogueInput.empty(), null, deadline, attribution);
+    }
+
+    /**
+     * @param dialogue     대화 기록·장면·실행한 행동·정리 신호(Q-31)
+     * @param inviteAnchor 질문 초대 중이면 그 앵커(행동 제안을 고를 범위), 상시 대화면 null
+     */
+    public Map<String, Object> respond(
+            ResolvedCompanionContext context, UUID conversationId, String transcript, DialogueInput dialogue,
+            Anchor inviteAnchor, RequestDeadline deadline, ConversationAttribution attribution) {
         ProviderReadiness readiness = ProviderReadiness.of(config);
         if (!readiness.llm() || !readiness.tts()) {
             return failureEnvelope(
@@ -112,18 +124,18 @@ public class CompanionChatPipelineService {
                     "대화 공급자가 아직 연결되지 않았어요.");
         }
         try {
-            return respondToTranscript(context, conversationId, transcript, deadline, attribution);
+            return respondToTranscript(context, conversationId, transcript, dialogue, inviteAnchor, deadline, attribution);
         } catch (Exception error) {
             return failedResult(error);
         }
     }
 
     private Map<String, Object> respondToTranscript(
-            ResolvedCompanionContext context, UUID conversationId, String transcript, RequestDeadline deadline,
-            ConversationAttribution attribution) {
+            ResolvedCompanionContext context, UUID conversationId, String transcript, DialogueInput dialogue,
+            Anchor inviteAnchor, RequestDeadline deadline, ConversationAttribution attribution) {
         OpenRouterClient.CompanionRequest request = new OpenRouterClient.CompanionRequest(
                 transcript, context.versions().promptVersion(), context.story().title(), context.primarySpeakerId(),
-                context.allowedSpeakerIds(), context.forbiddenKnowledge(), context.persona());
+                context.allowedSpeakerIds(), context.forbiddenKnowledge(), context.persona(), dialogue, inviteAnchor);
         OpenRouterClient.CompanionReply reply = openRouterClient.generateCompanionReply(request, deadline);
 
         turnRepository.save(CompanionChatTurn.builder()
@@ -161,6 +173,14 @@ public class CompanionChatPipelineService {
         result.put("ok", true);
         result.put("responseText", reply.responseText());
         result.put("safety", Map.of("mode", reply.interactionMode()));
+        // Q-31 대화 표시 - 클라이언트가 종료·도움·행동 확인 단계를 정하는 데 쓴다.
+        Map<String, Object> dialogueResult = new LinkedHashMap<>();
+        dialogueResult.put("replyKind", reply.replyKind());
+        dialogueResult.put("childWantsToEnd", reply.childWantsToEnd());
+        dialogueResult.put("childMeaning", reply.childMeaning());
+        dialogueResult.put("asksForHelp", reply.asksForHelp());
+        dialogueResult.put("proposedActionFamilyId", reply.proposedActionFamilyId());
+        result.put("dialogue", dialogueResult);
         if (generatedAudio != null) {
             result.put("audio", AudioPayload.of(generatedAudio.mimeType(), generatedAudio.audio()));
         }

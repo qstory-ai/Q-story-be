@@ -305,11 +305,36 @@ public class OpenRouterClient {
             List<String> allowedSpeakerIds,
             List<String> forbiddenKnowledge,
             /** story_persona(personas.yaml)에서 온 primarySpeakerId의 시트. 임포트 전이면 null. */
-            CompanionPersona persona) {}
+            CompanionPersona persona,
+            /** 대화 기록·장면·실행한 행동·정리 신호(Q-31). */
+            com.qstory.backend.companionchat.DialogueInput dialogue,
+            /** 질문 초대 중이면 그 앵커 - 실행 가능한 행동 제안을 고를 수 있는 범위. 상시 대화면 null. */
+            com.qstory.backend.story.Anchor inviteAnchor) {
 
+        public CompanionRequest {
+            dialogue = dialogue == null ? com.qstory.backend.companionchat.DialogueInput.empty() : dialogue;
+        }
+
+        List<String> inviteFamilyIds() {
+            return inviteAnchor == null ? List.of() : inviteAnchor.actionFamilies().stream().map(ActionFamily::id).toList();
+        }
+    }
+
+    /**
+     * @param replyKind              ANSWER(물은 것에 답함) / EMPATHY(감정·경험을 받아줌) / WAIT(공감하고 기다림)
+     *                               / CLOSE(마무리 인사) / REDIRECT(안전 규칙으로 돌림)
+     * @param childWantsToEnd        아이가 그만 이야기하고 싶다고 분명히 말했는지
+     * @param childMeaning           아이 말의 뜻을 짧게 - 리포트·기록용, 확대 해석하지 않는다
+     * @param asksForHelp            "모르겠어"·"도와줘"처럼 도움을 바라는지
+     * @param proposedActionFamilyId 질문 초대에서 아이가 실행 가능한 행동을 제안했으면 그 family id(뜻 확인 전)
+     */
     public record CompanionReply(
             String interactionMode, String responseText, String speakerId,
-            String topicTag, String toneTag, String valueTag) {}
+            String topicTag, String toneTag, String valueTag,
+            String replyKind, boolean childWantsToEnd, String childMeaning, boolean asksForHelp,
+            String proposedActionFamilyId) {}
+
+    static final List<String> REPLY_KINDS = List.of("ANSWER", "EMPATHY", "WAIT", "CLOSE", "REDIRECT");
 
     /**
      * 앵커에 독립적인 companion-chat 표면을 위한 형제 메서드: LLM 호출은 한 번뿐이며,
@@ -354,7 +379,7 @@ public class OpenRouterClient {
         }
     }
 
-    private CompanionReply validateCompanionReply(JsonNode value, CompanionRequest request) {
+    CompanionReply validateCompanionReply(JsonNode value, CompanionRequest request) {
         if (value == null || !value.isObject()) {
             return null;
         }
@@ -376,9 +401,26 @@ public class OpenRouterClient {
                 com.qstory.backend.common.enums.CompanionToneTag.ALL_LABELS);
         String valueTag = nullableEnumLabel(value.get("valueTag"),
                 com.qstory.backend.common.enums.CompanionValueTag.ALL_LABELS);
+        String replyKind = value.path("replyKind").asText("").trim();
+        if (!REPLY_KINDS.contains(replyKind)) {
+            return null;
+        }
+        String childMeaning = value.path("childMeaning").isTextual() ? value.get("childMeaning").asText().trim() : "";
+        if (childMeaning.length() > 80) {
+            childMeaning = childMeaning.substring(0, 80);
+        }
+        // 질문 초대가 아닐 때, 또는 앵커에 없는 행동이면 제안으로 받지 않는다 - 준비되지 않은 행동을
+        // 실행했다고 꾸미지 않기 위해서다.
+        JsonNode proposedNode = value.get("proposedActionFamilyId");
+        String proposed = proposedNode == null || proposedNode.isNull() ? null : proposedNode.asText("").trim();
+        if (proposed != null && !request.inviteFamilyIds().contains(proposed)) {
+            proposed = null;
+        }
         return new CompanionReply(
                 interactionMode, routeResultValidator.normalizeKoreanResponseText(responseText), speakerId,
-                topicTag, toneTag, valueTag);
+                topicTag, toneTag, valueTag,
+                replyKind, value.path("childWantsToEnd").asBoolean(false), childMeaning,
+                value.path("asksForHelp").asBoolean(false), proposed);
     }
 
     /** JSON null/누락 노드면 null을, 인식된 enum 값이면 그 라벨을, 그 외에는 NOT_FOUND를 반환한다(아래에서 거부됨). */
@@ -408,9 +450,9 @@ public class OpenRouterClient {
         ObjectNode responseFormat = root.putObject("response_format");
         responseFormat.put("type", "json_schema");
         ObjectNode jsonSchema = responseFormat.putObject("json_schema");
-        jsonSchema.put("name", "q_story_companion_v1");
+        jsonSchema.put("name", "q_story_companion_v2");
         jsonSchema.put("strict", true);
-        jsonSchema.set("schema", companionSchema(request.allowedSpeakerIds()));
+        jsonSchema.set("schema", companionSchema(request.allowedSpeakerIds(), request.inviteFamilyIds()));
 
         root.putObject("provider").put("require_parameters", true);
         ObjectNode reasoning = root.putObject("reasoning");
@@ -421,7 +463,7 @@ public class OpenRouterClient {
         return root.toString();
     }
 
-    private ObjectNode companionUserPayload(CompanionRequest request) {
+    ObjectNode companionUserPayload(CompanionRequest request) {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("childMessage", request.transcript());
         payload.put("primarySpeakerId", request.primarySpeakerId());
@@ -429,10 +471,43 @@ public class OpenRouterClient {
         request.allowedSpeakerIds().forEach(allowedSpeakerIds::add);
         ArrayNode forbiddenKnowledge = payload.putArray("forbiddenKnowledge");
         request.forbiddenKnowledge().forEach(forbiddenKnowledge::add);
+        if (request.inviteAnchor() != null) {
+            request.inviteAnchor().forbiddenKnowledge().forEach(forbiddenKnowledge::add);
+        }
+
+        var dialogue = request.dialogue();
+        ArrayNode history = payload.putArray("conversationSoFar");
+        for (var turn : dialogue.history()) {
+            ObjectNode node = history.addObject();
+            node.put("who", "CHILD".equals(turn.role()) ? "child" : "you");
+            node.put("text", turn.text());
+        }
+        if (dialogue.scene() != null) {
+            ObjectNode scene = payload.putObject("currentScene");
+            scene.put("title", dialogue.scene().title());
+            ArrayNode storySoFar = scene.putArray("storySoFar");
+            dialogue.scene().storySoFar().forEach(storySoFar::add);
+            ArrayNode recentLines = scene.putArray("linesJustHeard");
+            dialogue.scene().recentLines().forEach(recentLines::add);
+            scene.put("visibleInPicture", dialogue.scene().visual());
+        }
+        ArrayNode executed = payload.putArray("actionsAlreadyTaken");
+        dialogue.executedActions().forEach(executed::add);
+        if (request.inviteAnchor() != null) {
+            ObjectNode invite = payload.putObject("questionInvite");
+            invite.put("situation", request.inviteAnchor().summary());
+            ArrayNode actions = invite.putArray("preparedActions");
+            for (ActionFamily family : request.inviteAnchor().actionFamilies()) {
+                ObjectNode node = actions.addObject();
+                node.put("id", family.id());
+                node.put("meaning", family.meaning());
+            }
+        }
+        payload.put("wrapUp", dialogue.wrapUp());
         return payload;
     }
 
-    private ObjectNode companionSchema(List<String> allowedSpeakerIds) {
+    private ObjectNode companionSchema(List<String> allowedSpeakerIds, List<String> inviteFamilyIds) {
         ObjectNode schema = objectMapper.createObjectNode();
         schema.put("type", "object");
         ObjectNode properties = schema.putObject("properties");
@@ -453,9 +528,21 @@ public class OpenRouterClient {
         addNullableLabelEnum(properties, "toneTag", com.qstory.backend.common.enums.CompanionToneTag.ALL_LABELS);
         addNullableLabelEnum(properties, "valueTag", com.qstory.backend.common.enums.CompanionValueTag.ALL_LABELS);
 
+        ObjectNode replyKind = properties.putObject("replyKind");
+        replyKind.put("type", "string");
+        ArrayNode replyKindEnum = replyKind.putArray("enum");
+        REPLY_KINDS.forEach(replyKindEnum::add);
+        properties.putObject("childWantsToEnd").put("type", "boolean");
+        addStringProperty(properties, "childMeaning", 0, 80);
+        properties.putObject("asksForHelp").put("type", "boolean");
+        // 질문 초대가 아니면 null만 허용한다 - 상시 대화는 이야기 진행을 바꾸지 않는다.
+        addNullableLabelEnum(properties, "proposedActionFamilyId", inviteFamilyIds);
+
         ArrayNode required = schema.putArray("required");
         required.add("interactionMode").add("responseText").add("speakerId")
-                .add("topicTag").add("toneTag").add("valueTag");
+                .add("topicTag").add("toneTag").add("valueTag")
+                .add("replyKind").add("childWantsToEnd").add("childMeaning").add("asksForHelp")
+                .add("proposedActionFamilyId");
         schema.put("additionalProperties", false);
         return schema;
     }
@@ -479,7 +566,7 @@ public class OpenRouterClient {
      * 상시 대화가 결말·반전을 미리 말하지 않게 하는 근거다. 이야기 세계관 안에서 반응하고, 대화가
      * 이어지도록 자연스러운 순간에 짧은 되질문을 던지게 한다 - 규칙이 아니라 성향이다.
      */
-    private String companionSystemPrompt(CompanionRequest request) {
+    String companionSystemPrompt(CompanionRequest request) {
         String safetyFragment = routePromptService.requirePrompt(request.promptVersion()).companionSafetyFragment();
         String storyTitle = request.storyTitle() == null || request.storyTitle().isBlank()
                 ? "이 동화" : "'" + request.storyTitle() + "'";
@@ -487,17 +574,38 @@ public class OpenRouterClient {
         lines.add("너는 6~9세 아이와 한국어 동화 " + storyTitle + " 속 등장인물로서 대화하는 친구다.");
         lines.add("너는 primarySpeakerId가 가리키는 등장인물이며, 이 인물의 시점과 말투를 끝까지 유지한다.");
         lines.addAll(personaLines(request.persona()));
-        lines.add("이야기 세계관 안에서 대답한다 - 이야기 안 물건과 장면을 자연스럽게 언급하면서, 캐릭터가 실제로 겪은 것처럼 짧게 회상하듯 말한다.");
-        lines.add("아이가 무슨 말을 하든 1~3문장으로 반말로 답한다 - 지루한 요약 대신 그 캐릭터가 실제로 할 법한 감정·감탄·궁금증을 담는다.");
-        lines.add("대화가 이어지도록 답 끝에 짧은 되질문을 자주(항상은 아님) 덧붙인다 - '너는 어때?', '왜 그렇게 생각했어?' 처럼 아이가 답하기 쉬운 열린 질문 한 개면 충분하다.");
-        lines.add("새로운 분기나 선택지를 만들지 않는다 - 오직 대화일 뿐, 이야기 진행에는 영향을 주지 않는다.");
-        lines.add("forbiddenKnowledge에 있는 내용은 사실·추측·가능성 형태로도 절대 언급하지 않는다 - 아직 일어나지 않은 이야기의 전개를 미리 알려주지 않는다.");
+        // 맥락: 지금 장면과 앞 대화를 기준으로 답한다(Q-31).
+        lines.add("currentScene(지금 장면 제목, 지금까지의 줄거리, 방금 들은 대사, 지금 그림에 보이는 것)과 conversationSoFar(이 대화의 앞부분)를 기준으로 답한다.");
+        lines.add("storySoFar에 없는 사건은 아직 일어나지 않은 일이다. 미리 말하거나 암시하지 않는다. visibleInPicture에 없는 물건이나 인물을 그림에 있다고 말하지 않는다.");
+        lines.add("이미 답한 것을 다시 묻지 않는다. 아이가 정정하면 정정한 내용을 그대로 받아들인다. actionsAlreadyTaken에 있는 일은 이미 한 일로 기억한다.");
+        // 답의 방향: 물은 것에 먼저 답한다, 감정·경험·관심을 받아준다, 질문은 흐름에 맞을 때만.
+        lines.add("아이가 물었으면 먼저 그 질문에 답한다. 답하기 전에 다른 질문으로 넘어가지 않는다.");
+        lines.add("아이가 감정이나 자기 경험을 말하면 그 말을 받아준다(예: 엄마에게 보여주고 싶었는데 부러져서 속상했구나). 해결책이나 교훈을 바로 주지 않고, 공감한 뒤 기다리는 답도 괜찮다.");
+        lines.add("아이가 관심을 보인 소재를 따라간다. 아이가 자기 이야기를 꺼내면 동화로 억지로 돌리지 않는다.");
+        lines.add("아이가 더 궁금해지도록 하는 질문은 흐름에 맞을 때만 한 개 덧붙인다. 모든 답을 질문으로 끝내지 않는다.");
+        lines.add("무조건 칭찬하거나 교훈으로 마무리하지 않는다. 아이가 말하지 않은 의도를 지어내지 않는다.");
+        lines.add("1~3문장, 반말로 답한다. 이야기 세계 안의 인물로서 실제로 겪은 것처럼 말한다.");
+        // 끝내기
+        lines.add("아이가 그만하고 싶다고 분명히 말하면 childWantsToEnd를 true, replyKind를 CLOSE로 하고 질문 없이 짧게 인사한다.");
+        lines.add("wrapUp이 SUGGEST_RETURN이면 아이 말에 답한 뒤 이제 이야기로 돌아가 볼지 부드럽게 물어본다. wrapUp이 CLOSE이면 질문 없이 짧게 마무리 인사를 하고 replyKind를 CLOSE로 한다.");
+        lines.add("아이가 모르겠어, 도와줘처럼 도움을 바라면 asksForHelp를 true로 한다. 이때 정답이나 다음 사건을 알려주지 말고 짧게 받아주기만 한다.");
+        // 질문 초대
+        if (request.inviteAnchor() != null) {
+            lines.add("지금은 questionInvite 상황에서 아이에게 말을 건 직후다. 아이의 질문·감정·경험에는 대화로 반응한다.");
+            lines.add("아이가 preparedActions 중 하나와 뜻이 같은 행동을 분명히 제안하면 proposedActionFamilyId에 그 id를 넣고, responseText로 뜻을 한 번 확인한다(예: 헨젤이 부르는 동안 내가 열쇠를 가져오자는 거지?). 아직 실행했다고 말하지 않는다.");
+            lines.add("질문(예: 열쇠는 어디 있어?)은 행동 제안이 아니다. 아는 범위에서 답하고 proposedActionFamilyId는 null이다.");
+            lines.add("preparedActions에 없는 행동을 제안하면 그 생각을 받아주되, 이야기 속에서 실행했다고 꾸미지 않는다. proposedActionFamilyId는 null이다.");
+        } else {
+            lines.add("새로운 분기나 선택지를 만들지 않는다. 대화일 뿐, 이야기 진행에는 영향을 주지 않는다. proposedActionFamilyId는 항상 null이다.");
+        }
+        lines.add("forbiddenKnowledge에 있는 내용은 사실·추측·가능성 형태로도 절대 언급하지 않는다.");
         if (safetyFragment != null && !safetyFragment.isBlank()) {
             lines.add(safetyFragment);
         }
-        lines.add("위 규칙에 해당하면 interactionMode를 GENTLE_REDIRECT로 하고, 위험을 짧게 막은 뒤 안전한 화제로 부드럽게 돌아온다.");
-        lines.add("그 외에는 interactionMode를 ANSWER로 한다.");
-        lines.add("topicTag/toneTag/valueTag는 아이의 말에서 뚜렷하게 드러날 때만 고르고, 확신이 없으면 null로 둔다 - 아이 말을 그대로 반복하거나 확대 해석하지 않는다.");
+        lines.add("위 안전 규칙에 해당하면 interactionMode를 GENTLE_REDIRECT, replyKind를 REDIRECT로 하고, 위험을 짧게 막은 뒤 안전한 화제로 부드럽게 돌아온다.");
+        lines.add("그 외에는 interactionMode를 ANSWER로 하고, replyKind는 질문에 답했으면 ANSWER, 감정·경험을 받아줬으면 EMPATHY, 공감하고 기다리면 WAIT, 마무리 인사면 CLOSE로 한다.");
+        lines.add("childMeaning에는 아이 말의 뜻을 30자 안팎으로 적는다. 확대 해석하지 않는다.");
+        lines.add("topicTag/toneTag/valueTag는 아이의 말에서 뚜렷하게 드러날 때만 고르고, 확신이 없으면 null로 둔다.");
         lines.add("응답을 반환하기 전에 한국어 맞춤법·띄어쓰기와 캐릭터 말투 일치를 한 번 확인한다.");
         return String.join(" ", lines);
     }

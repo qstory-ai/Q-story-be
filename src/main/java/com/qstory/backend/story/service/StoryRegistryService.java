@@ -69,6 +69,15 @@ public class StoryRegistryService {
      * 그레텔). 이 값이 오면 그 캐릭터가 primary/allowed speaker가 되어 페르소나·TTS 보이스가 화면의
      * 아바타와 일치한다. 없으면 scene의 anchor 화자, 그것도 없으면 내레이터로 정한다.
      */
+    /**
+     * 질문 초대 중인 그레텔 대화의 앵커. 이 장면의 앵커가 아니면 null - 그 경우 상시 대화처럼 답하고
+     * 행동 제안은 받지 않는다(클라이언트가 보낸 anchorId만으로 다른 장면의 행동을 열지 않기 위해서다).
+     */
+    public Anchor inviteAnchor(StoryManifest story, String anchorId, String sceneId) {
+        Anchor anchor = story.anchors().get(anchorId);
+        return anchor != null && anchor.sceneId().equals(sceneId) ? anchor : null;
+    }
+
     public ResolvedCompanionContext resolveCompanionChatContext(
             String storyId, String sceneId, String requestedSpeakerId, CurrentUser callerOrNull) {
         StoryManifest story = registry.get(storyId);
