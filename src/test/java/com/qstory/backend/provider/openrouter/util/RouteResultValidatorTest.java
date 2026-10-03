@@ -55,7 +55,7 @@ class RouteResultValidatorTest {
     @Test
     void actionRouteWithoutDefaultFallbackAcceptsTheChosenFamilyOrNull() {
         StoryContext ctx = noDefaultFallbackContext();
-        for (String fallback : new String[] {""B_FAMILY"", "null"}) {
+        for (String fallback : new String[] {"\"B_FAMILY\"", "null"}) {
             RouteClassification classification = validator.validateClassification(
                     json("""
                     {"route":"DIRECT_ACTION","matchedGate":"G3","coverageStatus":"exact","coverageReason":"사유",
