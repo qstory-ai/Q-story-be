@@ -8,7 +8,9 @@ import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassPreviewResponse;
 import com.qstory.backend.org.dto.ClassRosterEntryResponse;
 import com.qstory.backend.org.dto.ClassResponse;
+import com.qstory.backend.org.dto.ClassStudentReportResponse;
 import com.qstory.backend.org.dto.ClassStudentResponse;
+import com.qstory.backend.org.dto.HomeroomHistoryEntryResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
 import com.qstory.backend.org.dto.JoinClassRequest;
 import com.qstory.backend.org.dto.JoinExistingClassRequest;
@@ -64,10 +66,27 @@ public class ClassController {
         return service.listStudents(currentUserResolver.require(), classId);
     }
 
-    @Operation(summary = "Assign the homeroom tutor", description = "Owning DIRECTOR only, and only while the class has no homeroom tutor. The tutor must belong to the organization. Students who joined before the assignment become the tutor's students.")
+    @Operation(summary = "Assign or change the homeroom tutor",
+            description = "Owning DIRECTOR only. The tutor must belong to the organization. The class's roster students "
+                    + "become the new tutor's students and the previous tutor's not-yet-started (SCHEDULED) lessons of this "
+                    + "class move to the new tutor. Past lessons and reports stay with the tutor who ran them.")
     @PutMapping("/v1/classes/{classId}/homeroom")
     public ClassResponse assignHomeroom(@PathVariable UUID classId, @RequestBody AssignHomeroomRequest request) {
         return service.assignHomeroom(currentUserResolver.requireRole(Role.DIRECTOR), classId, request.tutorId());
+    }
+
+    @Operation(summary = "List a class's homeroom history", description = "Owning DIRECTOR only. Oldest first; endedAt null is the current homeroom tutor.")
+    @GetMapping("/v1/classes/{classId}/homeroom-history")
+    public List<HomeroomHistoryEntryResponse> homeroomHistory(@PathVariable UUID classId) {
+        return service.homeroomHistory(currentUserResolver.requireRole(Role.DIRECTOR), classId);
+    }
+
+    @Operation(summary = "List one class student's lesson reports",
+            description = "The owning DIRECTOR sees every report the student took part in (including a previous homeroom "
+                    + "tutor's); the homeroom TUTOR sees only the sessions they ran. Newest first.")
+    @GetMapping("/v1/classes/{classId}/students/{studentId}/reports")
+    public List<ClassStudentReportResponse> listStudentReports(@PathVariable UUID classId, @PathVariable UUID studentId) {
+        return service.listStudentReports(currentUserResolver.require(), classId, studentId);
     }
 
     @Operation(summary = "Preview a class by its join code",

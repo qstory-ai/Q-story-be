@@ -48,12 +48,16 @@ public class TutorReportService {
                 .toList();
     }
 
-    /** 선생님 자신이 등록한 학생 하나가 참여한 세션 기록(반 수업 포함) - 소유하지 않은 학생 id면 404. */
+    /**
+     * 선생님 자신의 학생 하나가 참여한 세션 기록(반 수업 포함) 중 이 선생님이 진행한 것만 - 소유하지 않은 학생 id면 404.
+     * 담임이 바뀐 반의 학생은 새 담임에게 넘어오지만, 지난 담임이 진행한 기록은 지난 담임 것으로 남는다(Q-35).
+     */
     @Transactional(readOnly = true)
     public List<StoryCompletionSummary> listStudentCompletions(CurrentUser caller, UUID studentId) {
         tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(studentId, caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
         return storyCompletionRepository.findByParticipant(studentId).stream()
+                .filter(completion -> completion.getUser().getId().equals(caller.userId()))
                 .map(StoryCompletionSummary::of)
                 .toList();
     }

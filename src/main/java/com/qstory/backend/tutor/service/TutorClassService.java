@@ -1,5 +1,6 @@
 package com.qstory.backend.tutor.service;
 
+import com.qstory.backend.org.service.ClassHomeroomHistoryService;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.entity.AppUser;
@@ -31,14 +32,17 @@ public class TutorClassService {
     private final OrganizationTutorRepository organizationTutorRepository;
     private final AppUserRepository userRepository;
     private final JoinCodeGenerator joinCodeGenerator;
+    private final ClassHomeroomHistoryService homeroomHistoryService;
 
     public TutorClassService(
             ClassGroupRepository classGroupRepository, OrganizationTutorRepository organizationTutorRepository,
-            AppUserRepository userRepository, JoinCodeGenerator joinCodeGenerator) {
+            AppUserRepository userRepository, JoinCodeGenerator joinCodeGenerator,
+            ClassHomeroomHistoryService homeroomHistoryService) {
         this.classGroupRepository = classGroupRepository;
         this.organizationTutorRepository = organizationTutorRepository;
         this.userRepository = userRepository;
         this.joinCodeGenerator = joinCodeGenerator;
+        this.homeroomHistoryService = homeroomHistoryService;
     }
 
     @Transactional(readOnly = true)
@@ -69,6 +73,7 @@ public class TutorClassService {
                 .joinCode(generateUniqueJoinCode())
                 .createdAt(Instant.now())
                 .build());
+        homeroomHistoryService.start(saved, tutor, saved.getCreatedAt());
         return ClassResponse.of(saved);
     }
 
