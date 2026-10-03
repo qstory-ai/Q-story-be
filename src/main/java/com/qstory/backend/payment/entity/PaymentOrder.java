@@ -66,6 +66,10 @@ public class PaymentOrder {
     @Column(name = "payment_key")
     private String paymentKey;
 
+    /** Toss 승인 응답의 영수증 URL. 이 컬럼이 생기기 전 결제(db/schema/063 이전)는 null. */
+    @Column(name = "receipt_url")
+    private String receiptUrl;
+
     private Instant paidAt;
     private Instant accessExpiresAt;
 

@@ -59,7 +59,7 @@ public class TossPaymentsClient {
                 throw ApiException.contractError(ErrorCode.PAYMENT_CONFIRMATION_FAILED, "결제가 완료되지 않았어요.", 422);
             }
             String approvedAt = body.path("approvedAt").asText(null);
-            return new Approval(approvedAt == null ? Instant.now() : Instant.parse(approvedAt));
+            return new Approval(approvedAt == null ? Instant.now() : Instant.parse(approvedAt), receiptUrl(body));
         } catch (ApiException exception) {
             throw exception;
         } catch (InterruptedException exception) {
@@ -70,5 +70,16 @@ public class TossPaymentsClient {
         }
     }
 
-    public record Approval(Instant approvedAt) {}
+    /** Toss 승인 응답의 receipt.url(카드 매출전표 등). 없거나 https가 아니면 null - 화면에 링크로 그대로 노출되기 때문. */
+    static String receiptUrl(JsonNode body) {
+        String url = body.path("receipt").path("url").asText(null);
+        if (url == null || url.isBlank() || !url.startsWith("https://")) return null;
+        return url;
+    }
+
+    public record Approval(Instant approvedAt, String receiptUrl) {
+        public Approval(Instant approvedAt) {
+            this(approvedAt, null);
+        }
+    }
 }

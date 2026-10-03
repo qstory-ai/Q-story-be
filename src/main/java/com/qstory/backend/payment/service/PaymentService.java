@@ -15,12 +15,14 @@ import com.qstory.backend.payment.PaymentOrderTarget;
 import com.qstory.backend.payment.dto.ConfirmPaymentRequest;
 import com.qstory.backend.payment.dto.CreatePaymentOrderRequest;
 import com.qstory.backend.payment.dto.OrganizationQuoteResponse;
+import com.qstory.backend.payment.dto.PaymentHistoryItemResponse;
 import com.qstory.backend.payment.dto.PaymentOrderResponse;
 import com.qstory.backend.payment.entity.PaymentOrder;
 import com.qstory.backend.payment.repository.PaymentOrderRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -156,6 +158,7 @@ public class PaymentService {
         }
         order.setStatus(PaymentOrderStatus.PAID);
         order.setPaymentKey(request.paymentKey());
+        order.setReceiptUrl(approval.receiptUrl());
         order.setPaidAt(paidAt);
         order.setUpdatedAt(Instant.now());
         paymentOrderRepository.save(order);
@@ -172,6 +175,26 @@ public class PaymentService {
         Integer current = organization.getSubscriptionSeats();
         if (current == null || paidSeats == null) return null;
         return Math.max(current, paidSeats);
+    }
+
+    /**
+     * 결제 내역 - 승인까지 끝난(PAID) 주문만 최근 순으로. 결제창을 열었다가 닫은 READY 주문과
+     * 새 주문에 밀려 닫힌 FAILED 주문은 돈이 오가지 않았으므로 보여 주지 않는다.
+     * 관리자(DIRECTOR)는 소속 기관의 기관 이용권 결제 전체(다른 관리자가 결제한 것 포함),
+     * 그 외 역할은 본인이 결제한 보호자 이용권만 본다. 소속 기관이 없는 관리자는 빈 목록.
+     */
+    @Transactional(readOnly = true)
+    public List<PaymentHistoryItemResponse> history(CurrentUser caller) {
+        List<PaymentOrder> orders;
+        if (caller.role() == Role.DIRECTOR) {
+            if (caller.orgId() == null) return List.of();
+            orders = paymentOrderRepository.findTop50ByOrganization_IdAndTargetAndStatusOrderByPaidAtDesc(
+                    caller.orgId(), PaymentOrderTarget.ORGANIZATION, PaymentOrderStatus.PAID);
+        } else {
+            orders = paymentOrderRepository.findTop50ByUser_IdAndTargetAndStatusOrderByPaidAtDesc(
+                    caller.userId(), PaymentOrderTarget.PARENT, PaymentOrderStatus.PAID);
+        }
+        return orders.stream().map(PaymentHistoryItemResponse::of).toList();
     }
 
     /** 결제 화면에 미리 보여 줄 견적 - 과금 대상 학생 수, 명단 전체 학생 수, 학생당 금액, 합계, 지금 결제된 인원. */

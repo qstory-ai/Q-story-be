@@ -2,6 +2,9 @@ package com.qstory.backend.payment.repository;
 
 import com.qstory.backend.payment.entity.PaymentOrder;
 import jakarta.persistence.LockModeType;
+import com.qstory.backend.payment.PaymentOrderStatus;
+import com.qstory.backend.payment.PaymentOrderTarget;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,6 +12,12 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 public interface PaymentOrderRepository extends JpaRepository<PaymentOrder, UUID> {
+
+    List<PaymentOrder> findTop50ByUser_IdAndTargetAndStatusOrderByPaidAtDesc(
+            UUID userId, PaymentOrderTarget target, PaymentOrderStatus status);
+
+    List<PaymentOrder> findTop50ByOrganization_IdAndTargetAndStatusOrderByPaidAtDesc(
+            UUID organizationId, PaymentOrderTarget target, PaymentOrderStatus status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select paymentOrder from PaymentOrder paymentOrder where paymentOrder.orderId = :orderId")
