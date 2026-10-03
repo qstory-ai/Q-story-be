@@ -50,6 +50,11 @@ public class LiveBranchGenerationService {
 
     /** 상한에 걸려 생성을 건너뛰면 null을 반환한다 - 호출자는 이 경우 decision을 그대로 둔다. */
     public String enqueue(StoryContext storyContext, String transcript, int questionRound) {
+        if (!storyContext.liveBranchGeneration()) {
+            // QuestionRoutingService가 이미 막지만, 꺼진 질문 지점에는 어떤 경로로도 새 분기를 쌓지 않는다.
+            log.info("live-branch.disabled storyId={} anchorId={}", storyContext.storyId(), storyContext.anchorId());
+            return null;
+        }
         long liveFamilyCount = familyRepository.countByAnchor_IdAndOrigin(
                 storyContext.anchorId(), FamilyOrigin.LIVE_GENERATED);
         if (liveFamilyCount >= MAX_LIVE_FAMILIES_PER_ANCHOR) {

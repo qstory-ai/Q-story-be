@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
@@ -261,14 +262,17 @@ public class RouteResultValidator {
             return actionFamilyId == null && rejoinAnchorId == null && fallbackFamilyId == null;
         }
         if (RouteKind.ACTION_ROUTES.contains(route)) {
+            // 기본 분기가 없는 질문 지점(fallbackFamilyId == null)에서는 실행할 family 자신을
+            // fallback으로 보내도 받아 준다 - QuestionRoutingService가 그 값으로 채운다.
             return actionFamilyId != null && allowedFamilyIds.contains(actionFamilyId)
-                    && storyContext.rejoinAt().equals(rejoinAnchorId)
-                    && storyContext.fallbackFamilyId().equals(fallbackFamilyId);
+                    && Objects.equals(storyContext.rejoinAt(), rejoinAnchorId)
+                    && (Objects.equals(storyContext.fallbackFamilyId(), fallbackFamilyId)
+                            || (storyContext.fallbackFamilyId() == null && actionFamilyId.equals(fallbackFamilyId)));
         }
         if ("THREE_PATHS".equals(route)) {
             return actionFamilyId == null
-                    && storyContext.rejoinAt().equals(rejoinAnchorId)
-                    && storyContext.fallbackFamilyId().equals(fallbackFamilyId);
+                    && Objects.equals(storyContext.rejoinAt(), rejoinAnchorId)
+                    && Objects.equals(storyContext.fallbackFamilyId(), fallbackFamilyId);
         }
         return true;
     }

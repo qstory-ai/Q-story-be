@@ -57,7 +57,7 @@ public class StoryAnchor {
     @Column(nullable = false, columnDefinition = "jsonb")
     private List<String> sttKeywords;
 
-    @Column(nullable = false)
+    /** 질문만 하거나 연결이 실패했을 때 기본 이야기로 이어 가는 질문 지점은 null이다. */
     private String defaultFallbackFamilyId;
 
     @Column(nullable = false)
@@ -74,4 +74,9 @@ public class StoryAnchor {
 
     @Column(length = 300)
     private String concernChoiceResponseText;
+
+    /** false면 이 질문 지점에서 실시간 새 분기를 만들지 않고, 이미 만든 LIVE 분기도 콘텐츠에서 뺀다. */
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean liveBranchGeneration = true;
 }

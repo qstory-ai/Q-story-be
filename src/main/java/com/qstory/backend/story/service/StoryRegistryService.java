@@ -218,7 +218,7 @@ public class StoryRegistryService {
                 anchor.allowedSpeakerIds(), anchor.sttKeywords(), anchor.defaultFallbackFamilyId(),
                 anchor.defaultRejoinAt(), concernChoice, anchor.forbiddenKnowledge(), actionFamilies,
                 anchorId, story.storyId(), anchor.defaultFallbackFamilyId(), anchor.defaultRejoinAt(),
-                versionsOf(story));
+                versionsOf(story), anchor.liveBranchGeneration());
     }
 
     private static StoryVersions versionsOf(StoryManifest story) {
