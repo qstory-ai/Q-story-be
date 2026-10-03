@@ -13,4 +13,5 @@ public record Anchor(
         String defaultRejoinAt,
         ConcernChoice concernChoice,
         List<String> forbiddenKnowledge,
-        List<ActionFamily> actionFamilies) {}
+        List<ActionFamily> actionFamilies,
+        boolean liveBranchGeneration) {}

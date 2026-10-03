@@ -1,5 +1,6 @@
 package com.qstory.backend.story.repository;
 
+import com.qstory.backend.common.enums.FamilyOrigin;
 import com.qstory.backend.story.ActionFamily;
 import com.qstory.backend.story.Anchor;
 import com.qstory.backend.story.CastEntry;
@@ -45,6 +46,7 @@ public class StoryContentRepository {
     private StoryManifest toDomain(Story storyEntity) {
         Map<String, List<ActionFamily>> familiesByAnchor =
                 familyRepository.findAllByStoryIdWithAnchor(storyEntity.getId()).stream()
+                        .filter(StoryContentRepository::isServed)
                         .collect(Collectors.groupingBy(
                                 family -> family.getAnchor().getId(), LinkedHashMap::new,
                                 Collectors.mapping(this::toDomain, Collectors.toUnmodifiableList())));
@@ -73,7 +75,12 @@ public class StoryContentRepository {
                 anchorEntity.getSlot(), anchorEntity.getSceneId(), anchorEntity.getSummary(),
                 anchorEntity.getPrimarySpeakerId(), anchorEntity.getAllowedSpeakerIds(), anchorEntity.getSttKeywords(),
                 anchorEntity.getDefaultFallbackFamilyId(), anchorEntity.getDefaultRejoinAt(), concernChoice,
-                anchorEntity.getForbiddenKnowledge(), families);
+                anchorEntity.getForbiddenKnowledge(), families, anchorEntity.isLiveBranchGeneration());
+    }
+
+    /** 실시간 생성을 끈 질문 지점의 LIVE 분기는 보관만 하고 이야기에는 내보내지 않는다. */
+    public static boolean isServed(StoryActionFamily family) {
+        return family.getOrigin() != FamilyOrigin.LIVE_GENERATED || family.getAnchor().isLiveBranchGeneration();
     }
 
     private ActionFamily toDomain(StoryActionFamily familyEntity) {
