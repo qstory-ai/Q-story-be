@@ -15,7 +15,9 @@ import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassPreviewResponse;
 import com.qstory.backend.org.dto.ClassRosterEntryResponse;
 import com.qstory.backend.org.dto.ClassResponse;
+import com.qstory.backend.org.dto.ClassStudentReportResponse;
 import com.qstory.backend.org.dto.ClassStudentResponse;
+import com.qstory.backend.org.dto.HomeroomHistoryEntryResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
 import com.qstory.backend.org.dto.JoinClassRequest;
 import com.qstory.backend.org.dto.JoinExistingClassRequest;
@@ -27,6 +29,9 @@ import com.qstory.backend.org.util.JoinCodeGenerator;
 import com.qstory.backend.tutor.TutorStudentStatus;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.tutor.lesson.LessonStatus;
+import com.qstory.backend.tutor.lesson.entity.Lesson;
+import com.qstory.backend.tutor.lesson.repository.LessonRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import com.qstory.backend.tutor.service.TutorStudentService;
 import java.time.Instant;
@@ -56,6 +61,8 @@ public class ClassService {
     private final TutorStudentService tutorStudentService;
     private final UserSummaryFactory userSummaryFactory;
     private final StoryCompletionRepository storyCompletionRepository;
+    private final LessonRepository lessonRepository;
+    private final ClassHomeroomHistoryService homeroomHistoryService;
 
     public ClassService(
             ClassGroupRepository classGroupRepository, TutorStudentRepository tutorStudentRepository,
@@ -63,7 +70,8 @@ public class ClassService {
             OrganizationService organizationService, JoinCodeGenerator joinCodeGenerator,
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
             TutorStudentService tutorStudentService, UserSummaryFactory userSummaryFactory,
-            StoryCompletionRepository storyCompletionRepository) {
+            StoryCompletionRepository storyCompletionRepository, LessonRepository lessonRepository,
+            ClassHomeroomHistoryService homeroomHistoryService) {
         this.classGroupRepository = classGroupRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.organizationTutorRepository = organizationTutorRepository;
@@ -76,6 +84,8 @@ public class ClassService {
         this.tutorStudentService = tutorStudentService;
         this.userSummaryFactory = userSummaryFactory;
         this.storyCompletionRepository = storyCompletionRepository;
+        this.lessonRepository = lessonRepository;
+        this.homeroomHistoryService = homeroomHistoryService;
     }
 
     @Transactional
@@ -93,6 +103,9 @@ public class ClassService {
                 .joinCode(generateUniqueJoinCode())
                 .createdAt(Instant.now())
                 .build());
+        if (homeroom != null) {
+            homeroomHistoryService.start(classGroup, homeroom, classGroup.getCreatedAt());
+        }
         return ClassResponse.of(classGroup);
     }
 
@@ -117,30 +130,93 @@ public class ClassService {
     }
 
     /**
-     * 담임이 없는 반에 담임을 배정한다. 담임이 정해지기 전에 명단에 올라온 학생이 그 선생님의 학생이 되고,
-     * 이미 담임이 있는 반의 교체는 수업·기록이 선생님에게 묶여 있어 지원하지 않는다.
+     * 담임을 배정하거나 바꾼다(Q-35). 원장만, 그리고 기관에 소속된 선생님으로만.
+     *
+     * <p>담임 변경 정책: 지난 수업과 리포트는 그때 진행한 선생님 것으로 남는다 - lesson.tutor_id와
+     * story_completion.user_id는 건드리지 않는다. 이 반의 학생(명단)은 새 담임에게 넘어가고, 아직 시작하지 않은
+     * 예정 수업(SCHEDULED)도 새 담임에게 넘어간다. 진행 중·완료된 수업은 이전 담임에게 남는다. 새 담임은 학생
+     * 상세에서 자기가 진행한 기록만 보고(TutorReportService), 원장은 두 선생님의 기록을 모두 본다.
+     *
+     * <p>새 담임이 같은 아이를 다른 학생 등록으로 이미 갖고 있으면((tutor_id, child_id) 유니크) 그 학생만 담임 없이
+     * 명단에 남긴다 - 배정 자체는 막지 않고, 명단과 이용권은 그대로다.
      */
     @Transactional
     public ClassResponse assignHomeroom(CurrentUser caller, UUID classId, UUID tutorId) {
         ClassGroup classGroup = requireOwnedByDirector(caller, classId);
-        if (classGroup.getTutor() != null) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "이미 담임 선생님이 있는 반이에요.", 409);
-        }
         if (tutorId == null) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "담임으로 배정할 선생님을 골라 주세요.");
         }
+        AppUser previous = classGroup.getTutor();
+        if (previous != null && previous.getId().equals(tutorId)) {
+            return ClassResponse.of(classGroup);
+        }
         AppUser homeroom = requireOrganizationTutor(classGroup.getOrganization().getId(), tutorId);
+        Instant now = Instant.now();
         classGroup.setTutor(homeroom);
         classGroupRepository.save(classGroup);
-        // 대기 학생을 담임에게 넘긴다. 담임이 이미 같은 아이를 다른 학생 등록으로 갖고 있으면((tutor_id, child_id)
-        // 유니크) 그 학생만 대기로 남겨 배정 자체는 막지 않는다 - 명단에는 그대로 있고 이용권도 유지된다.
-        List<TutorStudent> movable = tutorStudentRepository.findByClassGroup_IdAndTutorIsNullAndDeletedAtIsNull(classId).stream()
-                .filter(student -> student.getChild() == null
-                        || !tutorStudentRepository.existsByTutor_IdAndChild_IdAndDeletedAtIsNull(homeroom.getId(), student.getChild().getId()))
-                .toList();
-        movable.forEach(student -> student.setTutor(homeroom));
-        tutorStudentRepository.saveAll(movable);
+        homeroomHistoryService.start(classGroup, homeroom, now);
+
+        // 담임 미정일 때 들어온 학생과(배정), 이전 담임의 학생(변경)을 새 담임에게 넘긴다.
+        List<TutorStudent> candidates = new java.util.ArrayList<>(
+                tutorStudentRepository.findByClassGroup_IdAndTutorIsNullAndDeletedAtIsNull(classId));
+        if (previous != null) {
+            candidates.addAll(tutorStudentRepository
+                    .findByClassGroup_IdAndTutor_IdAndDeletedAtIsNullOrderByCreatedAtAsc(classId, previous.getId()));
+        }
+        List<TutorStudent> moved = new java.util.ArrayList<>();
+        for (TutorStudent student : candidates) {
+            boolean duplicateChild = student.getChild() != null
+                    && tutorStudentRepository.existsByTutor_IdAndChild_IdAndDeletedAtIsNull(homeroom.getId(), student.getChild().getId());
+            student.setTutor(duplicateChild ? null : homeroom);
+            if (!duplicateChild) moved.add(student);
+        }
+        tutorStudentRepository.saveAll(candidates);
+
+        if (previous != null) {
+            transferScheduledLessons(classGroup, previous, homeroom, moved, now);
+        }
         return ClassResponse.of(classGroup);
+    }
+
+    /** 이전 담임의 이 반 예정 수업을 새 담임에게 넘긴다. 참여 학생 중 새 담임에게 넘어가지 못한 학생은 뺀다. */
+    private void transferScheduledLessons(
+            ClassGroup classGroup, AppUser previous, AppUser homeroom, List<TutorStudent> moved, Instant now) {
+        java.util.Set<UUID> movedIds = new java.util.HashSet<>();
+        moved.forEach(student -> movedIds.add(student.getId()));
+        List<Lesson> lessons = lessonRepository.findByTutor_IdAndClassGroup_IdAndStatus(
+                previous.getId(), classGroup.getId(), LessonStatus.SCHEDULED);
+        for (Lesson lesson : lessons) {
+            lesson.setTutor(homeroom);
+            lesson.getStudents().removeIf(student -> !movedIds.contains(student.getId()));
+            lesson.setUpdatedAt(now);
+        }
+        lessonRepository.saveAll(lessons);
+    }
+
+    /** 반 담임 이력 - 원장만. 담임이 바뀐 반에서 누가 언제 맡았는지 본다. */
+    @Transactional(readOnly = true)
+    public List<HomeroomHistoryEntryResponse> homeroomHistory(CurrentUser caller, UUID classId) {
+        ClassGroup classGroup = requireOwnedByDirector(caller, classId);
+        return homeroomHistoryService.list(classGroup).stream()
+                .map(HomeroomHistoryEntryResponse::of)
+                .toList();
+    }
+
+    /**
+     * 반 학생 한 명의 수업 리포트 목록. 원장은 이 학생이 참여한 기록 전부(담임이 바뀌었으면 두 선생님 것 모두),
+     * 담임 선생님은 자기가 진행한 기록만 본다 - 지난 담임의 기록은 지난 담임 것으로 남는다.
+     */
+    @Transactional(readOnly = true)
+    public List<ClassStudentReportResponse> listStudentReports(CurrentUser caller, UUID classId, UUID studentId) {
+        ClassGroup classGroup = requireVisible(caller, classId);
+        TutorStudent student = tutorStudentRepository.findById(studentId)
+                .filter(found -> found.getClassGroup() != null && found.getClassGroup().getId().equals(classGroup.getId()))
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
+        boolean director = isOwningDirector(caller, classGroup);
+        return storyCompletionRepository.findByParticipant(student.getId()).stream()
+                .filter(completion -> director || completion.getUser().getId().equals(caller.userId()))
+                .map(ClassStudentReportResponse::of)
+                .toList();
     }
 
     /** 반 코드로 학부모 계정을 만들고 아이를 그 반의 학생으로 올린다 - 가입과 동시에 연결된다. */

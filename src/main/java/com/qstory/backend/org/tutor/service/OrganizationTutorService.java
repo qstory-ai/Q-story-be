@@ -25,6 +25,7 @@ import com.qstory.backend.org.tutor.repository.OrganizationTutorInviteRepository
 import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.org.util.JoinCodeGenerator;
 import com.qstory.backend.tutor.entity.TutorStudent;
+import com.qstory.backend.org.service.ClassHomeroomHistoryService;
 import com.qstory.backend.tutor.lesson.LessonStatus;
 import com.qstory.backend.tutor.lesson.entity.Lesson;
 import com.qstory.backend.tutor.lesson.repository.LessonRepository;
@@ -58,6 +59,7 @@ public class OrganizationTutorService {
     private final ClassGroupRepository classGroupRepository;
     private final TutorStudentRepository tutorStudentRepository;
     private final LessonRepository lessonRepository;
+    private final ClassHomeroomHistoryService homeroomHistoryService;
 
     public OrganizationTutorService(
             OrganizationTutorRepository organizationTutorRepository,
@@ -69,7 +71,8 @@ public class OrganizationTutorService {
             NotificationPublisher notificationPublisher,
             ClassGroupRepository classGroupRepository,
             TutorStudentRepository tutorStudentRepository,
-            LessonRepository lessonRepository) {
+            LessonRepository lessonRepository,
+            ClassHomeroomHistoryService homeroomHistoryService) {
         this.organizationTutorRepository = organizationTutorRepository;
         this.organizationTutorInviteRepository = organizationTutorInviteRepository;
         this.organizationRepository = organizationRepository;
@@ -80,6 +83,7 @@ public class OrganizationTutorService {
         this.classGroupRepository = classGroupRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.lessonRepository = lessonRepository;
+        this.homeroomHistoryService = homeroomHistoryService;
     }
 
     /* ---------------------------------------------------------- listings */
@@ -240,6 +244,7 @@ public class OrganizationTutorService {
         for (ClassGroup classGroup : classGroupRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId)) {
             classGroup.setTutor(null);
             classGroupRepository.save(classGroup);
+            homeroomHistoryService.end(classGroup, now);
         }
     }
 
