@@ -17,5 +17,7 @@ public record OrganizationUsageResponse(
         long completionCount,
         List<RecentActivity> recentActivity) {
 
-    public record RecentActivity(UUID completionId, String storyId, String actorDisplayName, Instant completedAt) {}
+    /** sessionKind는 CLASS·TUTOR(수업 기록 - 관리자가 개별 리포트를 열 수 있다)·HOME(가정 기록 - 열 수 없다). */
+    public record RecentActivity(
+            UUID completionId, String storyId, String actorDisplayName, Instant completedAt, String sessionKind) {}
 }

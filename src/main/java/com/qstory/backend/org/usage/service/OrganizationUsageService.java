@@ -68,7 +68,8 @@ public class OrganizationUsageService {
                                 : completion.isGroupSession() && completion.getClassGroup() != null
                                         ? completion.getClassGroup().getName()
                                         : completion.getUser().getDisplayName(),
-                        completion.getCompletedAt()))
+                        completion.getCompletedAt(),
+                        completion.sessionKind()))
                 .toList();
 
         return new OrganizationUsageResponse(

@@ -8,6 +8,7 @@ import com.qstory.backend.companionchat.entity.CompanionChatTurn;
 import com.qstory.backend.companionchat.repository.CompanionChatTurnRepository;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
+import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.parent.child.entity.Child;
@@ -248,10 +249,27 @@ public class StoryCompletionService {
         StoryCompletion completion = repository.findById(id)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404));
         boolean isSessionOwner = completion.getUser().getId().equals(caller.userId());
-        if (!isSessionOwner && !repository.isVisibleToLinkedParent(id, caller.userId())) {
+        if (!isSessionOwner && !isVisibleToDirector(caller, completion)
+                && !repository.isVisibleToLinkedParent(id, caller.userId())) {
             throw ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404);
         }
         return StoryCompletionDetail.of(completion);
+    }
+
+    /**
+     * 관리자(DIRECTOR)는 자기 기관의 수업 기록을 개별 리포트까지 열 수 있다(Q-35). 기관은 기록에 남긴 기관
+     * 스냅샷(story_completion.organization_id) 또는 기록의 반이 속한 기관으로 정한다 - 아이가 반을 옮겨도 그때
+     * 기관의 기록으로 남는다. 가정 세션(보호자가 진행)은 기관 기록이 아니라 열 수 없다.
+     */
+    static boolean isVisibleToDirector(CurrentUser caller, StoryCompletion completion) {
+        if (caller.role() != Role.DIRECTOR || caller.orgId() == null) return false;
+        if ("HOME".equals(completion.sessionKind())) return false;
+        if (completion.getOrganization() != null) {
+            return caller.orgId().equals(completion.getOrganization().getId());
+        }
+        return completion.getClassGroup() != null
+                && completion.getClassGroup().getOrganization() != null
+                && caller.orgId().equals(completion.getClassGroup().getOrganization().getId());
     }
 
     /**
