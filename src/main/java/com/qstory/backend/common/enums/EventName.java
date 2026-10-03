@@ -15,7 +15,8 @@ public enum EventName {
     EXPLICIT_EXIT(EventSource.PLAYER),
     STORY_COMPLETED(EventSource.PLAYER),
     PARENT_REPORT_OPENED(EventSource.PLAYER),
-    SURVEY_OPENED(EventSource.PLAYER);
+    SURVEY_OPENED(EventSource.PLAYER),
+    DIALOGUE_STEP(EventSource.PLAYER);
 
     private final EventSource requiredSource;
 
