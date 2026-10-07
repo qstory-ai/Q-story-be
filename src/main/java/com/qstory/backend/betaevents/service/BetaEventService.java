@@ -13,6 +13,7 @@ import com.qstory.backend.betaevents.entity.StorySession;
 import com.qstory.backend.shadow.service.ShadowIntentCollectionService;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,15 +35,29 @@ public class BetaEventService {
 
     @Transactional
     public void record(BetaEventValidator.ParsedEvent event) {
+        record(event, null);
+    }
+
+    /** userId: 로그인한 채 보낸 이벤트면 그 계정 - 세션에 남겨 참여자의 흐름을 잇는다(Q-40). 없으면 익명 그대로. */
+    @Transactional
+    public void record(BetaEventValidator.ParsedEvent event, UUID userId) {
         if (repository.eventExists(event.eventId())) {
             return;
         }
 
         Instant now = Instant.now();
-        EntrySource entrySource = event.source() == EventSource.LANDING ? EntrySource.LANDING : EntrySource.PLAYER;
+        EntrySource entrySource = switch (event.source()) {
+            case LANDING -> EntrySource.LANDING;
+            case PLAYER -> EntrySource.PLAYER;
+            // 앱 화면(가입·반 연결·리포트)에서 시작한 세션은 랜딩·플레이어를 거치지 않은 직접 진입이다.
+            case APP -> EntrySource.DIRECT;
+        };
         repository.insertSessionIfAbsent(event.sessionId(), STORY_ID, entrySource.name(), TrafficType.UNKNOWN, now);
         StorySession session = repository.findSession(event.sessionId());
         applyEventToSession(session, event, now);
+        if (userId != null) {
+            session.setUserId(userId);
+        }
         repository.saveSession(session);
 
         long recentEvents = repository.countRecentEvents(event.sessionId(), now.minus(RATE_LIMIT_WINDOW));
@@ -77,7 +92,8 @@ public class BetaEventService {
             // 인식할 수 없는 traffic_type 값은 이벤트 전체를 거부하지 않고 그냥 버린다
         }
 
-        if (event.source() == EventSource.LANDING) {
+        // 앱으로 바로 들어온 방문(APP_ENTRY)도 유입 경로(utm)를 남긴다(Q-40).
+        if (event.source() == EventSource.LANDING || event.eventName() == EventName.APP_ENTRY) {
             setIfPresent(event, "landing_release", session::setLandingRelease);
             setIfPresent(event, "utm_source", session::setUtmSource);
             setIfPresent(event, "utm_medium", session::setUtmMedium);

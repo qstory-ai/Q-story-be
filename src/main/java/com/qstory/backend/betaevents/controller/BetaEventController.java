@@ -32,11 +32,15 @@ public class BetaEventController {
     private final ObjectMapper objectMapper;
     private final BetaEventValidator validator;
     private final BetaEventService service;
+    private final com.qstory.backend.identity.security.CurrentUserResolver currentUserResolver;
 
-    public BetaEventController(ObjectMapper objectMapper, BetaEventValidator validator, BetaEventService service) {
+    public BetaEventController(
+            ObjectMapper objectMapper, BetaEventValidator validator, BetaEventService service,
+            com.qstory.backend.identity.security.CurrentUserResolver currentUserResolver) {
         this.objectMapper = objectMapper;
         this.validator = validator;
         this.service = service;
+        this.currentUserResolver = currentUserResolver;
     }
 
     @Operation(
@@ -61,7 +65,9 @@ public class BetaEventController {
     public void record(HttpServletRequest request, HttpServletResponse response) throws IOException {
         JsonNode body = readJson(request);
         BetaEventValidator.ParsedEvent event = validator.parse(body);
-        service.record(event);
+        // 로그인 토큰이 같이 오면 그 계정에 세션을 잇는다. 토큰이 없거나 잘못돼도 이벤트는 익명으로 받는다.
+        java.util.UUID userId = currentUserResolver.current().map(user -> user.userId()).orElse(null);
+        service.record(event, userId);
         HttpJsonWriter.writeJson(response, objectMapper, 202, Map.of("ok", true));
     }
 

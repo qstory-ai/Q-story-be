@@ -16,7 +16,17 @@ public enum EventName {
     STORY_COMPLETED(EventSource.PLAYER),
     PARENT_REPORT_OPENED(EventSource.PLAYER),
     SURVEY_OPENED(EventSource.PLAYER),
-    DIALOGUE_STEP(EventSource.PLAYER);
+    DIALOGUE_STEP(EventSource.PLAYER),
+    // Q-40 UT 데이터 수집 - 앱 진입부터 리포트까지.
+    APP_ENTRY(EventSource.APP),
+    SIGNUP_STARTED(EventSource.APP),
+    SIGNUP_COMPLETED(EventSource.APP),
+    CHILD_REGISTERED(EventSource.APP),
+    CLASS_JOIN(EventSource.APP),
+    CONSENT_SAVED(EventSource.APP),
+    PLAYBACK_CONTROL(EventSource.PLAYER),
+    REPORT_VIEWED(EventSource.APP),
+    REPORT_ACTION(EventSource.APP);
 
     private final EventSource requiredSource;
 

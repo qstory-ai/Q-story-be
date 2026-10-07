@@ -74,6 +74,11 @@ public class TutorReportService {
             namesByCompletion.computeIfAbsent(UUID.fromString((String) row[0]), ignored -> new TreeSet<>())
                     .add((String) row[1]);
         }
+        // 반에 연결된 부모는 연결 전 반 수업 기록까지 모두 본다(Q-39).
+        for (Object[] row : storyCompletionRepository.findVisibleClassSessionNames(caller.userId())) {
+            namesByCompletion.computeIfAbsent(UUID.fromString((String) row[0]), ignored -> new TreeSet<>())
+                    .add((String) row[1]);
+        }
         if (namesByCompletion.isEmpty()) return List.of();
         return storyCompletionRepository.findByIdInOrderByCompletedAtDesc(namesByCompletion.keySet()).stream()
                 .map(completion -> TutorReportSummary.of(
