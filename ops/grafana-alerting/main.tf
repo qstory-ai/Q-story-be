@@ -21,4 +21,8 @@ terraform {
 provider "grafana" {
   url  = var.grafana_url
   auth = var.grafana_auth
+
+  # Synthetic Monitoring(synthetic.tf)용. 비어 있으면 그 리소스들은 만들지 않으므로 provider도 쓰지 않는다.
+  sm_url          = var.sm_url
+  sm_access_token = var.sm_access_token
 }
