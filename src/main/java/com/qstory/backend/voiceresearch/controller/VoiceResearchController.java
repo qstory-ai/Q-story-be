@@ -52,9 +52,8 @@ public class VoiceResearchController {
                     + "(consent_id, deletion_token, consented_at, sample_id, story_id, scene_id, anchor_id, "
                     + "stt_draft, confirmed_transcript, question_round, duration_millis, and the optional "
                     + "coverage_status/family_id/intent_summary once the question has been routed). "
-                    + "consent_id must reference a non-expired VoiceResearchConsent. Anonymous callers are accepted; "
-                    + "a signed-in PARENT is rejected with 403 when their account-level consent is off, and "
-                    + "otherwise the consent is linked to the account (so /v1/me/voice-research-consent/withdraw "
+                    + "consent_id must reference a non-expired VoiceResearchConsent. Only a signed-in PARENT whose account-level consent is explicitly on is accepted "
+                    + "(anonymous, tutor and other roles get 403), and  the consent is linked to the account (so /v1/me/voice-research-consent/withdraw "
                     + "can delete it).")
     @ApiResponses({
             @ApiResponse(responseCode = "202", description = "Accepted",

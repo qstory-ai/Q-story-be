@@ -57,7 +57,8 @@ public class VoiceResearchAccountConsentController {
     @PostMapping
     public VoiceResearchConsentStatusResponse grant(@RequestBody GrantVoiceResearchConsentRequest request) {
         return service.grantForAccount(
-                currentUserResolver.requireRole(Role.PARENT), request == null ? null : request.consentVersion());
+                currentUserResolver.requireRole(Role.PARENT), request == null ? null : request.consentVersion(),
+                request == null ? null : request.source());
     }
 
     @Operation(summary = "Withdraw account-level voice research consent",
