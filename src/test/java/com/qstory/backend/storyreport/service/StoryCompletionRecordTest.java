@@ -35,6 +35,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import com.qstory.backend.playsession.service.PlaySessionService;
+import com.qstory.backend.reportanalysis.service.ReportAnalysisStore;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -42,13 +44,15 @@ import org.mockito.ArgumentCaptor;
 class StoryCompletionRecordTest {
 
     private final StoryCompletionRepository repository = mock(StoryCompletionRepository.class);
+    private final PlaySessionService playSessionService = mock(PlaySessionService.class);
+    private final ReportAnalysisStore reportAnalysisStore = mock(ReportAnalysisStore.class);
     private final AppUserRepository userRepository = mock(AppUserRepository.class);
     private final TutorStudentRepository tutorStudentRepository = mock(TutorStudentRepository.class);
     private final NotificationPublisher notificationPublisher = mock(NotificationPublisher.class);
     private final LessonRepository lessonRepository = mock(LessonRepository.class);
     private final StoryCompletionService service = new StoryCompletionService(
             repository, userRepository, tutorStudentRepository, mock(ChildRepository.class), notificationPublisher,
-            mock(CompanionChatTurnRepository.class), lessonRepository);
+            mock(CompanionChatTurnRepository.class), lessonRepository, playSessionService, reportAnalysisStore);
 
     private final AppUser tutor = AppUser.builder().id(UUID.randomUUID()).displayName("김선생").build();
     private final CurrentUser caller = new CurrentUser(tutor.getId(), Role.TUTOR, null);

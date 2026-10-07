@@ -147,6 +147,29 @@ public class StoryCompletion {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /** 읽은 작품 버전(story.yaml contentVersion) - 콘텐츠가 바뀐 뒤에도 그때 장면으로 리포트를 그리기 위해(069). */
+    @Column(name = "content_version")
+    private String contentVersion;
+
+    /** COMPLETED(끝까지 읽음) | EXITED(중간에 나감). 같은 회차를 이어 읽어 끝내면 COMPLETED로 올라간다. */
+    @Column(name = "end_status", nullable = false)
+    @Builder.Default
+    private String endStatus = "COMPLETED";
+
+    @Column(name = "read_from_scene_id")
+    private String readFromSceneId;
+
+    @Column(name = "read_through_scene_id")
+    private String readThroughSceneId;
+
+    /** 선생님만 보는 수업 메모. 부모 화면에는 절대 내보내지 않는다. */
+    @Column(name = "teacher_note_internal")
+    private String teacherNoteInternal;
+
+    /** 부모에게 공유하는 선생님 한마디. */
+    @Column(name = "teacher_note_for_parents")
+    private String teacherNoteForParents;
+
     /** 리포트 화면의 구분 - CLASS(반 수업), TUTOR(선생님 개별 수업), HOME(집에서 읽은 기록). */
     public String sessionKind() {
         if (groupSession) return "CLASS";
