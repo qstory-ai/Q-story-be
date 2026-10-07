@@ -80,10 +80,14 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
     @Query("delete from StoryCompletion c where c.user.id = :parentId and c.lesson is null and c.classGroup is null")
     int deleteHomeSessionsOf(@Param("parentId") UUID parentId);
 
-    /** 회원 탈퇴 - 반을 떠난 뒤에도 지난 반 수업 리포트를 보도록 남겨 둔 보호자 열람 행(060)을 지운다. */
+    /**
+     * 회원 탈퇴 - 반을 떠난 뒤에도 지난 반 수업 리포트를 보도록 남겨 둔 보호자 열람 권한(060)만 비운다. 참여 행
+     * 자체는 반 수업 기록의 참여자 명단이라 지우지 않는다.
+     */
     @Modifying
-    @Query(value = "delete from story_completion_participant where parent_user_id = :parentId", nativeQuery = true)
-    int deleteParticipantAccessOf(@Param("parentId") UUID parentId);
+    @Query(value = "update story_completion_participant set parent_user_id = null where parent_user_id = :parentId",
+            nativeQuery = true)
+    int clearParentAccessOf(@Param("parentId") UUID parentId);
 
     /** 회원 탈퇴 - 기관 소속이 아닌 선생님 기록. 기관 반 기록은 organization 스냅샷이 채워져 있어 남는다. */
     @Modifying

@@ -37,7 +37,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *
  * <ul>
  *   <li>공통: 비밀번호 재설정 토큰, 북마크, 알림, 알림 설정, 개선 의견, 이 계정의 대화 원장, 프로필 사진.</li>
- *   <li>보호자: 가정 세션 기록, 지난 반 수업 열람 행, 반 명단 연결 해제, 아이 프로필 마스킹(가입 기록만 남김).</li>
+ *   <li>보호자: 가정 세션 기록 삭제, 지난 반 수업 열람 권한 해제(참여 명단은 유지), 반 명단 연결 해제, 아이 프로필 마스킹(가입 기록만 남김).</li>
  *   <li>선생님: 기관 반은 담임만 비우고(반·수업·학생·기록 유지), 기관 밖 자기 반·수업·학생·기록은 지운다.</li>
  *   <li>관리자: 기관과 기관 데이터는 그대로, 계정만 익명화.</li>
  * </ul>
@@ -141,7 +141,7 @@ public class AccountErasureService {
             tutorStudentRepository.save(student);
         }
         storyCompletionRepository.deleteHomeSessionsOf(parentId);
-        storyCompletionRepository.deleteParticipantAccessOf(parentId);
+        storyCompletionRepository.clearParentAccessOf(parentId);
         childRepository.maskAllOfParent(parentId, MASKED_CHILD_NAME, DEFAULT_CHILD_AVATAR_KEY, now);
     }
 
@@ -150,10 +150,10 @@ public class AccountErasureService {
         organizationTutorRepository.findByTutor_IdOrderByJoinedAtAsc(tutorId)
                 .forEach(link -> organizationTutorService.detachTutor(link.getOrganization().getId(), tutorId));
         organizationTutorRepository.deleteByTutor_Id(tutorId);
-        // 기관 밖 자기 반·수업·학생·기록. 자식 → 부모 순서로 지운다.
+        // 기관 밖 자기 반·수업·학생·기록. 자식 → 부모 순서로 지운다 - 학생은 반을 지우기 전에(반 id로 찾는다).
         storyCompletionRepository.deletePersonalSessionsOfTutor(tutorId);
         lessonRepository.deletePersonalLessonsOf(tutorId);
-        tutorStudentRepository.deletePersonalStudentsOf(tutorId);
+        tutorStudentRepository.deleteStudentsOfPersonalClasses(tutorId);
         homeroomHistoryRepository.deletePersonalHistoryOf(tutorId);
         classGroupRepository.deletePersonalClassesOf(tutorId);
     }

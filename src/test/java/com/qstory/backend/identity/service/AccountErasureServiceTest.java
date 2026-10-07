@@ -134,7 +134,8 @@ class AccountErasureServiceTest {
 
         verifyCommonCleanup(id);
         verify(completions).deleteHomeSessionsOf(id);
-        verify(completions).deleteParticipantAccessOf(id);
+        verify(completions).clearParentAccessOf(id);
+        verify(completions, never()).deletePersonalSessionsOfTutor(any());
         verify(children).maskAllOfParent(eq(id), eq("삭제됨"), eq("fox"), any(Instant.class));
         // 반 명단 연결은 기존처럼 해제한다.
         assertNull(linked.getLinkedParentUser());
@@ -161,7 +162,7 @@ class AccountErasureServiceTest {
         // 기관 소속이 아니었던 자기 반·수업만 지운다(기관 반·수업·기록은 쿼리 조건에서 빠진다).
         verify(completions).deletePersonalSessionsOfTutor(id);
         verify(lessons).deletePersonalLessonsOf(id);
-        verify(students).deletePersonalStudentsOf(id);
+        verify(students).deleteStudentsOfPersonalClasses(id);
         verify(homeroomHistory).deletePersonalHistoryOf(id);
         verify(classGroups).deletePersonalClassesOf(id);
         verify(children, never()).maskAllOfParent(any(), anyString(), anyString(), any());
@@ -179,7 +180,7 @@ class AccountErasureServiceTest {
         verify(orgTutorService, never()).detachTutor(any(), any());
         verify(completions).deletePersonalSessionsOfTutor(id);
         verify(lessons).deletePersonalLessonsOf(id);
-        verify(students).deletePersonalStudentsOf(id);
+        verify(students).deleteStudentsOfPersonalClasses(id);
         verify(homeroomHistory).deletePersonalHistoryOf(id);
         verify(classGroups).deletePersonalClassesOf(id);
     }
@@ -212,5 +213,37 @@ class AccountErasureServiceTest {
         verify(storage).delete("profile-images", objectName);
         assertNull(tutor.getProfileImageObjectName());
         assertNull(tutor.getProfileImageUrl());
+    }
+
+    @Test
+    void personalStudentsAreDeletedBeforeTheirClasses() {
+        AppUser tutor = user(Role.TUTOR);
+        when(orgTutors.findByTutor_IdOrderByJoinedAtAsc(tutor.getId())).thenReturn(List.of());
+
+        service.erase(tutor);
+
+        // 반을 먼저 지우면 tutor_student.class_group_id가 set null로 비어 반 id로 학생을 찾지 못한다.
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(students, homeroomHistory, classGroups);
+        order.verify(students).deleteStudentsOfPersonalClasses(tutor.getId());
+        order.verify(classGroups).deletePersonalClassesOf(tutor.getId());
+    }
+
+    /** 반이 없는 학생은 원장이 반을 지워 남은 기관 학생일 수 있어 지우지 않는다 - 기관 밖 자기 반의 학생만. */
+    @Test
+    void personalStudentQueryOnlyMatchesStudentsOfTheTutorsNonOrganizationClasses() throws Exception {
+        String jpql = TutorStudentRepository.class.getMethod("deleteStudentsOfPersonalClasses", UUID.class)
+                .getAnnotation(org.springframework.data.jpa.repository.Query.class).value()
+                .replaceAll("\s+", " ");
+        assertTrue(jpql.contains("s.classGroup.id in"), jpql);
+        assertTrue(jpql.contains("g.tutor.id = :tutorId and g.organization is null"), jpql);
+        assertTrue(!jpql.contains("is null or"), "반 없는 학생을 포함하면 안 된다: " + jpql);
+    }
+
+    /** 참여 행은 반 수업 기록의 참여자 명단이다 - 탈퇴한 보호자의 열람 권한만 비우고 행은 남긴다. */
+    @Test
+    void parentAccessToClassRecordsIsClearedNotDeleted() throws Exception {
+        String sql = StoryCompletionRepository.class.getMethod("clearParentAccessOf", UUID.class)
+                .getAnnotation(org.springframework.data.jpa.repository.Query.class).value();
+        assertTrue(sql.startsWith("update story_completion_participant set parent_user_id = null"), sql);
     }
 }
