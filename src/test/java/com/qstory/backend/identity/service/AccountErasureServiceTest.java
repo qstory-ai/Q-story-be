@@ -258,6 +258,49 @@ class AccountErasureServiceTest {
         assertTrue(!jpql.contains("c.classGroup.organization") && !jpql.contains("c.lesson.classGroup"), jpql);
     }
 
+    @Test
+    void legacyDeletedAccountIsErasedAndKeepsItsOriginalDeletionTime() {
+        AppUser user = user(Role.PARENT);
+        Instant deletedAt = Instant.parse("2026-05-01T00:00:00Z");
+        user.setDeletedAt(deletedAt);
+        user.setLoginId("deleted:abc:mom@example.com");
+        when(users.findById(user.getId())).thenReturn(java.util.Optional.of(user));
+
+        service.eraseLegacyDeleted(user.getId());
+
+        assertEquals(deletedAt, user.getDeletedAt());
+        assertTrue(user.getEmail().endsWith("@deleted.invalid"), user.getEmail());
+        assertTrue(!user.getLoginId().contains("mom@example.com"), user.getLoginId());
+        assertEquals("탈퇴한 사용자", user.getDisplayName());
+        verify(completions).deleteHomeSessionsOf(user.getId());
+        verifyCommonCleanup(user.getId());
+    }
+
+    @Test
+    void legacyErasureRefusesAnAccountThatIsNotDeleted() throws Exception {
+        AppUser user = user(Role.PARENT);
+        when(users.findById(user.getId())).thenReturn(java.util.Optional.of(user));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> service.eraseLegacyDeleted(user.getId()));
+
+        assertEquals("mom@example.com", user.getEmail());
+        verify(users, never()).save(any());
+        assertNotNull(AccountErasureService.class.getMethod("eraseLegacyDeleted", UUID.class)
+                .getAnnotation(Transactional.class));
+    }
+
+    /** 이미 익명화된 계정(@deleted.invalid)은 다시 잡지 않는다. */
+    @Test
+    void legacyDeletedQueriesSkipAlreadyAnonymizedAccounts() throws Exception {
+        for (String method : List.of("findLegacyDeletedAccounts", "countLegacyDeletedAccounts")) {
+            String jpql = AppUserRepository.class.getMethod(method)
+                    .getAnnotation(org.springframework.data.jpa.repository.Query.class).value();
+            assertTrue(jpql.contains("u.deletedAt is not null"), jpql);
+            assertTrue(jpql.contains("u.email not like '%@deleted.invalid'"), jpql);
+        }
+    }
+
     /** 참여 행은 반 수업 기록의 참여자 명단이다 - 탈퇴한 보호자의 열람 권한만 비우고 행은 남긴다. */
     @Test
     void parentAccessToClassRecordsIsClearedNotDeleted() throws Exception {

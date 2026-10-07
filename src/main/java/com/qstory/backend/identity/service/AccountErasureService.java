@@ -130,6 +130,23 @@ public class AccountErasureService {
         deleteProfileImageAfterCommit(userId, profileObject);
     }
 
+    /**
+     * 이번 배포 전에 탈퇴한 계정을 같은 방식으로 지우고 익명화한다(LegacyDeletedAccountCleanupService가 계정마다
+     * 부른다). 탈퇴 시각은 원래 값을 남긴다. 탈퇴하지 않은 계정이면 아무것도 바꾸지 않고 예외를 던진다.
+     */
+    @Transactional
+    public void eraseLegacyDeleted(UUID userId) {
+        AppUser user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalStateException("account not found: " + userId));
+        Instant originalDeletedAt = user.getDeletedAt();
+        if (originalDeletedAt == null) {
+            throw new IllegalStateException("account is not deleted: " + userId);
+        }
+        erase(user);
+        user.setDeletedAt(originalDeletedAt);
+        userRepository.save(user);
+    }
+
     private void eraseParentData(AppUser parent, Instant now) {
         UUID parentId = parent.getId();
         // 반 명단 연결 해제 - 그대로 두면 탈퇴 계정이 학생을 영구히 점유해 다른 보호자의 수락이 409로 막힌다.

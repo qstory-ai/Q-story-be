@@ -28,6 +28,18 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     Optional<AppUser> findByOauthProviderAndOauthSubject(OAuthProvider oauthProvider, String oauthSubject);
 
     /**
+     * 실제 삭제·익명화(AccountErasureService)가 생기기 전에 탈퇴한 계정 - 탈퇴했지만 이메일이 아직 익명화 주소가
+     * 아니다(LegacyDeletedAccountCleanupService).
+     */
+    @org.springframework.data.jpa.repository.Query("select u from AppUser u where u.deletedAt is not null "
+            + "and (u.email is null or u.email not like '%@deleted.invalid') order by u.deletedAt")
+    List<AppUser> findLegacyDeletedAccounts();
+
+    @org.springframework.data.jpa.repository.Query("select count(u) from AppUser u where u.deletedAt is not null "
+            + "and (u.email is null or u.email not like '%@deleted.invalid')")
+    long countLegacyDeletedAccounts();
+
+    /**
      * 기관에 속한 특정 역할의 첫 사용자 - DIRECTOR는 조직당 하나뿐이라는 불변식(Organization
      * 클래스 헤더 참고)을 활용해 owning director를 찾을 때 쓴다. 데이터에 예상치 못한 중복이
      * 있어도 예외 대신 첫 하나를 반환하도록 findFirst를 쓴다.
