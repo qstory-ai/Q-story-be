@@ -37,7 +37,9 @@ public class VoiceResearchService {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(VoiceResearchService.class);
 
-    public static final String CONSENT_VERSION = "voice-research-v2-shadow-family";
+    public static final String CONSENT_VERSION = "voice-research-v3-1y";
+    /** 계정 동의 출처 - 온보딩 동의 화면 또는 마이페이지. */
+    private static final java.util.Set<String> GRANT_SOURCES = java.util.Set.of("ONBOARDING", "MYPAGE");
     private static final Duration RETENTION = Duration.ofDays(365);
     /** 보호자가 명시적으로 동의하기 전까지는 꺼짐 - 원본 음성은 동의한 보호자 계정에서만 받는다. */
     static final boolean DEFAULT_ENABLED = false;
@@ -59,20 +61,20 @@ public class VoiceResearchService {
         this.bucket = config.supabase().voiceResearchBucket();
     }
 
-    /** 명시 동의한 보호자 계정만 허용한다(비로그인·선생님 등은 403). 세션 동의에 계정을 남긴다. */
+    /** 현재 약관 버전으로 명시 동의한 보호자 계정만 허용한다(비로그인·선생님·지난 버전 동의는 403) - 요청 검증보다 먼저. 세션 동의에 계정을 남긴다. */
     @Transactional
     public void upload(UploadRequest request, CurrentUser caller) {
-        validator.validate(request);
         if (caller == null || caller.role() != Role.PARENT) {
             throw ApiException.contractError(
                     ErrorCode.CONSENT_INVALID, "음성 원본은 동의한 보호자 계정에서만 저장해요.", 403);
         }
         UUID accountId = caller.userId();
         VoiceResearchPreference preference = repository.findPreference(accountId);
-        if (preference == null || !preference.isEnabled()) {
+        if (!isCurrent(preference)) {
             throw ApiException.contractError(
                     ErrorCode.CONSENT_INVALID, "음성 연구 저장에 동의하지 않은 계정이에요.", 403);
         }
+        validator.validate(request);
         String deletionTokenHash = DigestUtil.sha256Hex(request.deletionToken());
         VoiceResearchConsent consent = ensureConsent(request, deletionTokenHash, accountId);
 
@@ -164,6 +166,10 @@ public class VoiceResearchService {
             throw ApiException.contractError(
                     ErrorCode.CONSENT_INVALID, "동의 문구가 바뀌었어요. 화면을 새로 고친 뒤 다시 동의해 주세요.", 409);
         }
+        String grantSource = source == null || source.isBlank() ? "MYPAGE" : source;
+        if (!GRANT_SOURCES.contains(grantSource)) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "동의 출처가 올바르지 않아요.");
+        }
         Instant now = Instant.now();
         VoiceResearchPreference preference = preferenceFor(caller.userId(), now);
         preference.setEnabled(true);
@@ -172,7 +178,7 @@ public class VoiceResearchService {
         preference.setWithdrawnAt(null);
         preference.setUpdatedAt(now);
         VoiceResearchPreference saved = repository.savePreference(preference);
-        recordVoiceRaw(caller, true, source == null || source.isBlank() ? "MYPAGE" : source);
+        recordVoiceRaw(caller, true, grantSource);
         return statusOf(saved);
     }
 
@@ -226,9 +232,15 @@ public class VoiceResearchService {
         if (preference == null) {
             return new VoiceResearchConsentStatusResponse(DEFAULT_ENABLED, false, null, null, null, retentionDays);
         }
+        // 지난 약관 버전으로 켠 동의는 꺼진 것으로 알린다 - 마이페이지가 새 문구로 다시 묻는다.
         return new VoiceResearchConsentStatusResponse(
-                preference.isEnabled(), true, preference.getConsentVersion(), preference.getConsentedAt(),
+                isCurrent(preference), true, preference.getConsentVersion(), preference.getConsentedAt(),
                 preference.getWithdrawnAt(), retentionDays);
+    }
+
+    /** 켜져 있고 현재 약관 버전으로 동의한 계정만 유효하다 - 버전이 바뀌면 다시 동의받는다. */
+    private static boolean isCurrent(VoiceResearchPreference preference) {
+        return preference != null && preference.isEnabled() && CONSENT_VERSION.equals(preference.getConsentVersion());
     }
 
     /** VoiceResearchRetentionScheduler가 호출한다 - 한 번에 최대 200건의 만료 동의를 정리한다. */

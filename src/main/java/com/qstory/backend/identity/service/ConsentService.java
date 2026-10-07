@@ -54,7 +54,7 @@ public class ConsentService {
                 row(user.getId(), "TERMS", consents.version(), consents.terms(), source, now),
                 row(user.getId(), "PRIVACY", consents.version(), consents.privacy(), source, now),
                 row(user.getId(), "MARKETING", consents.version(), consents.marketing(), source, now)));
-NotificationSettings existing = notificationSettingsRepository.findById(user.getId()).orElse(null);
+        NotificationSettings existing = notificationSettingsRepository.findById(user.getId()).orElse(null);
         if (existing != null) {
             existing.setMarketingEnabled(consents.marketing());
             existing.setUpdatedAt(now);

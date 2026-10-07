@@ -159,7 +159,8 @@ class VoiceResearchServiceAccountConsentTest {
                 .userId(java.util.UUID.randomUUID())
                 .build();
         when(repository.findPreference(parentId)).thenReturn(VoiceResearchPreference.builder()
-                .userId(parentId).enabled(true).updatedAt(Instant.now()).build());
+                .userId(parentId).enabled(true).consentVersion(VoiceResearchService.CONSENT_VERSION)
+                .updatedAt(Instant.now()).build());
         when(repository.findConsent(eq(request.consentId()))).thenReturn(othersConsent);
 
         ApiException error = assertThrows(ApiException.class, () -> service.upload(request, parent));
@@ -226,7 +227,8 @@ class VoiceResearchServiceAccountConsentTest {
     @Test
     void uploadFromAConsentingParentLinksTheSessionConsentToTheAccount() {
         when(repository.findPreference(parentId)).thenReturn(VoiceResearchPreference.builder()
-                .userId(parentId).enabled(true).updatedAt(Instant.now()).build());
+                .userId(parentId).enabled(true).consentVersion(VoiceResearchService.CONSENT_VERSION)
+                .updatedAt(Instant.now()).build());
         when(storageClient.upload(anyString(), anyString(), any(), anyString())).thenReturn(true);
 
         service.upload(uploadRequest(), parent);
@@ -248,7 +250,8 @@ class VoiceResearchServiceAccountConsentTest {
     @Test
     void existingAnonymousSessionConsentIsLinkedOnceTheTokenMatches() {
         when(repository.findPreference(parentId)).thenReturn(VoiceResearchPreference.builder()
-                .userId(parentId).enabled(true).updatedAt(Instant.now()).build());
+                .userId(parentId).enabled(true).consentVersion(VoiceResearchService.CONSENT_VERSION)
+                .updatedAt(Instant.now()).build());
         UploadRequest request = uploadRequest();
         VoiceResearchConsent anonymous = VoiceResearchConsent.builder()
                 .id(request.consentId())
@@ -264,6 +267,88 @@ class VoiceResearchServiceAccountConsentTest {
         service.upload(request, parent);
 
         assertEquals(parentId, anonymous.getUserId());
+    }
+
+    @Test
+    void consentVersionIsTheOneYearRetentionVersion() {
+        assertEquals("voice-research-v3-1y", VoiceResearchService.CONSENT_VERSION);
+    }
+
+    @Test
+    void grantWithThePreviousVersionKeepsTheVersionMismatchError() {
+        ApiException error = assertThrows(ApiException.class,
+                () -> service.grantForAccount(parent, "voice-research-v2-shadow-family", "MYPAGE"));
+
+        assertEquals(ErrorCode.CONSENT_INVALID, error.code());
+        assertEquals(409, error.statusCode());
+        verify(repository, never()).savePreference(any());
+    }
+
+    @Test
+    void grantWithAnUnknownSourceIsRejected() {
+        ApiException error = assertThrows(ApiException.class,
+                () -> service.grantForAccount(parent, VoiceResearchService.CONSENT_VERSION, "SIGNUP"));
+
+        assertEquals(ErrorCode.VALIDATION_FAILED, error.code());
+        assertEquals(400, error.statusCode());
+        verify(repository, never()).savePreference(any());
+        verify(consentService, never()).record(any(), any());
+    }
+
+    /** 지난 약관 버전으로 켠 동의는 꺼진 것으로 보여 마이페이지가 다시 묻게 한다. */
+    @Test
+    void consentGivenForAnOlderVersionIsReportedAsOff() {
+        when(repository.findPreference(parentId)).thenReturn(VoiceResearchPreference.builder()
+                .userId(parentId).enabled(true).consentVersion("voice-research-v2-shadow-family")
+                .consentedAt(Instant.now()).updatedAt(Instant.now()).build());
+
+        VoiceResearchConsentStatusResponse status = service.accountStatus(parent);
+
+        assertFalse(status.enabled());
+        assertTrue(status.explicit());
+        assertEquals("voice-research-v2-shadow-family", status.consentVersion());
+    }
+
+    @Test
+    void uploadUnderConsentForAnOlderVersionIsRejectedBeforeValidationOrStoring() {
+        when(repository.findPreference(parentId)).thenReturn(VoiceResearchPreference.builder()
+                .userId(parentId).enabled(true).consentVersion("voice-research-v2-shadow-family")
+                .updatedAt(Instant.now()).build());
+
+        ApiException error = assertThrows(ApiException.class, () -> service.upload(uploadRequest(), parent));
+
+        assertEquals(ErrorCode.CONSENT_INVALID, error.code());
+        assertEquals(403, error.statusCode());
+        verify(validator, never()).validate(any());
+        verify(storageClient, never()).upload(anyString(), anyString(), any(), anyString());
+    }
+
+    @Test
+    void roleGateRunsBeforeFormValidation() {
+        CurrentUser tutor = new CurrentUser(UUID.randomUUID(), Role.TUTOR, null);
+        org.mockito.Mockito.doThrow(ApiException.contractError(ErrorCode.VALIDATION_FAILED, "x"))
+                .when(validator).validate(any());
+
+        ApiException anonymous = assertThrows(ApiException.class, () -> service.upload(uploadRequest(), null));
+        ApiException tutorError = assertThrows(ApiException.class, () -> service.upload(uploadRequest(), tutor));
+
+        assertEquals(ErrorCode.CONSENT_INVALID, anonymous.code());
+        assertEquals(ErrorCode.CONSENT_INVALID, tutorError.code());
+        verify(validator, never()).validate(any());
+    }
+
+    @Test
+    void consentingParentsUploadIsStillValidated() {
+        when(repository.findPreference(parentId)).thenReturn(VoiceResearchPreference.builder()
+                .userId(parentId).enabled(true).consentVersion(VoiceResearchService.CONSENT_VERSION)
+                .updatedAt(Instant.now()).build());
+        org.mockito.Mockito.doThrow(ApiException.contractError(ErrorCode.VALIDATION_FAILED, "x"))
+                .when(validator).validate(any());
+
+        ApiException error = assertThrows(ApiException.class, () -> service.upload(uploadRequest(), parent));
+
+        assertEquals(ErrorCode.VALIDATION_FAILED, error.code());
+        verify(storageClient, never()).upload(anyString(), anyString(), any(), anyString());
     }
 
     private static VoiceResearchConsent consent(UUID userId) {

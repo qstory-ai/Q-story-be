@@ -33,7 +33,8 @@ public class VoiceResearchAccountConsentController {
     }
 
     @Operation(summary = "Read the caller's account-level voice research consent",
-            description = "PARENT only. explicit=false means the parent never changed it and the server default applies.")
+            description = "PARENT only. explicit=false means the parent never changed it and the server default applies. "
+                    + "enabled is false when the stored consent was given for an older consent version, so the client asks again.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK"),
             @ApiResponse(responseCode = "401", description = "Not signed in",
@@ -47,10 +48,17 @@ public class VoiceResearchAccountConsentController {
     }
 
     @Operation(summary = "Grant account-level voice research consent",
-            description = "PARENT only. Body {consentVersion} must equal the current consent version "
-                    + "(voice-research-v2-shadow-family); a stale version is rejected with 409.")
+            description = "PARENT only. Body {consentVersion, source?} - consentVersion must equal the current consent "
+                    + "version (voice-research-v3-1y); a stale version is rejected with 409. source is ONBOARDING or "
+                    + "MYPAGE (default MYPAGE); anything else is rejected with 400.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Granted"),
+            @ApiResponse(responseCode = "400", description = "source is not ONBOARDING or MYPAGE",
+                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
+            @ApiResponse(responseCode = "401", description = "Not signed in",
+                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
+            @ApiResponse(responseCode = "403", description = "Not a PARENT",
+                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
             @ApiResponse(responseCode = "409", description = "consentVersion is not the current version",
                     content = @Content(schema = @Schema(implementation = FailureBody.class)))
     })
