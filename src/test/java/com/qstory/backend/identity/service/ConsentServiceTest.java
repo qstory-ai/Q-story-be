@@ -17,7 +17,6 @@ import com.qstory.backend.identity.dto.ConsentPayload;
 import com.qstory.backend.identity.dto.ConsentRecordRequest;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.entity.UserConsent;
-import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.repository.UserConsentRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.parent.notification.entity.NotificationSettings;
@@ -31,8 +30,7 @@ class ConsentServiceTest {
 
     private final UserConsentRepository consents = mock(UserConsentRepository.class);
     private final NotificationSettingsRepository settings = mock(NotificationSettingsRepository.class);
-    private final AppUserRepository users = mock(AppUserRepository.class);
-    private final ConsentService service = new ConsentService(consents, settings, users);
+    private final ConsentService service = new ConsentService(consents, settings);
     private final AppUser user = AppUser.builder().id(UUID.randomUUID()).role(Role.PARENT).build();
 
     private static ConsentPayload payload(boolean terms, boolean privacy, boolean marketing) {
@@ -78,6 +76,15 @@ class ConsentServiceTest {
         ArgumentCaptor<NotificationSettings> saved = ArgumentCaptor.forClass(NotificationSettings.class);
         verify(settings).save(saved.capture());
         assertFalse(saved.getValue().isMarketingEnabled());
+    }
+
+    @Test
+    void existingSettingsRowIsUpdatedNotReplaced() {
+        NotificationSettings existing = NotificationSettings.builder().user(user).marketingEnabled(false).build();
+        when(settings.findById(user.getId())).thenReturn(java.util.Optional.of(existing));
+        service.recordSignup(user, payload(true, true, true), "SIGNUP");
+        assertTrue(existing.isMarketingEnabled());
+        verify(settings).save(existing);
     }
 
     @Test

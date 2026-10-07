@@ -47,6 +47,19 @@ class AuthServiceConsentTest {
         doThrow(ApiException.contractError(ErrorCode.CONSENT_REQUIRED, "x")).when(consents).requireSignupConsents(any());
     }
 
+    /** 계정 생성과 동의 기록이 한 트랜잭션이어야 동의 저장 실패 시 계정 행이 남지 않는다. */
+    @Test
+    void accountCreatingEntryPointsAreTransactional() throws Exception {
+        for (String name : new String[] {"signupOrganizationOwner", "signupParent", "signupTutor"}) {
+            org.junit.jupiter.api.Assertions.assertNotNull(
+                    AuthService.class.getMethod(name, SignupOrganizationOwnerRequest.class)
+                            .getAnnotation(org.springframework.transaction.annotation.Transactional.class), name);
+        }
+        org.junit.jupiter.api.Assertions.assertNotNull(
+                AuthService.class.getMethod("loginOrSignupWithOAuth", OAuthProvider.class, OAuthLoginRequest.class)
+                        .getAnnotation(org.springframework.transaction.annotation.Transactional.class));
+    }
+
     @Test
     void signupWithoutConsentIsRejectedBeforeSaving() {
         consentsRejectMissing();

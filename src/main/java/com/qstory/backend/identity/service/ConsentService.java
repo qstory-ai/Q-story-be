@@ -6,7 +6,6 @@ import com.qstory.backend.identity.dto.ConsentPayload;
 import com.qstory.backend.identity.dto.ConsentRecordRequest;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.entity.UserConsent;
-import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.repository.UserConsentRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.parent.notification.entity.NotificationSettings;
@@ -31,14 +30,11 @@ public class ConsentService {
 
     private final UserConsentRepository consentRepository;
     private final NotificationSettingsRepository notificationSettingsRepository;
-    private final AppUserRepository userRepository;
 
     public ConsentService(
-            UserConsentRepository consentRepository, NotificationSettingsRepository notificationSettingsRepository,
-            AppUserRepository userRepository) {
+            UserConsentRepository consentRepository, NotificationSettingsRepository notificationSettingsRepository) {
         this.consentRepository = consentRepository;
         this.notificationSettingsRepository = notificationSettingsRepository;
-        this.userRepository = userRepository;
     }
 
     /** 계정을 만들기 전에 부른다 - 필수 동의(이용약관·개인정보)와 버전이 없으면 400 CONSENT_REQUIRED. */
@@ -58,11 +54,18 @@ public class ConsentService {
                 row(user.getId(), "TERMS", consents.version(), consents.terms(), source, now),
                 row(user.getId(), "PRIVACY", consents.version(), consents.privacy(), source, now),
                 row(user.getId(), "MARKETING", consents.version(), consents.marketing(), source, now)));
-        notificationSettingsRepository.save(NotificationSettings.builder()
-                .user(user)
-                .marketingEnabled(consents.marketing())
-                .updatedAt(now)
-                .build());
+NotificationSettings existing = notificationSettingsRepository.findById(user.getId()).orElse(null);
+        if (existing != null) {
+            existing.setMarketingEnabled(consents.marketing());
+            existing.setUpdatedAt(now);
+            notificationSettingsRepository.save(existing);
+        } else {
+            notificationSettingsRepository.save(NotificationSettings.builder()
+                    .user(user)
+                    .marketingEnabled(consents.marketing())
+                    .updatedAt(now)
+                    .build());
+        }
     }
 
     @Transactional
