@@ -93,7 +93,7 @@ state는 Terraform Cloud(무료 티어) 워크스페이스에 보관하되 실�
 **Variables** (평문):
 - `TF_CLOUD_ORGANIZATION` — TFC 조직 이름
 - `TF_WORKSPACE` — TFC 워크스페이스 이름 (예: `qstory-alerting`)
-- `TF_VAR_APP_ENV` — Loki 로그 label의 `env` 값. `logback-spring.xml`의 `spring.profiles.active`와 맞춘다 (기본 `production`)
+- `TF_VAR_APP_ENV` — Loki 로그 label의 `env` 값. Railway의 `SPRING_PROFILES_ACTIVE`(지금 `prod`)와 같아야 한다. 다르면 모든 규칙이 로그를 못 찾고, 실패 규칙은 조용하며 backend-silent만 울린다.
 
 **Secrets** (암호화):
 - `TF_API_TOKEN` — 5번에서 만든 TFC 토큰
