@@ -41,7 +41,9 @@ public record StoryCompletionDetail(
         boolean turnsAvailable,
         TeacherNote teacherNote,
         Map<String, Object> analysis,
-        List<LinkedChild> linkedChildren) {
+        List<LinkedChild> linkedChildren,
+        /** 회차 id(= 대화 기록 id). 리포트 맨 아래 UT 회차 코드(앞 6자)를 보여 주는 데 쓴다(Q-40). */
+        UUID sessionId) {
 
     public record TeacherNote(String internal, String forParents) {}
 
@@ -79,6 +81,7 @@ public record StoryCompletionDetail(
                 turnsAvailable,
                 teacherNote,
                 analysis,
-                linkedChildren);
+                linkedChildren,
+                completion.getSessionId());
     }
 }
