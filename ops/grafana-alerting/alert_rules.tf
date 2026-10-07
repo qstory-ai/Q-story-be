@@ -10,6 +10,13 @@
 #   request.failed                 <- common/error/GlobalExceptionHandler.java (5xx로 응답한 모든 미처리 예외)
 #   companion-chat-retention.failed <- companionchat/service/CompanionChatRetentionScheduler.java (일일 정리 실패)
 #   Connection is not available    <- HikariCP 기본 타임아웃 경고 문구(커스텀 로그 아님, 라이브러리 기본값)
+#   gemini-http.failed ... status=429|402 <- GeminiTtsClient.java (하루 한도 초과 / 크레딧 소진)
+#   app.heartbeat                  <- health/service/HeartbeatLogger.java (5분마다, 요청이 없어도 찍힘)
+#   APPLICATION FAILED TO START / Application run failed <- Spring Boot 기본 부팅 실패 문구
+#   http.request ... duration_ms=  <- common/web/RequestIdFilter.java (요청마다 한 줄)
+#   client.error                   <- clienterror/ClientErrorController.java (브라우저에서 보낸 에러)
+#
+# 각 규칙의 런북(대응 순서)은 README.md '런북' 절의 같은 이름 항목에 있다.
 #
 # severity 라벨은 실제 파급도 기준:
 #   critical - 이용자에게 5xx가 나가거나 시스템 전체가 흔들리는 것: gemini-tts.empty-audio(실장애 이력),
@@ -90,6 +97,70 @@ locals {
       logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"companion-chat-retention.failed\" [5m]))"
       threshold   = var.retention_failure_threshold
     }
+    gemini-tts-quota = {
+      severity    = "critical"
+      summary     = "Gemini TTS 한도 초과(429) 또는 크레딧 소진(402)이 났어요."
+      description = <<-EOT
+        한도가 풀릴 때까지(하루 한도는 다음 날) 모든 실시간 음성 - 그레텔 답, 고정 음성이 없는 대사 - 이
+        실패하고 기기 음성으로 대체됨. 429면 한도 상향 또는 다른 키, 402면 결제 크레딧 충전.
+      EOT
+      logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"gemini-http.failed\" |~ \"status=(429|402)\" [5m]))"
+      threshold   = 0
+    }
+    backend-boot-failure = {
+      severity    = "critical"
+      summary     = "백엔드가 부팅에 실패했어요(APPLICATION FAILED TO START)."
+      description = <<-EOT
+        새 배포가 뜨지 못함. Railway는 헬스체크를 통과하지 못한 배포를 트래픽에 붙이지 않지만, 재시작 루프나
+        마이그레이션 실패일 수 있으니 바로 확인. 원인은 로그의 'Description:' 줄에 있음.
+      EOT
+      logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |~ \"APPLICATION FAILED TO START|Application run failed\" [5m]))"
+      threshold   = 0
+      pending     = "0s"
+    }
+    backend-silent = {
+      severity      = "critical"
+      summary       = "백엔드 로그가 15분째 한 줄도 없어요(서버가 멈췄을 수 있어요)."
+      description   = <<-EOT
+        app.heartbeat는 요청이 없어도 5분마다 찍힌다. 15분 동안 하나도 없으면 프로세스가 죽었거나 Loki 전송이
+        끊긴 것. Railway 서비스 상태와 /health/ready를 먼저 확인.
+      EOT
+      logql         = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"app.heartbeat\" [15m]))"
+      threshold     = 1
+      comparison    = "lt"
+      no_data_state = "Alerting"
+      range_seconds = 1200
+    }
+    slow-requests = {
+      severity    = "warning"
+      summary     = "API 응답 p95가 5분간 ${var.slow_request_p95_ms}ms를 넘었어요."
+      description = <<-EOT
+        http.request 로그의 duration_ms 기준. 실시간 분기 생성처럼 원래 오래 걸리는 경로는 뺐다. 외부 AI·음성
+        지연인지(같이 울리는 provider 규칙 확인), DB 지연인지(db-pool-exhaustion) 먼저 가른다.
+      EOT
+      logql       = "max(quantile_over_time(0.95, {app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"http.request\" != \"live-branch\" | regexp \"duration_ms=(?P<duration_ms>[0-9]+)\" | unwrap duration_ms [5m]))"
+      threshold   = var.slow_request_p95_ms
+    }
+    client-error-spike = {
+      severity    = "warning"
+      summary     = "브라우저 에러가 5분간 ${var.client_error_threshold}건을 넘었어요."
+      description = <<-EOT
+        프런트에서 보낸 client.error. kind=PLAYBACK이면 음성 재생, RUNTIME_FAILURE면 이야기 진행 실패,
+        WINDOW_ERROR/UNHANDLED_REJECTION이면 코드 예외. route·release로 어느 화면·배포인지 좁힌다.
+      EOT
+      logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"client.error\" [5m]))"
+      threshold   = var.client_error_threshold
+    }
+  }
+
+  # 규칙마다 다른 값만 위에 적고, 나머지는 기본값으로 채운다(대부분 "5분에 N건 넘으면").
+  alerts = {
+    for name, rule in local.log_alerts : name => merge({
+      comparison    = "gt"
+      no_data_state = "OK"
+      pending       = "5m"
+      range_seconds = 600
+    }, rule)
   }
 }
 
@@ -99,22 +170,22 @@ resource "grafana_rule_group" "backend_failures" {
   interval_seconds = 60
 
   dynamic "rule" {
-    for_each = local.log_alerts
+    for_each = local.alerts
     content {
       name      = rule.key
       condition = "C"
-      for       = "5m"
+      for       = rule.value.pending
 
-      # 로그가 아예 오지 않을 때(예: Loki 지연, 앱 다운) 잘못 울리지 않도록 명시. 앱 다운은 별도 헬스체크
-      # 계열 알림이 커버해야 하지 실패 카운트 알림이 커버할 대상이 아니다.
-      no_data_state  = "OK"
+      # 실패 카운트 규칙은 로그가 아예 없으면(Loki 지연 등) 울리지 않는다(OK). 서버가 멈춘 건 app.heartbeat가
+      # 끊기는 걸 보는 backend-silent 규칙만 데이터 없음을 알림으로 본다(Alerting).
+      no_data_state  = rule.value.no_data_state
       exec_err_state = "Error"
 
       # A: Loki에서 5분 윈도 카운트를 뽑는다.
       data {
         ref_id = "A"
         relative_time_range {
-          from = 600
+          from = rule.value.range_seconds
           to   = 0
         }
         datasource_uid = var.loki_datasource_uid
@@ -131,7 +202,7 @@ resource "grafana_rule_group" "backend_failures" {
       data {
         ref_id = "C"
         relative_time_range {
-          from = 600
+          from = rule.value.range_seconds
           to   = 0
         }
         datasource_uid = "__expr__"
@@ -139,7 +210,7 @@ resource "grafana_rule_group" "backend_failures" {
           type       = "threshold"
           expression = "A"
           conditions = [{
-            evaluator = { type = "gt", params = [rule.value.threshold] }
+            evaluator = { type = rule.value.comparison, params = [rule.value.threshold] }
           }]
           refId = "C"
         })
@@ -148,9 +219,8 @@ resource "grafana_rule_group" "backend_failures" {
       annotations = {
         summary     = rule.value.summary
         description = rule.value.description
-        # 런북 링크는 아직 별도 문서가 없으므로 alert_rules.tf 자체를 가리킨다(각 규칙 위 코멘트에
-        # 로그 태그 출처가 명시되어 있어 온콜이 그것부터 열어 원인 코드로 이동할 수 있게).
-        runbook_url = "https://github.com/qstory-ai/Q-story-be/blob/main/ops/grafana-alerting/alert_rules.tf"
+        # README.md '런북' 절에서 규칙 이름과 같은 제목으로 바로 이동한다.
+        runbook_url = "https://github.com/qstory-ai/Q-story-be/blob/main/ops/grafana-alerting/README.md#${rule.key}"
       }
 
       labels = {
@@ -159,9 +229,7 @@ resource "grafana_rule_group" "backend_failures" {
         env      = var.app_env
       }
 
-      notification_settings {
-        contact_point = grafana_contact_point.discord.name
-      }
+      # 어디로 보낼지는 규칙이 아니라 알림 정책(notification_policy.tf)이 severity 라벨로 정한다.
     }
   }
 }

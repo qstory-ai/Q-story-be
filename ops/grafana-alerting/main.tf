@@ -21,4 +21,8 @@ terraform {
 provider "grafana" {
   url  = var.grafana_url
   auth = var.grafana_auth
+
+  # Synthetic Monitoring(synthetic.tf)용. provider는 빈 문자열을 거부하므로 비어 있으면 null로 넘긴다.
+  sm_url          = var.sm_url != "" ? var.sm_url : null
+  sm_access_token = var.sm_access_token != "" ? var.sm_access_token : null
 }

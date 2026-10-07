@@ -92,6 +92,8 @@ public class GeminiTtsClient {
                 logEmptyAudio(context, response.statusCode(), response.body());
                 throw new ProviderException(ProviderErrorCode.GEMINI_TTS_EMPTY, "답변 음성이 비어 있어요.");
             }
+            // 호출 한 번마다 한 줄 - Grafana가 하루 사용량을 한도(무료 100회/일)와 비교한다. 문장은 남기지 않는다.
+            log.info("gemini-tts.ok context={} model={} chars={} audio_bytes={}", context, ttsModel, text.length(), pcm.length);
             return pcm;
         } catch (ProviderException | AbortException known) {
             throw known;
