@@ -31,6 +31,8 @@ public class RtzrSttClient {
     private static final Logger log = LoggerFactory.getLogger(RtzrSttClient.class);
     /** OpenRouterClient.FAILURE_BODY_LOG_LIMIT과 같은 이유로 잘라 남긴다 - 응답 본문이 길면 로그 부담. */
     private static final int FAILURE_BODY_LOG_LIMIT = 500;
+    /** 400이어도 오디오 문제가 아니라 업체 계정·결제 문제인 RTZR 오류 코드(H0001: 카드 등록 필요). */
+    private static final java.util.Set<String> BILLING_ACCOUNT_CODES = java.util.Set.of("H0001");
     private static final String BASE_URL = "https://openapi.vito.ai";
     private static final Duration POLL_INTERVAL = Duration.ofMillis(1_500);
 
@@ -86,7 +88,7 @@ public class RtzrSttClient {
         JsonNode payload = safeJson(response.body());
         if (response.statusCode() / 100 != 2 || payload == null || !payload.hasNonNull("access_token")) {
             logRtzrHttpFailure("authenticate", response.statusCode(), response.body());
-            throwIfProviderUnavailable(response.statusCode(), payload);
+            throwIfProviderUnavailable("authenticate", response.statusCode(), payload);
             throw new ProviderException(
                     ProviderErrorCode.RTZR_AUTH_FAILED, "한국어 음성 인식 인증에 실패했어요.", response.statusCode() >= 500);
         }
@@ -124,7 +126,7 @@ public class RtzrSttClient {
         JsonNode payload = safeJson(response.body());
         if (response.statusCode() / 100 != 2 || payload == null || !payload.hasNonNull("id")) {
             logRtzrHttpFailure("submit", response.statusCode(), response.body());
-            throwIfProviderUnavailable(response.statusCode(), payload);
+            throwIfProviderUnavailable("submit", response.statusCode(), payload);
             throw new ProviderException(
                     ProviderErrorCode.RTZR_SUBMIT_FAILED, "녹음을 음성 인식기에 전달하지 못했어요.", response.statusCode() >= 429);
         }
@@ -145,7 +147,7 @@ public class RtzrSttClient {
             JsonNode result = safeJson(response.body());
             if (response.statusCode() / 100 != 2) {
                 logRtzrHttpFailure("poll", response.statusCode(), response.body());
-                throwIfProviderUnavailable(response.statusCode(), result);
+                throwIfProviderUnavailable("poll", response.statusCode(), result);
                 throw new ProviderException(
                         ProviderErrorCode.RTZR_RESULT_FAILED, "음성 인식 결과를 가져오지 못했어요.", response.statusCode() >= 429);
             }
@@ -181,14 +183,18 @@ public class RtzrSttClient {
     }
 
     /**
-     * 재시도해도 풀리지 않는 4xx(결제 미등록 H0001, 401/403 인증·권한 등)는 업체 장애로 보고 503
-     * STT_UNAVAILABLE로 구분한다. 429와 5xx는 일시 오류라 기존 재시도/실패 흐름을 그대로 탄다.
+     * 업체 쪽 결제·인증 문제로 재시도해도 풀리지 않는 경우만 503 STT_UNAVAILABLE로 구분한다.
+     * 401/402/403은 항상, 400은 인증 단계(클라이언트 자격 증명 오류)이거나 본문 code가
+     * {@link #BILLING_ACCOUNT_CODES}일 때만. 그 외 4xx(깨진 오디오 400, 404, 413, 415, 422 등)와
+     * 429, 5xx는 기존 ProviderException 흐름을 그대로 탄다.
      */
-    private void throwIfProviderUnavailable(int statusCode, JsonNode payload) {
-        if (statusCode < 400 || statusCode >= 500 || statusCode == 429) {
+    private void throwIfProviderUnavailable(String context, int statusCode, JsonNode payload) {
+        String code = payload != null && payload.hasNonNull("code") ? payload.get("code").asText() : "unknown";
+        boolean unavailable = statusCode == 401 || statusCode == 402 || statusCode == 403
+                || (statusCode == 400 && ("authenticate".equals(context) || BILLING_ACCOUNT_CODES.contains(code)));
+        if (!unavailable) {
             return;
         }
-        String code = payload != null && payload.hasNonNull("code") ? payload.get("code").asText() : "unknown";
         log.error("stt.provider-unavailable code={} status={}", code, statusCode);
         throw ApiException.contractError(
                 ErrorCode.STT_UNAVAILABLE, "지금은 음성 인식을 사용할 수 없어요.", 503);

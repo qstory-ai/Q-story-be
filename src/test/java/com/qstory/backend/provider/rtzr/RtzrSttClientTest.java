@@ -85,4 +85,48 @@ class RtzrSttClientTest {
         RtzrSttClient client = client(response(500, "{}"));
         assertThrows(ProviderException.class, () -> transcribe(client));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void submit400UnknownCodeStaysProviderFailure() throws Exception {
+        RtzrSttClient client = client(response(200, TOKEN_OK), response(400, "{\"code\":\"A0002\"}"));
+        assertThrows(ProviderException.class, () -> transcribe(client));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void submit400WithoutBodyStaysProviderFailure() throws Exception {
+        RtzrSttClient client = client(response(200, TOKEN_OK), response(400, ""));
+        assertThrows(ProviderException.class, () -> transcribe(client));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void otherClientErrorsStayProviderFailure() throws Exception {
+        for (int status : new int[] {404, 413, 415, 422}) {
+            RtzrSttClient client = client(response(200, TOKEN_OK), response(status, "{}"));
+            assertThrows(ProviderException.class, () -> transcribe(client), "status " + status);
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void paymentRequiredIsSttUnavailable() throws Exception {
+        RtzrSttClient client = client(response(200, TOKEN_OK), response(402, "{}"));
+        assertEquals(ErrorCode.STT_UNAVAILABLE, assertThrows(ApiException.class, () -> transcribe(client)).code());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void pollStage401IsSttUnavailable() throws Exception {
+        RtzrSttClient client = client(response(200, TOKEN_OK), response(200, "{\"id\":\"x\"}"), response(401, "{}"));
+        assertEquals(ErrorCode.STT_UNAVAILABLE, assertThrows(ApiException.class, () -> transcribe(client)).code());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void authenticate400IsSttUnavailable() throws Exception {
+        RtzrSttClient client = client(response(400, "{}"));
+        assertEquals(ErrorCode.STT_UNAVAILABLE, assertThrows(ApiException.class, () -> transcribe(client)).code());
+    }
 }
