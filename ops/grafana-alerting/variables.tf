@@ -26,9 +26,9 @@ variable "discord_webhook_url" {
 }
 
 variable "app_env" {
-  description = "Loki 로그 label env 값. logback-spring.xml의 spring.profiles.active(Railway 배포 기준)와 맞춘다."
+  description = "Loki 로그 label env 값. logback-spring.xml이 spring.profiles.active를 그대로 쓰므로 Railway의 SPRING_PROFILES_ACTIVE(prod)와 같아야 한다 - 다르면 모든 규칙이 로그를 못 찾는다."
   type        = string
-  default     = "production"
+  default     = "prod"
 }
 
 variable "error_log_threshold" {
