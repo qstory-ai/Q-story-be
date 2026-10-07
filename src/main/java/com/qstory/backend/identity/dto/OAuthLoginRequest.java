@@ -8,4 +8,4 @@ import com.qstory.backend.identity.Role;
  * role은 이 provider+subject로 처음 가입하는 경우에만 필요하고, 이미 연결된 계정으로
  * 로그인할 때는 무시된다.
  */
-public record OAuthLoginRequest(String token, Role role) {}
+public record OAuthLoginRequest(String token, Role role, ConsentPayload consents) {}

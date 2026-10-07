@@ -9,6 +9,7 @@ import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
+import com.qstory.backend.identity.service.ConsentService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
@@ -63,6 +64,7 @@ public class ClassService {
     private final StoryCompletionRepository storyCompletionRepository;
     private final LessonRepository lessonRepository;
     private final ClassHomeroomHistoryService homeroomHistoryService;
+    private final ConsentService consentService;
 
     public ClassService(
             ClassGroupRepository classGroupRepository, TutorStudentRepository tutorStudentRepository,
@@ -71,7 +73,8 @@ public class ClassService {
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
             TutorStudentService tutorStudentService, UserSummaryFactory userSummaryFactory,
             StoryCompletionRepository storyCompletionRepository, LessonRepository lessonRepository,
-            ClassHomeroomHistoryService homeroomHistoryService) {
+            ClassHomeroomHistoryService homeroomHistoryService, ConsentService consentService) {
+        this.consentService = consentService;
         this.classGroupRepository = classGroupRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.organizationTutorRepository = organizationTutorRepository;
@@ -224,7 +227,8 @@ public class ClassService {
     public AuthResponse join(JoinClassRequest request) {
         ClassGroup classGroup = resolveClassGroup(request.classCode());
         authValidator.validateSignup(new SignupOrganizationOwnerRequest(
-                request.loginId(), request.email(), request.password(), request.displayName()));
+                request.loginId(), request.email(), request.password(), request.displayName(), request.consents()));
+        consentService.requireSignupConsents(request.consents());
 
         AppUser parent = AppUser.builder()
                 .role(Role.PARENT)
@@ -235,6 +239,7 @@ public class ClassService {
                 .createdAt(Instant.now())
                 .build();
         parent = userRepository.saveOrThrowDuplicate(parent, "이미 사용 중인 아이디예요.");
+        consentService.recordSignup(parent, request.consents(), "CLASS_JOIN_SIGNUP");
 
         tutorStudentService.enrollParentInClass(
                 parent, classGroup, request.childName(), request.childBirthYear(), null, request.rosterStudentId());

@@ -85,6 +85,7 @@ public class AuthService {
     private final VoiceResearchService voiceResearchService;
     private final OrganizationTutorService organizationTutorService;
     private final UserSummaryFactory userSummaryFactory;
+    private final ConsentService consentService;
 
     public AuthService(
             AppUserRepository userRepository, PasswordResetTokenRepository passwordResetTokenRepository,
@@ -94,7 +95,8 @@ public class AuthService {
             SecureTokenGenerator tokenGenerator, SupabaseStorageClient storageClient, AppProperties config,
             TutorStudentRepository tutorStudentRepository, OrganizationTutorRepository organizationTutorRepository,
             UserSummaryFactory userSummaryFactory, VoiceResearchService voiceResearchService,
-            OrganizationTutorService organizationTutorService) {
+            OrganizationTutorService organizationTutorService, ConsentService consentService) {
+        this.consentService = consentService;
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.accountDeletionFeedbackRepository = accountDeletionFeedbackRepository;
@@ -144,6 +146,11 @@ public class AuthService {
 
     private AuthResponse createAccount(Role role, SignupOrganizationOwnerRequest request) {
         validator.validateSignup(request);
+        // STAFF는 내부 계정이라 고객 약관 동의 대상이 아니다.
+        boolean needsConsent = role != Role.STAFF;
+        if (needsConsent) {
+            consentService.requireSignupConsents(request.consents());
+        }
         String loginId = request.loginId().trim().toLowerCase();
         String email = request.email().trim().toLowerCase();
         AppUser user = AppUser.builder()
@@ -155,6 +162,9 @@ public class AuthService {
                 .createdAt(Instant.now())
                 .build();
         user = userRepository.saveOrThrowDuplicate(user, "이미 사용 중인 아이디예요.");
+        if (needsConsent) {
+            consentService.recordSignup(user, request.consents(), "SIGNUP");
+        }
         return issueResponse(user);
     }
 
@@ -193,6 +203,7 @@ public class AuthService {
             throw ApiException.contractError(ErrorCode.OAUTH_ROLE_REQUIRED, "가입할 역할을 먼저 선택해 주세요.");
         }
 
+        consentService.requireSignupConsents(request.consents());
         String loginId = resolveLoginId(provider, identity);
         if (userRepository.existsByLoginId(loginId)) {
             throw ApiException.contractError(
@@ -212,6 +223,7 @@ public class AuthService {
                 .createdAt(Instant.now())
                 .build();
         user = userRepository.saveOrThrowDuplicate(user, "이미 등록된 계정이에요.");
+        consentService.recordSignup(user, request.consents(), "OAUTH_SIGNUP");
         return issueResponse(user);
     }
 

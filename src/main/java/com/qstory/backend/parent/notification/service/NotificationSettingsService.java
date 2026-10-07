@@ -44,7 +44,7 @@ public class NotificationSettingsService {
                     AppUser user = userRepository.getReferenceById(caller.userId());
                     return NotificationSettings.builder()
                             .user(user)
-                            .marketingEnabled(true)
+                            .marketingEnabled(false)
                             .lessonReminderEnabled(true)
                             .lessonReportEnabled(true)
                             .updatedAt(Instant.now())
