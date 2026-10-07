@@ -58,6 +58,8 @@ public enum ErrorCode {
     CONSENT_INVALID(403),
     /** 가입 때 이용약관·개인정보 동의가 없다. */
     CONSENT_REQUIRED(400),
+    /** 음성 인식 업체의 결제·인증·권한 문제처럼 재시도로 풀리지 않는 장애. */
+    STT_UNAVAILABLE(503),
     /** 초대 수락 시 같은 이름의 아이가 여러 명이라 부모가 childId로 골라야 한다. */
     CHILD_SELECTION_REQUIRED(409),
     /** 같은 선생님의 다른 학생 등록에 이미 연결된 아이 프로필. */

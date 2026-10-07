@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.common.error.AbortException;
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.common.util.RequestDeadline;
@@ -54,7 +56,7 @@ public class RtzrSttClient {
             String accessToken = authenticate(deadline);
             String submissionId = submit(accessToken, audio, extension, mimeType, keywords, deadline);
             return poll(accessToken, submissionId, deadline);
-        } catch (ProviderException | AbortException known) {
+        } catch (ProviderException | AbortException | ApiException known) {
             throw known;
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
@@ -84,6 +86,7 @@ public class RtzrSttClient {
         JsonNode payload = safeJson(response.body());
         if (response.statusCode() / 100 != 2 || payload == null || !payload.hasNonNull("access_token")) {
             logRtzrHttpFailure("authenticate", response.statusCode(), response.body());
+            throwIfProviderUnavailable(response.statusCode(), payload);
             throw new ProviderException(
                     ProviderErrorCode.RTZR_AUTH_FAILED, "한국어 음성 인식 인증에 실패했어요.", response.statusCode() >= 500);
         }
@@ -121,6 +124,7 @@ public class RtzrSttClient {
         JsonNode payload = safeJson(response.body());
         if (response.statusCode() / 100 != 2 || payload == null || !payload.hasNonNull("id")) {
             logRtzrHttpFailure("submit", response.statusCode(), response.body());
+            throwIfProviderUnavailable(response.statusCode(), payload);
             throw new ProviderException(
                     ProviderErrorCode.RTZR_SUBMIT_FAILED, "녹음을 음성 인식기에 전달하지 못했어요.", response.statusCode() >= 429);
         }
@@ -141,6 +145,7 @@ public class RtzrSttClient {
             JsonNode result = safeJson(response.body());
             if (response.statusCode() / 100 != 2) {
                 logRtzrHttpFailure("poll", response.statusCode(), response.body());
+                throwIfProviderUnavailable(response.statusCode(), result);
                 throw new ProviderException(
                         ProviderErrorCode.RTZR_RESULT_FAILED, "음성 인식 결과를 가져오지 못했어요.", response.statusCode() >= 429);
             }
@@ -173,6 +178,20 @@ public class RtzrSttClient {
                         String.join(" ", parts).trim(), locale, submissionId);
             }
         }
+    }
+
+    /**
+     * 재시도해도 풀리지 않는 4xx(결제 미등록 H0001, 401/403 인증·권한 등)는 업체 장애로 보고 503
+     * STT_UNAVAILABLE로 구분한다. 429와 5xx는 일시 오류라 기존 재시도/실패 흐름을 그대로 탄다.
+     */
+    private void throwIfProviderUnavailable(int statusCode, JsonNode payload) {
+        if (statusCode < 400 || statusCode >= 500 || statusCode == 429) {
+            return;
+        }
+        String code = payload != null && payload.hasNonNull("code") ? payload.get("code").asText() : "unknown";
+        log.error("stt.provider-unavailable code={} status={}", code, statusCode);
+        throw ApiException.contractError(
+                ErrorCode.STT_UNAVAILABLE, "지금은 음성 인식을 사용할 수 없어요.", 503);
     }
 
     /**

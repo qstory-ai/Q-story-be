@@ -3,6 +3,7 @@ package com.qstory.backend.question.service;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ProviderErrorCode;
+import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.conversationrecord.ConversationAttribution;
 import com.qstory.backend.conversationrecord.service.ConversationRecordService;
@@ -107,6 +108,9 @@ public class QuestionPipelineService {
             diagnostics.put("totalMs", millisBetween(startedAtNanos, transcribedAtNanos));
             result.put("diagnostics", diagnostics);
             return result;
+        } catch (ApiException unavailable) {
+            // STT 업체 장애(STT_UNAVAILABLE)는 200 실패 봉투가 아니라 503으로 그대로 올린다.
+            throw unavailable;
         } catch (Exception error) {
             return failedResult(error, context.storyContext(), "stt");
         }

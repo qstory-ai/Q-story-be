@@ -47,7 +47,8 @@ public class LaunchNotificationRequest {
     @Column(length = 254)
     private String email;
 
-    @Column(nullable = false, length = 30)
+    /** 연락을 원하지 않으면 null. */
+    @Column(length = 30)
     private String phone;
 
     @Enumerated(EnumType.STRING)
