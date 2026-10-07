@@ -37,7 +37,7 @@ class AuthServiceConsentTest {
     private final ConsentService consents = mock(ConsentService.class);
     private final AuthService service = new AuthService(
             users, null, null, mock(AuthValidator.class), mock(PasswordEncoder.class), mock(JwtService.class),
-            google, null, null, null, null, null, null, mock(UserSummaryFactory.class), null, null, consents);
+            google, null, null, null, null, mock(UserSummaryFactory.class), null, null, consents);
 
     private SignupOrganizationOwnerRequest signup(ConsentPayload consent) {
         return new SignupOrganizationOwnerRequest("loginid", "a@b.co", "password1", "이름", consent);

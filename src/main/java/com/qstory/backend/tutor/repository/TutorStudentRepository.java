@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -92,4 +93,10 @@ public interface TutorStudentRepository extends JpaRepository<TutorStudent, UUID
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from TutorStudent s where s.id = :id")
     Optional<TutorStudent> lockById(@Param("id") UUID id);
+
+    /** 회원 탈퇴 - 기관 반에 속하지 않은 학생. 기관 반 학생은 OrganizationTutorService.detachTutor가 담임만 비운다. */
+    @Modifying
+    @Query("delete from TutorStudent s where s.tutor.id = :tutorId "
+            + "and (s.classGroup is null or s.classGroup.id in (select g.id from ClassGroup g where g.organization is null))")
+    int deletePersonalStudentsOf(@Param("tutorId") UUID tutorId);
 }

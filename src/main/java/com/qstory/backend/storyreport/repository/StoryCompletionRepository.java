@@ -1,13 +1,14 @@
 package com.qstory.backend.storyreport.repository;
 
-import org.springframework.data.repository.query.Param;
-import org.springframework.data.jpa.repository.Query;
 import com.qstory.backend.storyreport.entity.StoryCompletion;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface StoryCompletionRepository extends JpaRepository<StoryCompletion, UUID> {
 
@@ -73,4 +74,19 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
     /** Full organization aggregate report. The graph prevents one query per completion/class membership. */
     @EntityGraph(attributePaths = {"classGroup"})
     List<StoryCompletion> findByOrganization_IdOrderByCompletedAtDesc(UUID organizationId);
+
+    /** 회원 탈퇴 - 보호자의 가정 세션(수업·반 없는 기록). 반 수업 기록은 남긴다. */
+    @Modifying
+    @Query("delete from StoryCompletion c where c.user.id = :parentId and c.lesson is null and c.classGroup is null")
+    int deleteHomeSessionsOf(@Param("parentId") UUID parentId);
+
+    /** 회원 탈퇴 - 반을 떠난 뒤에도 지난 반 수업 리포트를 보도록 남겨 둔 보호자 열람 행(060)을 지운다. */
+    @Modifying
+    @Query(value = "delete from story_completion_participant where parent_user_id = :parentId", nativeQuery = true)
+    int deleteParticipantAccessOf(@Param("parentId") UUID parentId);
+
+    /** 회원 탈퇴 - 기관 소속이 아닌 선생님 기록. 기관 반 기록은 organization 스냅샷이 채워져 있어 남는다. */
+    @Modifying
+    @Query("delete from StoryCompletion c where c.user.id = :tutorId and c.organization is null")
+    int deletePersonalSessionsOfTutor(@Param("tutorId") UUID tutorId);
 }
