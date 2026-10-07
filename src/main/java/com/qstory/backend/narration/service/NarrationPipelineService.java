@@ -1,6 +1,8 @@
 package com.qstory.backend.narration.service;
 
 import com.qstory.backend.common.error.AbortException;
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.common.util.RequestDeadline;
@@ -15,6 +17,7 @@ import com.qstory.backend.story.service.StoryRegistryService.ResolvedNarrationCo
 import com.qstory.backend.voicecast.service.VoiceCastService;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 /** narration-pipeline.mjs를 Java로 포팅한 것. */
@@ -23,11 +26,16 @@ public class NarrationPipelineService {
 
     private final AppProperties config;
     private final GeminiTtsClient geminiTtsClient;
+    private final GeminiTtsClient prefetchTtsClient;
     private final VoiceCastService voiceCastService;
 
-    public NarrationPipelineService(AppProperties config, GeminiTtsClient geminiTtsClient, VoiceCastService voiceCastService) {
+    public NarrationPipelineService(
+            AppProperties config, GeminiTtsClient geminiTtsClient,
+            @Qualifier("prefetchGeminiTtsClient") GeminiTtsClient prefetchTtsClient,
+            VoiceCastService voiceCastService) {
         this.config = config;
         this.geminiTtsClient = geminiTtsClient;
+        this.prefetchTtsClient = prefetchTtsClient;
         this.voiceCastService = voiceCastService;
     }
 
@@ -55,13 +63,23 @@ public class NarrationPipelineService {
     public record StreamResult(boolean ok, Map<String, Object> failure, SynthesizedAudioStream audio) {}
 
     public StreamResult processStream(ResolvedNarrationContext context, String storyId, String speakerId, String text, RequestDeadline deadline) {
-        if (!ProviderReadiness.of(config).tts()) {
+        return processStream(context, storyId, speakerId, text, deadline, false);
+    }
+
+    /** prefetch=true는 전용 키 클라이언트만 쓴다 - 키가 없으면 어떤 TTS 호출도 하기 전에 409 PREFETCH_DISABLED. */
+    public StreamResult processStream(
+            ResolvedNarrationContext context, String storyId, String speakerId, String text, RequestDeadline deadline,
+            boolean prefetch) {
+        if (prefetch && !config.providers().gemini().prefetchConfigured()) {
+            throw ApiException.contractError(ErrorCode.PREFETCH_DISABLED, "음성 미리 만들기를 쓰지 않아요.");
+        }
+        if (!prefetch && !ProviderReadiness.of(config).tts()) {
             return new StreamResult(false, failure(ProviderErrorCode.NARRATION_PROVIDER_NOT_CONFIGURED, "캐릭터 음성을 준비하지 못했어요."), null);
         }
         CastEntry cast = context.cast();
         try {
             String ttsInput = voiceCastService.buildGeminiTtsPerformanceInput(storyId, speakerId, text);
-            SynthesizedAudioStream generated = geminiTtsClient.synthesizeStream(ttsInput, cast.voice(), 1.0, deadline);
+            SynthesizedAudioStream generated = (prefetch ? prefetchTtsClient : geminiTtsClient).synthesizeStream(ttsInput, cast.voice(), 1.0, deadline);
             return new StreamResult(true, null, generated);
         } catch (AbortException abort) {
             return new StreamResult(false, failure(ProviderErrorCode.NARRATION_TIMEOUT, "캐릭터 음성을 기다리는 시간이 길어졌어요."), null);

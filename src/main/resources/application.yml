@@ -78,6 +78,8 @@ qstory:
       api-key: ${GEMINI_API_KEY:}
       tts-model: ${GEMINI_TTS_MODEL:gemini-3.1-flash-tts-preview}
       tts-voice: ${GEMINI_TTS_VOICE:Sulafat}
+      # 선택지 음성 미리 만들기 전용 키(기본 키의 하루 한도와 분리). 비면 prefetch 요청은 TTS 호출 없이 409.
+      prefetch-api-key: ${GEMINI_TTS_PREFETCH_API_KEY:}
     oauth:
       # 둘 다 "비밀값"이 아니다 - client-id/app-id는 프론트 SDK 초기화에도 그대로 노출되는
       # 공개 식별자다(실제 시크릿은 아래 verifier들이 provider의 토큰 검증 엔드포인트만 호출해서

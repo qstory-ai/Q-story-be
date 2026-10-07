@@ -21,6 +21,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 /**
@@ -37,6 +39,7 @@ import org.springframework.stereotype.Component;
  * 실제 SSE 스키마를 확인하면 진짜 스트리밍으로 교체해야 한다.
  */
 @Component
+@Primary
 public class GeminiTtsClient {
 
     private static final Logger log = LoggerFactory.getLogger(GeminiTtsClient.class);
@@ -52,10 +55,16 @@ public class GeminiTtsClient {
     private final String ttsModel;
     private final String ttsVoice;
 
+    @Autowired
     public GeminiTtsClient(HttpClient httpClient, ObjectMapper objectMapper, AppProperties config) {
+        this(httpClient, objectMapper, config, config.providers().gemini().apiKey());
+    }
+
+    /** 같은 모델/목소리 설정에 다른 API 키를 쓰는 인스턴스(prefetch 전용). */
+    public GeminiTtsClient(HttpClient httpClient, ObjectMapper objectMapper, AppProperties config, String apiKey) {
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
-        this.apiKey = config.providers().gemini().apiKey();
+        this.apiKey = apiKey;
         this.ttsModel = config.providers().gemini().ttsModel();
         this.ttsVoice = config.providers().gemini().ttsVoice();
     }

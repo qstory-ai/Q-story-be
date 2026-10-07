@@ -84,9 +84,14 @@ public record AppProperties(
     }
 
     /** TTS 전용 - OpenRouter 카탈로그에 없는 Gemini 자체 모델/목소리를 쓰므로 Gemini API를 직접 호출한다. */
-    public record Gemini(String apiKey, String ttsModel, String ttsVoice) {
+    public record Gemini(String apiKey, String ttsModel, String ttsVoice, String prefetchApiKey) {
         public boolean ttsConfigured() {
             return notBlank(apiKey) && notBlank(ttsModel) && notBlank(ttsVoice);
+        }
+
+        /** 선택지 음성 미리 만들기(prefetch) 전용 키 - 비어 있으면 prefetch 요청은 409 PREFETCH_DISABLED. */
+        public boolean prefetchConfigured() {
+            return notBlank(prefetchApiKey) && notBlank(ttsModel) && notBlank(ttsVoice);
         }
     }
 

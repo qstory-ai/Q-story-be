@@ -96,12 +96,14 @@ public class NarrationController {
                     content = @Content(schema = @Schema(implementation = FailureBody.class))),
             @ApiResponse(responseCode = "403", description = "Story not active, or speaker/voice not allowed for this story",
                     content = @Content(schema = @Schema(implementation = FailureBody.class))),
+            @ApiResponse(responseCode = "409", description = "prefetch=true but no prefetch key is configured (PREFETCH_DISABLED); no TTS call is made",
+                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
             @ApiResponse(responseCode = "502", description = "TTS provider call failed and the failure is retryable",
                     content = @Content(schema = @Schema(implementation = FailureBody.class))),
             @ApiResponse(responseCode = "503", description = "TTS provider call failed and the failure is not retryable",
                     content = @Content(schema = @Schema(implementation = FailureBody.class)))
     })
-    @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "{storyId, anchorId, speakerId, text}", required = true)
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "{storyId, anchorId, speakerId, text, prefetch?}", required = true)
     @PostMapping("/v1/narrations/stream")
     public void narrateStream(HttpServletRequest request, HttpServletResponse response) throws IOException {
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
@@ -110,7 +112,7 @@ public class NarrationController {
                 parsed.storyId(), parsed.anchorId(), parsed.speakerId(), currentUserResolver.currentOrNull());
         NarrationPipelineService.StreamResult result = pipeline.processStream(
                 context, parsed.storyId(), parsed.speakerId(), parsed.text(),
-                RequestDeadline.startingNow(config.requestTimeoutMs()));
+                RequestDeadline.startingNow(config.requestTimeoutMs()), body.path("prefetch").asBoolean(false));
 
         if (!result.ok()) {
             Map<String, Object> failure = result.failure();
