@@ -65,7 +65,9 @@ public enum ErrorCode {
     /** 같은 선생님의 다른 학생 등록에 이미 연결된 아이 프로필. */
     DUPLICATE_CHILD_LINK(409),
     /** 선생님 운영 반에 반 코드로 들어올 때 학생 명단에 올릴 아이 이름·출생연도가 필요하다. */
-    CHILD_INFO_REQUIRED(400);
+    CHILD_INFO_REQUIRED(400),
+    /** 선택지 음성 미리 만들기 전용 Gemini 키가 설정되지 않았다 - TTS 호출 없이 거절한다. */
+    PREFETCH_DISABLED(409);
 
     private final int defaultStatus;
 
