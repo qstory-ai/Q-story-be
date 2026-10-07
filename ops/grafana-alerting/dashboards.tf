@@ -151,7 +151,7 @@ resource "grafana_dashboard" "backend_overview" {
 locals {
   pg = local.postgres_enabled ? { type = "grafana-postgresql-datasource", uid = grafana_data_source.postgres[0].uid } : null
 
-  # $traffic_type은 대시보드 변수(beta/qa/dev) - 기본은 실제 이용자(beta)만.
+  # $traffic_type은 대시보드 변수(BETA/QA/DEV, DB에 대문자로 저장됨) - 기본은 실제 이용자(BETA)만.
   dialogue_queries = {
     opens = {
       title  = "하루 대화 열림 (진입 방식별)"
@@ -231,12 +231,12 @@ resource "grafana_dashboard" "dialogue_quality" {
         name    = "traffic_type"
         label   = "트래픽"
         type    = "custom"
-        query   = "beta,qa,dev"
-        current = { text = "beta", value = "beta" }
+        query   = "BETA,QA,DEV"
+        current = { text = "BETA", value = "BETA" }
         options = [
-          { text = "beta", value = "beta", selected = true },
-          { text = "qa", value = "qa", selected = false },
-          { text = "dev", value = "dev", selected = false },
+          { text = "BETA", value = "BETA", selected = true },
+          { text = "QA", value = "QA", selected = false },
+          { text = "DEV", value = "DEV", selected = false },
         ]
       }]
     }
