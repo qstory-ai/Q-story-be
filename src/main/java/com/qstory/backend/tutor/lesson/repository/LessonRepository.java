@@ -7,6 +7,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface LessonRepository extends JpaRepository<Lesson, UUID> {
 
@@ -30,4 +33,10 @@ public interface LessonRepository extends JpaRepository<Lesson, UUID> {
 
     /** LessonReminderScheduler 전용 - 아직 시작 안 한(SCHEDULED) 수업 중 곧 시작하는 것들. */
     List<Lesson> findByStatusAndScheduledAtBetween(LessonStatus status, Instant from, Instant to);
+
+    /** 회원 탈퇴 - 반이 없거나 기관 밖의 반에서 연 수업. 기관 반 수업은 남긴다. */
+    @Modifying
+    @Query("delete from Lesson l where l.tutor.id = :tutorId "
+            + "and (l.classGroup is null or l.classGroup.id in (select g.id from ClassGroup g where g.organization is null))")
+    int deletePersonalLessonsOf(@Param("tutorId") UUID tutorId);
 }

@@ -33,16 +33,14 @@ public class LaunchNotificationService {
     public void submit(LaunchNotificationSubmission submission) {
         String parentName = requireText(submission.parentName(), 60, "보호자 이름을 입력해 주세요.");
         String email = optionalEmail(submission.email());
-        String phone = requireText(submission.phone(), 30, "전화번호를 입력해 주세요.");
-        if (!PHONE_PATTERN.matcher(phone).matches()) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "올바른 전화번호를 입력해 주세요.");
-        }
         ChildGender childGender = parseGender(submission.childGender());
         String childAge = requireText(submission.childAge(), 20, "아이 나이를 입력해 주세요.");
         String discoverySource = requireText(submission.discoverySource(), 200, "어떻게 알게 되셨는지 알려주세요.");
         if (submission.wantsContact() == null) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "연락 여부를 선택해 주세요.");
         }
+        // 연락을 원치 않는 보호자의 전화번호는 받아도 저장하지 않는다(수집 최소화).
+        String phone = submission.wantsContact() ? requirePhone(submission.phone()) : null;
 
         repository.save(LaunchNotificationRequest.builder()
                 .parentName(parentName)
@@ -54,6 +52,14 @@ public class LaunchNotificationService {
                 .wantsContact(submission.wantsContact())
                 .createdAt(Instant.now())
                 .build());
+    }
+
+    private String requirePhone(String value) {
+        String phone = requireText(value, 30, "전화번호를 입력해 주세요.");
+        if (!PHONE_PATTERN.matcher(phone).matches()) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "올바른 전화번호를 입력해 주세요.");
+        }
+        return phone;
     }
 
     /** "괜찮아요"를 고른 보호자는 연락받길 원치 않으므로 이메일을 아예 안 보낼 수 있다 - 그 경우 null로 저장한다. */

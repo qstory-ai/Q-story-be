@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -92,4 +93,14 @@ public interface TutorStudentRepository extends JpaRepository<TutorStudent, UUID
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from TutorStudent s where s.id = :id")
     Optional<TutorStudent> lockById(@Param("id") UUID id);
+
+    /**
+     * 회원 탈퇴 - 선생님이 기관 없이 소유한 반의 학생만 지운다. 반이 없는 학생(원장이 반을 지워 남은 기관 학생일 수
+     * 있다)과 기관 반 학생(detachTutor가 담임만 비운다)은 건드리지 않는다. 반을 지우기 전에 불러야 한다 - 반이 먼저
+     * 지워지면 class_group_id가 on delete set null로 비어 이 조건에서 빠진다.
+     */
+    @Modifying
+    @Query("delete from TutorStudent s where s.classGroup.id in "
+            + "(select g.id from ClassGroup g where g.tutor.id = :tutorId and g.organization is null)")
+    int deleteStudentsOfPersonalClasses(@Param("tutorId") UUID tutorId);
 }

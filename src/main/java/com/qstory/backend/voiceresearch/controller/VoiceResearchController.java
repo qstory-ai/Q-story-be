@@ -52,16 +52,16 @@ public class VoiceResearchController {
                     + "(consent_id, deletion_token, consented_at, sample_id, story_id, scene_id, anchor_id, "
                     + "stt_draft, confirmed_transcript, question_round, duration_millis, and the optional "
                     + "coverage_status/family_id/intent_summary once the question has been routed). "
-                    + "consent_id must reference a non-expired VoiceResearchConsent. Anonymous callers are accepted; "
-                    + "a signed-in PARENT is rejected with 403 when their account-level consent is off, and "
-                    + "otherwise the consent is linked to the account (so /v1/me/voice-research-consent/withdraw "
-                    + "can delete it).")
+                    + "consent_id must reference a non-expired VoiceResearchConsent. Only a signed-in PARENT whose "
+                    + "account-level consent is on for the current consent version is accepted (anonymous, tutor and "
+                    + "other roles, and consent given for an older version, get 403 before the form is validated), and "
+                    + "the consent is linked to the account (so /v1/me/voice-research-consent/withdraw can delete it).")
     @ApiResponses({
             @ApiResponse(responseCode = "202", description = "Accepted",
                     content = @Content(schema = @Schema(example = "{\"ok\":true}"))),
             @ApiResponse(responseCode = "400", description = "Missing/malformed field, or an unsupported coverage_status",
                     content = @Content(schema = @Schema(implementation = FailureBody.class))),
-            @ApiResponse(responseCode = "403", description = "consent_id unknown, expired, or deletion_token mismatch, or the signed-in parent's account consent is off",
+            @ApiResponse(responseCode = "403", description = "Not a signed-in PARENT, account consent off or given for an older version, consent_id expired or of another version or account, or deletion_token mismatch",
                     content = @Content(schema = @Schema(implementation = FailureBody.class)))
     })
     @PostMapping(value = "/v1/voice-research", consumes = "multipart/form-data")

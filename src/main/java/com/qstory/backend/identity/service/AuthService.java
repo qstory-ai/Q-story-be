@@ -1,9 +1,5 @@
 package com.qstory.backend.identity.service;
 
-import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
-import com.qstory.backend.tutor.repository.TutorStudentRepository;
-import com.qstory.backend.tutor.entity.TutorStudent;
-import com.qstory.backend.tutor.TutorStudentStatus;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
@@ -44,7 +40,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import com.qstory.backend.voiceresearch.service.VoiceResearchService;
-import com.qstory.backend.org.tutor.service.OrganizationTutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -80,11 +75,10 @@ public class AuthService {
     private final SecureTokenGenerator tokenGenerator;
     private final SupabaseStorageClient storageClient;
     private final AppProperties config;
-    private final TutorStudentRepository tutorStudentRepository;
-    private final OrganizationTutorRepository organizationTutorRepository;
     private final VoiceResearchService voiceResearchService;
-    private final OrganizationTutorService organizationTutorService;
+    private final AccountErasureService accountErasureService;
     private final UserSummaryFactory userSummaryFactory;
+    private final ConsentService consentService;
 
     public AuthService(
             AppUserRepository userRepository, PasswordResetTokenRepository passwordResetTokenRepository,
@@ -92,9 +86,9 @@ public class AuthService {
             AuthValidator validator, PasswordEncoder passwordEncoder, JwtService jwtService,
             GoogleOAuthVerifier googleOAuthVerifier, KakaoOAuthVerifier kakaoOAuthVerifier,
             SecureTokenGenerator tokenGenerator, SupabaseStorageClient storageClient, AppProperties config,
-            TutorStudentRepository tutorStudentRepository, OrganizationTutorRepository organizationTutorRepository,
             UserSummaryFactory userSummaryFactory, VoiceResearchService voiceResearchService,
-            OrganizationTutorService organizationTutorService) {
+            AccountErasureService accountErasureService, ConsentService consentService) {
+        this.consentService = consentService;
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.accountDeletionFeedbackRepository = accountDeletionFeedbackRepository;
@@ -106,10 +100,8 @@ public class AuthService {
         this.tokenGenerator = tokenGenerator;
         this.storageClient = storageClient;
         this.config = config;
-        this.tutorStudentRepository = tutorStudentRepository;
-        this.organizationTutorRepository = organizationTutorRepository;
         this.voiceResearchService = voiceResearchService;
-        this.organizationTutorService = organizationTutorService;
+        this.accountErasureService = accountErasureService;
         this.userSummaryFactory = userSummaryFactory;
     }
 
@@ -144,6 +136,11 @@ public class AuthService {
 
     private AuthResponse createAccount(Role role, SignupOrganizationOwnerRequest request) {
         validator.validateSignup(request);
+        // STAFF는 내부 계정이라 고객 약관 동의 대상이 아니다.
+        boolean needsConsent = role != Role.STAFF;
+        if (needsConsent) {
+            consentService.requireSignupConsents(request.consents());
+        }
         String loginId = request.loginId().trim().toLowerCase();
         String email = request.email().trim().toLowerCase();
         AppUser user = AppUser.builder()
@@ -155,6 +152,9 @@ public class AuthService {
                 .createdAt(Instant.now())
                 .build();
         user = userRepository.saveOrThrowDuplicate(user, "이미 사용 중인 아이디예요.");
+        if (needsConsent) {
+            consentService.recordSignup(user, request.consents(), "SIGNUP");
+        }
         return issueResponse(user);
     }
 
@@ -193,6 +193,7 @@ public class AuthService {
             throw ApiException.contractError(ErrorCode.OAUTH_ROLE_REQUIRED, "가입할 역할을 먼저 선택해 주세요.");
         }
 
+        consentService.requireSignupConsents(request.consents());
         String loginId = resolveLoginId(provider, identity);
         if (userRepository.existsByLoginId(loginId)) {
             throw ApiException.contractError(
@@ -212,6 +213,7 @@ public class AuthService {
                 .createdAt(Instant.now())
                 .build();
         user = userRepository.saveOrThrowDuplicate(user, "이미 등록된 계정이에요.");
+        consentService.recordSignup(user, request.consents(), "OAUTH_SIGNUP");
         return issueResponse(user);
     }
 
@@ -327,8 +329,8 @@ public class AuthService {
     }
 
     /**
-     * 소프트 삭제 - deletedAt을 채우고 loginId를 변형해 원래 이메일을 재가입에 다시 쓸 수 있게
-     * 풀어준다. 탈퇴 사유는 계정이 사라지기 전에 먼저 저장한다(AccountDeletionFeedback).
+     * 회원 탈퇴 - 계정 행은 결제 기록 보관을 위해 남기되 익명화하고 딸린 데이터를 지운다(AccountErasureService).
+     * 탈퇴 사유는 익명화 전에 먼저 저장한다(AccountDeletionFeedback).
      */
     @Transactional
     public void deleteAccount(CurrentUser caller, DeleteAccountRequest request) {
@@ -359,33 +361,7 @@ public class AuthService {
                 .createdAt(Instant.now())
                 .build());
 
-        user.setDeletedAt(Instant.now());
-        user.setLoginId("deleted:" + UUID.randomUUID() + ":" + user.getLoginId());
-        user.setPasswordHash(null);
-        userRepository.save(user);
-        releaseRelationships(user);
-    }
-
-    /**
-     * 소프트 삭제된 계정이 남기는 관계를 정리한다. 부모: 연결된 학생을 다시 초대 가능한 상태
-     * (PENDING_PARENT, 보호자·아이 링크 해제)로 되돌린다 - 그대로 두면 탈퇴 계정이 학생을 영구히
-     * 점유해 다른 보호자의 수락이 409로 막히고, 알림도 탈퇴 계정으로 계속 갔다. 선생님: 기관 소속
-     * 관계를 지워 기관의 선생님 수·목록에서 빠지게 한다.
-     */
-    private void releaseRelationships(AppUser user) {
-        if (user.getRole() == Role.PARENT) {
-            for (TutorStudent student : tutorStudentRepository.findByLinkedParentUser_Id(user.getId())) {
-                student.setLinkedParentUser(null);
-                student.setLinkedAt(null);
-                student.setChild(null);
-                student.setStatus(TutorStudentStatus.PENDING_PARENT);
-                tutorStudentRepository.save(student);
-            }
-        } else if (user.getRole() == Role.TUTOR) {
-            organizationTutorRepository.findByTutor_IdOrderByJoinedAtAsc(user.getId())
-                    .forEach(link -> organizationTutorService.detachTutor(link.getOrganization().getId(), user.getId()));
-            organizationTutorRepository.deleteByTutor_Id(user.getId());
-        }
+        accountErasureService.erase(user);
     }
 
     private AppUser requireActiveUser(UUID userId) {

@@ -4,6 +4,8 @@ import com.qstory.backend.companionchat.DialogueInput;
 import com.qstory.backend.story.Anchor;
 import com.qstory.backend.common.enums.CompanionInteractionMode;
 import com.qstory.backend.common.error.AbortException;
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.common.util.RequestDeadline;
@@ -94,6 +96,13 @@ public class CompanionChatPipelineService {
             return failureEnvelope(
                     ProviderErrorCode.SPEECH_PIPELINE_TIMEOUT, "stt", true,
                     "목소리를 인식하는 시간이 길어졌어요. 잠시 후 다시 말해 주세요.");
+        } catch (ApiException apiError) {
+            // STT 업체 장애(STT_UNAVAILABLE)만 200 실패 봉투가 아니라 503으로 그대로 올린다.
+            if (apiError.code() == ErrorCode.STT_UNAVAILABLE) {
+                throw apiError;
+            }
+            return failureEnvelope(
+                    ProviderErrorCode.SPEECH_PIPELINE_FAILED, "stt", true, "지금은 목소리를 인식하지 못했어요.");
         } catch (ProviderException providerException) {
             return failureEnvelope(
                     providerException.code(), providerException.stage(), providerException.retryable(),

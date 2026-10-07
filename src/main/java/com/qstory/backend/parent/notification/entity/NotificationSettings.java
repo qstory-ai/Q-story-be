@@ -46,10 +46,10 @@ public class NotificationSettings {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private AppUser user;
 
-    /** IA "마이페이지 > 알림 설정 > 마케팅 알림 (새 작품 출시)". 기본값은 true(opt-in). */
+    /** IA "마이페이지 > 알림 설정 > 마케팅 알림 (새 작품 출시)". 기본값은 false - 가입 때 받은 마케팅 동의값으로만 켠다. */
     @Column(name = "marketing_enabled", nullable = false)
     @Builder.Default
-    private boolean marketingEnabled = true;
+    private boolean marketingEnabled = false;
 
     /** 수업 시작 30분 전 알림(LessonReminderScheduler). 기본값 true(opt-in). */
     @Column(name = "lesson_reminder_enabled", nullable = false)

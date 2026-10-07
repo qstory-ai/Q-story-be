@@ -5,6 +5,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface ClassGroupRepository extends JpaRepository<ClassGroup, UUID> {
 
@@ -23,4 +26,9 @@ public interface ClassGroupRepository extends JpaRepository<ClassGroup, UUID> {
     List<ClassGroup> findByTutor_IdOrderByCreatedAtAsc(UUID tutorId);
 
     Optional<ClassGroup> findByIdAndTutor_Id(UUID id, UUID tutorId);
+
+    /** 회원 탈퇴 - 기관 없이 선생님이 소유한 반. 기관 반은 detachTutor가 담임만 비운다. */
+    @Modifying
+    @Query("delete from ClassGroup g where g.tutor.id = :tutorId and g.organization is null")
+    int deletePersonalClassesOf(@Param("tutorId") UUID tutorId);
 }

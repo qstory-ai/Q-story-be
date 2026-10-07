@@ -24,4 +24,9 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
     @Modifying
     @Query("update Notification n set n.readAt = :readAt where n.user.id = :userId and n.readAt is null")
     int markAllRead(@Param("userId") UUID userId, @Param("readAt") Instant readAt);
+
+    /** 회원 탈퇴(AccountErasureService) - 계정 행은 익명화로 남으므로 FK cascade가 돌지 않아 직접 지운다. */
+    @Modifying
+    @Query("delete from Notification x where x.user.id = :userId")
+    int deleteAllByUserId(@Param("userId") UUID userId);
 }
