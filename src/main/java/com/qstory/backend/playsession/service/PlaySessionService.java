@@ -34,7 +34,9 @@ public class PlaySessionService {
     private static final Set<String> SPEAKERS = Set.of("UNVERIFIED", "GUARDIAN_PROXY", "TEACHER_RELAY");
     private static final Set<String> ENTRY_MODES = Set.of("SPONTANEOUS", "INVITE", "HELP");
     private static final Set<String> INPUT_MODES = Set.of("VOICE", "TEXT");
-    private static final Set<String> EVENTS = Set.of("ACTION_CONFIRMED", "ACTION_DECLINED", "INVITE_SKIPPED", "INVITE_CLOSED");
+    private static final Set<String> EVENTS = Set.of(
+            "ACTION_CONFIRMED", "ACTION_DECLINED", "INVITE_SKIPPED", "INVITE_CLOSED", "REPLY_FAILED", "STT_FAILED");
+    private static final Set<String> PLAY_SETTINGS = Set.of("HOME", "INDIVIDUAL", "SMALL_GROUP", "WHOLE_CLASS");
 
     private final JdbcTemplate jdbc;
 
@@ -87,6 +89,14 @@ public class PlaySessionService {
         if (owners.isEmpty() || !owners.get(0).equals(caller.userId())) {
             throw ApiException.contractError(ErrorCode.NOT_FOUND, "회차를 찾을 수 없어요.", 404);
         }
+        // 사용 조건(진입 경로·진행 형태·기기)은 처음 값을 유지한다(Q-40).
+        jdbc.update(
+                "update play_session set entry_source = coalesce(entry_source, ?), play_setting = coalesce(play_setting, ?), "
+                        + "device_platform = coalesce(device_platform, ?), device_browser = coalesce(device_browser, ?), "
+                        + "viewport_class = coalesce(viewport_class, ?) where id = ?",
+                shortText(body.path("entrySource"), 32), oneOf(body.path("playSetting"), PLAY_SETTINGS, null),
+                shortText(body.path("devicePlatform"), 32), shortText(body.path("deviceBrowser"), 32),
+                shortText(body.path("viewportClass"), 32), sessionId);
         // 읽은 범위는 앞으로만 넓힌다(처음 장면은 처음 값 유지, 마지막 장면은 새 값).
         jdbc.update(
                 "update play_session set content_version = coalesce(?, content_version), "
@@ -106,8 +116,9 @@ public class PlaySessionService {
         jdbc.update(
                 "insert into play_turn (session_id, seq, occurred_at, received_at, scene_id, visual_id, anchor_id, entry_mode, "
                         + "role, speaker, character_speaker_id, text, input_mode, transcript_edited, fixed, help_step, reply_kind, "
-                        + "proposed_family_id, reply_audio_played, event, family_id, via_suggestion, suggestion_label, result_visual_id) "
-                        + "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) on conflict (session_id, seq) do nothing",
+                        + "proposed_family_id, reply_audio_played, event, family_id, via_suggestion, suggestion_label, result_visual_id, "
+                        + "latency_ms, error_code) "
+                        + "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) on conflict (session_id, seq) do nothing",
                 sessionId, seq, Timestamp.from(occurredAt(turn.path("occurredAt"), receivedAt)), Timestamp.from(receivedAt),
                 sceneId, shortText(turn.path("visualId"), 80), shortText(turn.path("anchorId"), 64),
                 oneOf(turn.path("entryMode"), ENTRY_MODES, null), role, speaker,
@@ -117,7 +128,9 @@ public class PlaySessionService {
                 shortText(turn.path("replyKind"), 16), shortText(turn.path("proposedFamilyId"), 80),
                 bool(turn.path("replyAudioPlayed")), oneOf(turn.path("event"), EVENTS, null),
                 shortText(turn.path("familyId"), 80), bool(turn.path("viaSuggestion")),
-                shortText(turn.path("suggestionLabel"), 80), shortText(turn.path("resultVisualId"), 80));
+                shortText(turn.path("suggestionLabel"), 80), shortText(turn.path("resultVisualId"), 80),
+                turn.path("latencyMs").isInt() && turn.path("latencyMs").asInt() >= 0 ? turn.path("latencyMs").asInt() : null,
+                shortText(turn.path("errorCode"), 60));
     }
 
     /** 리포트용 - 회차의 대화 전부를 seq 순으로. 프런트 계약(API-CONTRACT)의 turn 모양 그대로, 빈 값은 뺀다. */
@@ -150,6 +163,8 @@ public class PlaySessionService {
                     put(turn, "viaSuggestion", (Boolean) rs.getObject("via_suggestion"));
                     put(turn, "suggestionLabel", rs.getString("suggestion_label"));
                     put(turn, "resultVisualId", rs.getString("result_visual_id"));
+                    put(turn, "latencyMs", (Integer) rs.getObject("latency_ms"));
+                    put(turn, "errorCode", rs.getString("error_code"));
                     return turn;
                 },
                 sessionId);

@@ -58,4 +58,8 @@ public class StorySession {
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
+
+    /** 로그인한 채 보낸 이벤트의 계정(070) - 방문·가입·플레이·리포트를 참여자 한 명의 흐름으로 잇는다. */
+    @Column(name = "user_id")
+    private UUID userId;
 }

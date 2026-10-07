@@ -257,3 +257,86 @@ resource "grafana_dashboard" "dialogue_quality" {
     }]
   })
 }
+
+# ── UT 회차 (Q-40) ───────────────────────────────────────────────────────────
+# 현장 관찰·인터뷰를 앱 기록에 잇는 화면. 관찰자가 플레이어 홈 메뉴·리포트 맨 아래의 "회차 코드"(회차 id 앞 6자)를
+# 적어 오면, 위 칸에 넣어 그 회차의 대화 한 줄 한 줄과 그 참여자의 방문·가입·리포트 흐름을 본다.
+# 원문이 보이므로 팀 내부 분석용(db/schema/070-ut-data-collection.sql 참고).
+
+locals {
+  ut_queries = {
+    sessions = {
+      title = "최근 회차"
+      type  = "table"
+      sql   = "select session_code as \"회차 코드\", started_at as \"시작\", user_role as \"역할\", child_age_years as \"아이 나이\", kind as \"구분\", play_setting as \"진행 형태\", entry_source as \"진입\", device_platform as \"기기\", read_from_scene_id || ' → ' || coalesce(read_through_scene_id, '-') as \"읽은 범위\", coalesce(end_status, '진행 중') as \"종료\", child_turns as \"아이 말\", help_steps as \"도움\", actions as \"행동 실행\", actions_from_example as \"예시 선택\", failures as \"실패\", avg_reply_ms as \"답 평균 ms\", report_views as \"리포트 열람\" from grafana.ut_sessions where $__timeFilter(started_at) order by started_at desc limit 200"
+      pos   = { x = 0, y = 0, w = 24, h = 9 }
+    }
+    turns = {
+      title = "회차 대화 ($session_code)"
+      type  = "table"
+      sql   = "select seq as \"순서\", occurred_at as \"시각\", scene_id as \"장면\", anchor_id as \"질문 지점\", entry_mode as \"진입\", role as \"누가\", speaker as \"입력 주체\", text as \"말\", input_mode as \"음성/글\", transcript_edited as \"고쳐 씀\", help_step as \"도움 단계\", reply_kind as \"답 종류\", latency_ms as \"답 ms\", event as \"이벤트\", family_id as \"행동\", via_suggestion as \"예시\", error_code as \"오류\" from grafana.ut_turns where session_code = upper('$session_code') order by seq"
+      pos   = { x = 0, y = 9, w = 24, h = 12 }
+    }
+    journey = {
+      title = "이 참여자의 흐름 (방문·가입·연결·플레이·리포트)"
+      type  = "table"
+      sql   = "select e.occurred_at as \"시각\", e.event_name as \"이벤트\", e.metadata::text as \"내용\" from grafana.ut_events e where e.user_id = (select user_id from grafana.ut_sessions where session_code = upper('$session_code') limit 1) order by e.occurred_at"
+      pos   = { x = 0, y = 21, w = 24, h = 10 }
+    }
+    funnel = {
+      title = "가입·연결·사용 퍼널 (기간 안, 실제 이용자)"
+      type  = "barchart"
+      sql   = "select step as \"단계\", count(distinct coalesce(user_id::text, '')) filter (where user_id is not null) as \"계정\", count(*) as \"이벤트\" from (select case event_name when 'APP_ENTRY' then '1 앱 진입' when 'SIGNUP_STARTED' then '2 가입 시작' when 'SIGNUP_COMPLETED' then '3 가입 완료' when 'CHILD_REGISTERED' then '4 아이 등록' when 'CLASS_JOIN' then '5 반 연결 ' || coalesce(metadata ->> 'step', '') when 'STORY_STARTED' then '6 이야기 시작' when 'STORY_COMPLETED' then '7 완주' when 'REPORT_VIEWED' then '8 리포트 열람' end as step, user_id from grafana.ut_events where traffic_type = 'BETA' and $__timeFilter(occurred_at)) f where step is not null group by step order by step"
+      pos   = { x = 0, y = 31, w = 12, h = 9 }
+    }
+    controls = {
+      title = "재생 조작 (장면별)"
+      type  = "table"
+      sql   = "select metadata ->> 'scene_id' as \"장면\", metadata ->> 'action' as \"조작\", count(*) as \"횟수\" from grafana.ut_events where event_name = 'PLAYBACK_CONTROL' and traffic_type = 'BETA' and $__timeFilter(occurred_at) group by 1, 2 order by 1, 3 desc"
+      pos   = { x = 12, y = 31, w = 12, h = 9 }
+    }
+    after_report = {
+      title = "리포트 이후 (다시 읽기·펼쳐 보기)"
+      type  = "table"
+      sql   = "select metadata ->> 'action' as \"리포트에서 한 것\", metadata ->> 'kind' as \"리포트 종류\", count(*) as \"횟수\" from grafana.ut_events where event_name = 'REPORT_ACTION' and traffic_type = 'BETA' and $__timeFilter(occurred_at) group by 1, 2 order by 3 desc"
+      pos   = { x = 0, y = 40, w = 24, h = 7 }
+    }
+  }
+}
+
+resource "grafana_dashboard" "ut_sessions" {
+  count  = local.postgres_enabled ? 1 : 0
+  folder = grafana_folder.alerting.uid
+  config_json = jsonencode({
+    uid           = "qstory-ut-sessions"
+    title         = "Q-Story UT 회차"
+    tags          = ["qstory", "ut"]
+    timezone      = "Asia/Seoul"
+    schemaVersion = 39
+    time          = { from = "now-14d", to = "now" }
+    templating = {
+      list = [{
+        name    = "session_code"
+        label   = "회차 코드"
+        type    = "textbox"
+        query   = ""
+        current = { text = "", value = "" }
+      }]
+    }
+    panels = [for index, key in keys(local.ut_queries) : {
+      id         = index + 1
+      type       = local.ut_queries[key].type
+      title      = local.ut_queries[key].title
+      datasource = local.pg
+      gridPos    = local.ut_queries[key].pos
+      targets = [{
+        refId      = "A"
+        datasource = local.pg
+        rawQuery   = true
+        editorMode = "code"
+        format     = "table"
+        rawSql     = local.ut_queries[key].sql
+      }]
+    }]
+  })
+}

@@ -159,7 +159,7 @@ public class BetaEventValidator {
         Map<EventName, Set<String>> keys = new LinkedHashMap<>();
         keys.put(EventName.LANDING_VIEW, Set.of("page", "entry"));
         keys.put(EventName.LANDING_CTA_CLICK, Set.of("cta_location"));
-        keys.put(EventName.STORY_STARTED, Set.of("resume"));
+        keys.put(EventName.STORY_STARTED, Set.of("resume", "entry_source", "play_setting", "play_session_id"));
         keys.put(EventName.SCENE_REACHED, Set.of("scene_id"));
         keys.put(EventName.QUESTION_INVITE_SHOWN, Set.of("anchor_id", "scene_id"));
         keys.put(EventName.QUESTION_SKIPPED, Set.of("anchor_id", "scene_id", "skip_reason"));
@@ -185,7 +185,17 @@ public class BetaEventValidator {
         // Q-31 그레텔 대화 한 단계. 아이 말 원문은 남기지 않는다(대화 원문은 conversation_record 보존 정책을 따른다).
         keys.put(EventName.DIALOGUE_STEP, Set.of(
                 "anchor_id", "scene_id", "entry_mode", "turn_kind", "help_step", "family_id", "via_suggestion",
-                "reply_kind", "elapsed_ms", "turn_number"));
+                "reply_kind", "elapsed_ms", "turn_number", "latency_ms", "error_code"));
+        // Q-40 UT 데이터 수집. 질문 원문 같은 자유 문장은 받지 않는다.
+        keys.put(EventName.APP_ENTRY, Set.of("entry", "path", "has_class_code"));
+        keys.put(EventName.SIGNUP_STARTED, Set.of("role", "entry"));
+        keys.put(EventName.SIGNUP_COMPLETED, Set.of("role", "method", "has_class_code"));
+        keys.put(EventName.CHILD_REGISTERED, Set.of("age_years", "age_band"));
+        keys.put(EventName.CLASS_JOIN, Set.of("step", "error_code", "via"));
+        keys.put(EventName.CONSENT_SAVED, Set.of("voice_research", "report_scope"));
+        keys.put(EventName.PLAYBACK_CONTROL, Set.of("action", "scene_id", "clip_id", "play_session_id"));
+        keys.put(EventName.REPORT_VIEWED, Set.of("kind", "source", "completion_id", "viewer_role"));
+        keys.put(EventName.REPORT_ACTION, Set.of("action", "kind", "completion_id"));
         return Map.copyOf(keys);
     }
 }
