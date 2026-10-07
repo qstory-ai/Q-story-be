@@ -89,8 +89,16 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
             nativeQuery = true)
     int clearParentAccessOf(@Param("parentId") UUID parentId);
 
-    /** 회원 탈퇴 - 기관 소속이 아닌 선생님 기록. 기관 반 기록은 organization 스냅샷이 채워져 있어 남는다. */
+    /**
+     * 회원 탈퇴 - 기관과 닿지 않는 선생님 기록만. organization 스냅샷이 비어 있어도(백필 전 기록) 기관 반이나 기관
+     * 반 수업에 묶인 기록은 남긴다. 반·수업이 없으면 null 비교로 빠지지 않게 "is null or id in (서브쿼리)"로 쓴다.
+     */
     @Modifying
-    @Query("delete from StoryCompletion c where c.user.id = :tutorId and c.organization is null")
+    @Query("delete from StoryCompletion c where c.user.id = :tutorId and c.organization is null "
+            + "and (c.classGroup is null or c.classGroup.id in "
+            + "(select g.id from ClassGroup g where g.organization is null)) "
+            + "and (c.lesson is null or c.lesson.id in "
+            + "(select l.id from Lesson l where l.classGroup is null or l.classGroup.id in "
+            + "(select lg.id from ClassGroup lg where lg.organization is null)))")
     int deletePersonalSessionsOfTutor(@Param("tutorId") UUID tutorId);
 }

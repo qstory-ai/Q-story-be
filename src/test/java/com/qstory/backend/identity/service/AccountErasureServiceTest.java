@@ -239,6 +239,25 @@ class AccountErasureServiceTest {
         assertTrue(!jpql.contains("is null or"), "반 없는 학생을 포함하면 안 된다: " + jpql);
     }
 
+    /**
+     * organization 스냅샷이 비어 있어도(백필 전 기록) 기관 반이나 기관 반 수업에 묶인 기록은 지우지 않는다 -
+     * 반·수업 조건은 null이면 통과, 아니면 기관 없는 반의 것만.
+     */
+    @Test
+    void personalSessionQueryNeverMatchesSessionsOfOrganizationClassesOrLessons() throws Exception {
+        String jpql = StoryCompletionRepository.class.getMethod("deletePersonalSessionsOfTutor", UUID.class)
+                .getAnnotation(org.springframework.data.jpa.repository.Query.class).value()
+                .replaceAll("\\s+", " ");
+        assertTrue(jpql.contains("c.user.id = :tutorId and c.organization is null"), jpql);
+        assertTrue(jpql.contains("(c.classGroup is null or c.classGroup.id in "
+                + "(select g.id from ClassGroup g where g.organization is null))"), jpql);
+        assertTrue(jpql.contains("(c.lesson is null or c.lesson.id in "
+                + "(select l.id from Lesson l where l.classGroup is null or l.classGroup.id in "
+                + "(select lg.id from ClassGroup lg where lg.organization is null)))"), jpql);
+        // c.classGroup.organization 같은 경로 조인은 반이 없는 기록을 inner join으로 떨어뜨린다.
+        assertTrue(!jpql.contains("c.classGroup.organization") && !jpql.contains("c.lesson.classGroup"), jpql);
+    }
+
     /** 참여 행은 반 수업 기록의 참여자 명단이다 - 탈퇴한 보호자의 열람 권한만 비우고 행은 남긴다. */
     @Test
     void parentAccessToClassRecordsIsClearedNotDeleted() throws Exception {
