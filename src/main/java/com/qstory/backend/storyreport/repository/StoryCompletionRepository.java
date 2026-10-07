@@ -33,6 +33,34 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
             + "where s.linked_parent_user_id = :parentId or p.parent_user_id = :parentId", nativeQuery = true)
     List<Object[]> findVisibleParticipantNames(@Param("parentId") UUID parentId);
 
+    /**
+     * 반에 연결된 부모가 보는 반 수업 기록(Q-39) - 부모가 그 반의 학생(미삭제)에 연결돼 있으면 연결한 날 이전 수업까지
+     * 반 수업 기록(group_session)을 모두 본다. 참여 학생 스냅샷에 없어도(수업 뒤에 들어온 아이) 보인다.
+     * 이름은 이 부모에게 연결된 그 반 학생 이름.
+     */
+    @Query(value = "select cast(c.id as varchar), s.name from story_completion c "
+            + "join tutor_student s on s.class_group_id = c.class_group_id "
+            + "where c.group_session = true and s.deleted_at is null and s.linked_parent_user_id = :parentId", nativeQuery = true)
+    List<Object[]> findVisibleClassSessionNames(@Param("parentId") UUID parentId);
+
+    /** 상세 열람 권한 - 호출자가 이 반 수업 기록의 반에 연결된 부모인가(Q-39, 날짜 제한 없음). */
+    @Query(value = "select exists (select 1 from story_completion c "
+            + "join tutor_student s on s.class_group_id = c.class_group_id "
+            + "where c.id = :completionId and c.group_session = true and s.deleted_at is null "
+            + "and s.linked_parent_user_id = :parentId)", nativeQuery = true)
+    boolean isVisibleToClassParent(@Param("completionId") UUID completionId, @Param("parentId") UUID parentId);
+
+    /**
+     * "아이랑 다시 읽기"가 고를 부모의 아이(Q-39) - 이 기록의 참여 학생이거나 이 기록의 반 학생 중 부모에게 연결된
+     * 학생의 아이 프로필(id, 이름).
+     */
+    @Query(value = "select distinct cast(ch.id as varchar), ch.name from tutor_student s "
+            + "join parent_child ch on ch.id = s.child_id "
+            + "where s.deleted_at is null and s.linked_parent_user_id = :parentId and ("
+            + "s.id in (select p.tutor_student_id from story_completion_participant p where p.completion_id = :completionId) "
+            + "or s.class_group_id = (select c.class_group_id from story_completion c where c.id = :completionId))", nativeQuery = true)
+    List<Object[]> findLinkedChildren(@Param("completionId") UUID completionId, @Param("parentId") UUID parentId);
+
     @EntityGraph(attributePaths = {"user", "classGroup", "classGroup.organization"})
     List<StoryCompletion> findByIdInOrderByCompletedAtDesc(java.util.Collection<UUID> ids);
 

@@ -13,6 +13,8 @@ import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.parent.child.entity.Child;
 import com.qstory.backend.parent.child.repository.ChildRepository;
+import com.qstory.backend.playsession.service.PlaySessionService;
+import com.qstory.backend.reportanalysis.service.ReportAnalysisStore;
 import com.qstory.backend.storyreport.dto.RecordStoryCompletionRequest;
 import com.qstory.backend.storyreport.dto.StoryCompletionDetail;
 import com.qstory.backend.storyreport.dto.StoryCompletionSummary;
@@ -48,13 +50,18 @@ public class StoryCompletionService {
     private final NotificationPublisher notificationPublisher;
     private final CompanionChatTurnRepository companionChatTurnRepository;
     private final LessonRepository lessonRepository;
+    private final PlaySessionService playSessionService;
+    private final ReportAnalysisStore reportAnalysisStore;
+
+    static final int TEACHER_NOTE_MAX = 1000;
 
     public StoryCompletionService(
             StoryCompletionRepository repository, AppUserRepository userRepository,
             TutorStudentRepository tutorStudentRepository, ChildRepository childRepository,
             NotificationPublisher notificationPublisher,
             CompanionChatTurnRepository companionChatTurnRepository,
-            LessonRepository lessonRepository) {
+            LessonRepository lessonRepository, PlaySessionService playSessionService,
+            ReportAnalysisStore reportAnalysisStore) {
         this.repository = repository;
         this.userRepository = userRepository;
         this.tutorStudentRepository = tutorStudentRepository;
@@ -62,12 +69,19 @@ public class StoryCompletionService {
         this.notificationPublisher = notificationPublisher;
         this.companionChatTurnRepository = companionChatTurnRepository;
         this.lessonRepository = lessonRepository;
+        this.playSessionService = playSessionService;
+        this.reportAnalysisStore = reportAnalysisStore;
     }
 
     @Transactional
     public StoryCompletionSummary record(CurrentUser caller, RecordStoryCompletionRequest request) {
         if (request.storyId() == null || request.storyId().isBlank()) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "storyId가 필요해요.");
+        }
+        String endStatus = request.endStatus() == null || request.endStatus().isBlank()
+                ? "COMPLETED" : request.endStatus().trim().toUpperCase();
+        if (!endStatus.equals("COMPLETED") && !endStatus.equals("EXITED")) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "endStatus는 COMPLETED 또는 EXITED예요.");
         }
         AppUser user = userRepository.findById(caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
@@ -95,7 +109,24 @@ public class StoryCompletionService {
             List<StoryCompletion> existing = repository.findBySessionIdAndUser_IdOrderByCreatedAtAsc(
                     request.companionConversationId(), caller.userId());
             if (!existing.isEmpty()) {
-                return StoryCompletionSummary.of(existing.get(0));
+                // 같은 회차를 다시 저장 - 중간에 나갔다가 이어 읽어 끝냈거나 클라이언트가 재시도한 경우. 새로 만들지 않고
+                // 최신 값으로 갱신한다(종료 상태는 EXITED → COMPLETED로만). 알림은 처음 저장 때만 갔다.
+                StoryCompletion completion = existing.get(0);
+                applySessionFields(completion, request, endStatus);
+                if (request.outcomes() != null && !request.outcomes().isEmpty()) {
+                    completion.setOutcomes(request.outcomes());
+                }
+                if (request.durationSeconds() != null) {
+                    completion.setDurationSeconds(request.durationSeconds());
+                }
+                Map<String, Object> summary = summarizeCompanionChat(request.companionConversationId());
+                if (summary != null) {
+                    completion.setCompanionChatSummary(summary);
+                }
+                completion.setCompletedAt(Instant.now());
+                StoryCompletion saved = repository.save(completion);
+                reportAnalysisStore.enqueue(saved.getId());
+                return StoryCompletionSummary.of(saved);
             }
         }
         Map<String, Object> companionChatSummary = summarizeCompanionChat(request.companionConversationId());
@@ -128,14 +159,14 @@ public class StoryCompletionService {
         if (participants.isEmpty() && (lesson == null || lesson.getClassGroup() == null)) {
             // 가정 세션 - 기록 하나.
             return StoryCompletionSummary.of(
-                    saveCompletion(user, lesson, null, child, List.of(), false, request, companionChatSummary, now));
+                    saveCompletion(user, lesson, null, child, List.of(), false, request, companionChatSummary, now, endStatus));
         }
         // 반 수업(반을 고른 수업이거나 학생이 여럿)은 한 화면으로 함께 읽은 세션 하나 - 누가 말했는지 모르는
         // 단체 발화를 아이마다 복제하지 않고 한 건으로 남긴다. 개별 수업은 그 학생·아이의 기록이다.
         boolean groupSession = participants.size() > 1 || (lesson != null && lesson.getClassGroup() != null);
         if (groupSession) {
             StoryCompletion completion = saveCompletion(
-                    user, lesson, null, null, participants, true, request, companionChatSummary, now);
+                    user, lesson, null, null, participants, true, request, companionChatSummary, now, endStatus);
             notifyParentsOfClassSession(participants, completion);
             return StoryCompletionSummary.of(completion);
         }
@@ -144,7 +175,8 @@ public class StoryCompletionService {
         // 붙어 있으면 그 아이의 기록으로 남긴다.
         Child participantChild = participant.getChild() != null ? participant.getChild() : child;
         StoryCompletion completion = saveCompletion(
-                user, lesson, participant, participantChild, participants, false, request, companionChatSummary, now);
+                user, lesson, participant, participantChild, participants, false, request, companionChatSummary, now,
+                endStatus);
         notifyLinkedParent(participant, completion);
         return StoryCompletionSummary.of(completion);
     }
@@ -152,7 +184,7 @@ public class StoryCompletionService {
     private StoryCompletion saveCompletion(
             AppUser user, Lesson lesson, TutorStudent tutorStudent, Child child, List<TutorStudent> participants,
             boolean groupSession, RecordStoryCompletionRequest request, Map<String, Object> companionChatSummary,
-            Instant now) {
+            Instant now, String endStatus) {
         // 기관·반 스냅샷: 수업의 반 → 학생의 반 순으로 정한다. 부모의 가정 세션에는 반이 없다.
         ClassGroup classGroup = lesson != null && lesson.getClassGroup() != null
                 ? lesson.getClassGroup()
@@ -160,7 +192,7 @@ public class StoryCompletionService {
         Organization organization = classGroup != null && classGroup.getOrganization() != null
                 ? classGroup.getOrganization()
                 : user.getOrganization();
-        return repository.save(StoryCompletion.builder()
+        StoryCompletion saved = repository.save(StoryCompletion.builder()
                 .user(user)
                 .organization(organization)
                 .classGroup(classGroup)
@@ -176,7 +208,33 @@ public class StoryCompletionService {
                 .outcomes(request.outcomes() == null ? List.of() : request.outcomes())
                 .companionChatSummary(companionChatSummary)
                 .createdAt(now)
+                .endStatus(endStatus)
+                .contentVersion(trimmed(request.contentVersion(), 80))
+                .readFromSceneId(trimmed(request.readFromSceneId(), 64))
+                .readThroughSceneId(trimmed(request.readThroughSceneId(), 64))
                 .build());
+        // 회차가 끝나면(중간에 나가도) 관심·생각 분석을 예약한다 - ReportAnalysisWorker가 만든다. 분석 작업 행이 이 기록을
+        // 외래 키로 가리키므로, JPA가 미뤄 둔 insert를 먼저 내보낸다(안 그러면 같은 트랜잭션 안에서 FK 위반).
+        repository.flush();
+        reportAnalysisStore.enqueue(saved.getId());
+        return saved;
+    }
+
+    private static void applySessionFields(StoryCompletion completion, RecordStoryCompletionRequest request, String endStatus) {
+        if ("COMPLETED".equals(endStatus)) {
+            completion.setEndStatus("COMPLETED");
+        }
+        if (request.contentVersion() != null) completion.setContentVersion(trimmed(request.contentVersion(), 80));
+        if (completion.getReadFromSceneId() == null && request.readFromSceneId() != null) {
+            completion.setReadFromSceneId(trimmed(request.readFromSceneId(), 64));
+        }
+        if (request.readThroughSceneId() != null) completion.setReadThroughSceneId(trimmed(request.readThroughSceneId(), 64));
+    }
+
+    private static String trimmed(String value, int max) {
+        if (value == null || value.isBlank()) return null;
+        String text = value.trim();
+        return text.length() > max ? text.substring(0, max) : text;
     }
 
     /**
@@ -249,11 +307,81 @@ public class StoryCompletionService {
         StoryCompletion completion = repository.findById(id)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404));
         boolean isSessionOwner = completion.getUser().getId().equals(caller.userId());
-        if (!isSessionOwner && !isVisibleToDirector(caller, completion)
-                && !repository.isVisibleToLinkedParent(id, caller.userId())) {
+        boolean isDirector = isVisibleToDirector(caller, completion);
+        if (!isSessionOwner && !isDirector && !isVisibleToParent(id, caller)) {
             throw ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404);
         }
-        return StoryCompletionDetail.of(completion);
+        boolean staffView = isDirector || (isSessionOwner && !"HOME".equals(completion.sessionKind()));
+        List<Map<String, Object>> turns = playSessionService.listTurns(completion.getSessionId());
+        boolean turnsAvailable = playSessionService.sessionExists(completion.getSessionId());
+        if ("CLASS".equals(completion.sessionKind()) && !staffView) {
+            // 반 수업 대화는 어느 아이 말인지 모르고, 다른 아이 말 원문은 부모에게 공개하지 않는다.
+            turns = turns.stream().map(StoryCompletionService::withoutChildText).toList();
+        }
+        StoryCompletionDetail.TeacherNote note = "HOME".equals(completion.sessionKind())
+                ? null
+                : new StoryCompletionDetail.TeacherNote(
+                        staffView ? completion.getTeacherNoteInternal() : null, completion.getTeacherNoteForParents());
+        List<StoryCompletionDetail.LinkedChild> linkedChildren = linkedChildren(caller, completion);
+        return StoryCompletionDetail.of(
+                completion, turns, turnsAvailable, note, reportAnalysisStore.find(completion.getId()), linkedChildren);
+    }
+
+    /** 부모 열람 - 참여 학생에 연결됐거나(기존), 그 반에 연결된 부모(Q-39, 연결 전 반 수업 포함). */
+    private boolean isVisibleToParent(UUID completionId, CurrentUser caller) {
+        return repository.isVisibleToLinkedParent(completionId, caller.userId())
+                || repository.isVisibleToClassParent(completionId, caller.userId());
+    }
+
+    private static Map<String, Object> withoutChildText(Map<String, Object> turn) {
+        if (!"CHILD".equals(turn.get("role"))) return turn;
+        Map<String, Object> copy = new LinkedHashMap<>(turn);
+        copy.remove("text");
+        return copy;
+    }
+
+    private List<StoryCompletionDetail.LinkedChild> linkedChildren(CurrentUser caller, StoryCompletion completion) {
+        if (caller.role() != Role.PARENT) return List.of();
+        if ("HOME".equals(completion.sessionKind())) {
+            Child child = completion.getChild();
+            return child == null || !completion.getUser().getId().equals(caller.userId())
+                    ? List.of()
+                    : List.of(new StoryCompletionDetail.LinkedChild(child.getId(), child.getName()));
+        }
+        return repository.findLinkedChildren(completion.getId(), caller.userId()).stream()
+                .map(row -> new StoryCompletionDetail.LinkedChild(UUID.fromString((String) row[0]), (String) row[1]))
+                .toList();
+    }
+
+    /** 수업 기록의 교사 메모 두 칸 - 기록을 남긴 선생님만 쓴다. 부모에게는 forParents만 간다. */
+    @Transactional
+    public StoryCompletionDetail.TeacherNote updateTeacherNote(
+            CurrentUser caller, UUID id, String internal, String forParents) {
+        StoryCompletion completion = repository.findById(id)
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404));
+        if (!completion.getUser().getId().equals(caller.userId()) || "HOME".equals(completion.sessionKind())) {
+            throw ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404);
+        }
+        if ((internal != null && internal.length() > TEACHER_NOTE_MAX)
+                || (forParents != null && forParents.length() > TEACHER_NOTE_MAX)) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "메모는 1000자까지 쓸 수 있어요.");
+        }
+        completion.setTeacherNoteInternal(blankToNull(internal));
+        completion.setTeacherNoteForParents(blankToNull(forParents));
+        repository.save(completion);
+        return new StoryCompletionDetail.TeacherNote(
+                completion.getTeacherNoteInternal(), completion.getTeacherNoteForParents());
+    }
+
+    /** 분석 다시 시도 - 기록을 볼 수 있는 사람이면 누구나. */
+    @Transactional
+    public void retryAnalysis(CurrentUser caller, UUID id) {
+        get(caller, id);
+        reportAnalysisStore.enqueue(id);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     /**

@@ -27,4 +27,20 @@ public record RecordStoryCompletionRequest(
          * 참여 학생 전원에게 완주 기록이 하나씩 남고, tutorStudentId는 응답으로 돌려줄 "대표" 기록을
          * 고르는 데만 쓰인다.
          */
-        UUID lessonId) {}
+        UUID lessonId,
+        /** COMPLETED(기본) | EXITED(중간에 나감 - 잠시 나가기·오늘 체험 마치기). 같은 회차를 이어 끝내면 다시 보내 COMPLETED로. */
+        String endStatus,
+        /** 읽은 작품 버전(story.yaml contentVersion). */
+        String contentVersion,
+        /** 이 회차에서 처음·마지막으로 읽은 장면 id. */
+        String readFromSceneId,
+        String readThroughSceneId) {
+
+    /** 예전 클라이언트(새 필드 없음)용 - 테스트와 기존 호출부가 그대로 쓴다. */
+    public RecordStoryCompletionRequest(
+            String storyId, Integer durationSeconds, List<Map<String, Object>> outcomes, UUID tutorStudentId,
+            UUID childId, UUID companionConversationId, UUID lessonId) {
+        this(storyId, durationSeconds, outcomes, tutorStudentId, childId, companionConversationId, lessonId,
+                null, null, null, null);
+    }
+}

@@ -26,15 +26,20 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import com.qstory.backend.playsession.service.PlaySessionService;
+import com.qstory.backend.reportanalysis.service.ReportAnalysisStore;
 import org.junit.jupiter.api.Test;
 
 /** 관리자 개별 리포트 열람(Q-35) - 자기 기관의 수업 기록만, 가정 기록은 열 수 없다. */
 class StoryCompletionDirectorAccessTest {
 
     private final StoryCompletionRepository repository = mock(StoryCompletionRepository.class);
+    private final PlaySessionService playSessionService = mock(PlaySessionService.class);
+    private final ReportAnalysisStore reportAnalysisStore = mock(ReportAnalysisStore.class);
     private final StoryCompletionService service = new StoryCompletionService(
             repository, mock(AppUserRepository.class), mock(TutorStudentRepository.class), mock(ChildRepository.class),
-            mock(NotificationPublisher.class), mock(CompanionChatTurnRepository.class), mock(LessonRepository.class));
+            mock(NotificationPublisher.class), mock(CompanionChatTurnRepository.class), mock(LessonRepository.class),
+            playSessionService, reportAnalysisStore);
 
     private final Organization organization = Organization.builder().id(UUID.randomUUID()).name("햇살유치원").build();
     private final AppUser tutor = AppUser.builder().id(UUID.randomUUID()).role(Role.TUTOR).displayName("김선생").build();

@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -32,8 +33,9 @@ public class StoryCompletionController {
     }
 
     @Operation(summary = "Save a finished story session's report",
-            description = "outcomes is the same derived per-question summary the report screen itself is built "
-                    + "from - never a raw recording or transcript.")
+            description = "outcomes is the per-question summary. The turn-by-turn dialogue is saved separately "
+                    + "(POST /v1/play-sessions/{sessionId}/turns) and returned by the detail endpoint. "
+                    + "Saving again with the same session id updates the record (EXITED → COMPLETED).")
     @PostMapping("/v1/story-completions")
     @ResponseStatus(HttpStatus.CREATED)
     public StoryCompletionSummary record(@RequestBody RecordStoryCompletionRequest request) {
@@ -51,6 +53,24 @@ public class StoryCompletionController {
     @GetMapping("/v1/story-completions/{id}")
     public StoryCompletionDetail get(@PathVariable UUID id) {
         return service.get(currentUserResolver.require(), id);
+    }
+
+    public record TeacherNoteRequest(String internal, String forParents) {}
+
+    @Operation(summary = "Write the teacher notes on a lesson record",
+            description = "Owner teacher only. internal is never shown to parents; forParents is shown on the parent report.")
+    @PutMapping("/v1/story-completions/{id}/teacher-note")
+    public StoryCompletionDetail.TeacherNote updateTeacherNote(@PathVariable UUID id, @RequestBody TeacherNoteRequest request) {
+        return service.updateTeacherNote(currentUserResolver.require(), id, request.internal(), request.forParents());
+    }
+
+    @Operation(summary = "Re-run the interest analysis for a report",
+            description = "Anyone who can view the report. The basic record stays visible while it runs.")
+    @PostMapping("/v1/story-completions/{id}/analysis/retry")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public java.util.Map<String, Object> retryAnalysis(@PathVariable UUID id) {
+        service.retryAnalysis(currentUserResolver.require(), id);
+        return java.util.Map.of("ok", true);
     }
 
     @Operation(summary = "List the caller's most recent reports with full outcomes, newest first",

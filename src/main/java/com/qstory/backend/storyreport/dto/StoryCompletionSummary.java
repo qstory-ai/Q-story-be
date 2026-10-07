@@ -26,7 +26,9 @@ public record StoryCompletionSummary(
         UUID lessonId,
         /** CLASS(반 수업 - 참여 학생 전원이 한 기록), TUTOR(개별 수업), HOME(집에서 읽은 기록). */
         String sessionKind,
-        int participantCount) {
+        int participantCount,
+        /** COMPLETED | EXITED(중간에 나감) - 목록에서 "멈춤"으로 표시한다(Q-39). */
+        String endStatus) {
 
     public static StoryCompletionSummary of(StoryCompletion completion) {
         return new StoryCompletionSummary(
@@ -39,6 +41,7 @@ public record StoryCompletionSummary(
                 completion.getTutorStudent() == null ? null : completion.getTutorStudent().getId(),
                 completion.getLesson() == null ? null : completion.getLesson().getId(),
                 completion.sessionKind(),
-                completion.getParticipants().size());
+                completion.getParticipants().size(),
+                completion.getEndStatus());
     }
 }
