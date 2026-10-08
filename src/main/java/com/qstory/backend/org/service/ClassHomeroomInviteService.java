@@ -3,11 +3,11 @@ package com.qstory.backend.org.service;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.SecureTokenGenerator;
-import com.qstory.backend.common.util.TokenValidation;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
+import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.dto.ClassHomeroomInvitePreviewResponse;
 import com.qstory.backend.org.dto.ClassHomeroomInviteResponse;
 import com.qstory.backend.org.dto.ClassResponse;
@@ -34,6 +34,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class ClassHomeroomInviteService {
 
     private static final Duration INVITE_TTL = Duration.ofDays(14);
+    static final String USED_DETAIL = "이미 사용한 초대 코드예요.";
+    static final String REPLACED_DETAIL = "새 코드로 바뀌어서 이 초대 코드는 쓸 수 없어요. 원장 선생님께 새 링크를 받아 주세요.";
+    static final String EXPIRED_DETAIL = "초대 코드 기한이 지났어요. 원장 선생님께 새 링크를 받아 주세요.";
 
     private final ClassHomeroomInviteRepository inviteRepository;
     private final ClassService classService;
@@ -41,11 +44,14 @@ public class ClassHomeroomInviteService {
     private final AppUserRepository userRepository;
     private final SecureTokenGenerator tokenGenerator;
     private final JoinCodeGenerator joinCodeGenerator;
+    private final NotificationPublisher notificationPublisher;
 
     public ClassHomeroomInviteService(
             ClassHomeroomInviteRepository inviteRepository, ClassService classService,
             OrganizationTutorService organizationTutorService, AppUserRepository userRepository,
-            SecureTokenGenerator tokenGenerator, JoinCodeGenerator joinCodeGenerator) {
+            SecureTokenGenerator tokenGenerator, JoinCodeGenerator joinCodeGenerator,
+            NotificationPublisher notificationPublisher) {
+        this.notificationPublisher = notificationPublisher;
         this.inviteRepository = inviteRepository;
         this.classService = classService;
         this.organizationTutorService = organizationTutorService;
@@ -54,12 +60,15 @@ public class ClassHomeroomInviteService {
         this.joinCodeGenerator = joinCodeGenerator;
     }
 
-    /** 담임 초대를 새로 발급한다 - 원장만. 쓰지 않은 이전 초대는 지워져 더 이상 쓸 수 없다. */
+    /**
+     * 담임 초대를 새로 발급한다 - 원장만. 살아 있던 이전 초대는 "새 코드로 바뀜"(revokedAt)이 되어 더 이상 쓸 수 없고,
+     * 그 코드로 들어온 선생님에게는 410과 함께 새 링크를 받으라는 안내가 간다. 원장이 한 일이라 알림은 없다.
+     */
     @Transactional
     public ClassHomeroomInviteResponse issue(CurrentUser caller, UUID classId) {
         ClassGroup classGroup = classService.requireOwnedByDirector(caller, classId);
-        inviteRepository.deleteUnusedByClassGroupId(classGroup.getId());
         Instant now = Instant.now();
+        inviteRepository.revokeLiveByClassGroupId(classGroup.getId(), now);
         ClassHomeroomInvite saved = inviteRepository.save(ClassHomeroomInvite.builder()
                 .classGroup(classGroup)
                 .token(tokenGenerator.generate())
@@ -76,7 +85,8 @@ public class ClassHomeroomInviteService {
     public ClassHomeroomInviteResponse current(CurrentUser caller, UUID classId) {
         ClassGroup classGroup = classService.requireOwnedByDirector(caller, classId);
         return inviteRepository
-                .findFirstByClassGroup_IdAndUsedAtIsNullAndExpiresAtAfterOrderByCreatedAtDesc(classGroup.getId(), Instant.now())
+                .findFirstByClassGroup_IdAndUsedAtIsNullAndRevokedAtIsNullAndExpiresAtAfterOrderByCreatedAtDesc(
+                        classGroup.getId(), Instant.now())
                 .map(ClassHomeroomInviteResponse::of)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "지금 쓸 수 있는 담임 초대가 없어요.", 404));
     }
@@ -97,6 +107,9 @@ public class ClassHomeroomInviteService {
      * 선생님이 담임 초대를 수락한다 - TUTOR만. 기관에 아직 소속이 아니면 소속시키고(기관 초대 수락과 같은 규칙: 다른 기관에
      * 이미 소속돼 있어도 막지 않는다), 그 반의 담임으로 배정한 뒤 초대를 사용 처리한다. 이미 다른 담임이 있는 반이면 담임이
      * 바뀐다(원장이 담임 변경할 때와 같은 정책). 이미 이 선생님이 담임이면 초대만 사용 처리한다.
+     *
+     * <p>알림: 원장에게 "담임이 됐어요"(homeroom-invite-accepted), 새 담임과 이전 담임에게는 applyHomeroom이 보낸다.
+     * 기관 소속 알림(org-tutor-invite-accepted)은 보내지 않는다 - 같은 일로 원장에게 알림 두 개가 가지 않게.
      */
     @Transactional
     public ClassResponse accept(CurrentUser caller, String code) {
@@ -112,14 +125,29 @@ public class ClassHomeroomInviteService {
             throw ApiException.contractError(ErrorCode.INVALID_INVITE, "더 이상 사용할 수 없는 초대 코드예요.", 410);
         }
 
-        organizationTutorService.linkTutor(
-                classGroup.getOrganization(), tutor, "class-homeroom-invite-accepted:" + invite.getId());
-        ClassResponse response = classService.applyHomeroom(classGroup, tutor);
+        organizationTutorService.linkTutor(classGroup.getOrganization(), tutor, null);
+        boolean changed = classGroup.getTutor() == null || !classGroup.getTutor().getId().equals(tutor.getId());
+        ClassResponse response = classService.applyHomeroom(classGroup, tutor, invite.getId().toString());
+        if (changed) {
+            notifyDirector(classGroup, tutor, invite);
+        }
 
         invite.setUsedAt(Instant.now());
         invite.setUsedBy(tutor);
         inviteRepository.save(invite);
         return response;
+    }
+
+    private void notifyDirector(ClassGroup classGroup, AppUser tutor, ClassHomeroomInvite invite) {
+        userRepository
+                .findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(classGroup.getOrganization().getId(), Role.DIRECTOR)
+                .ifPresent(director -> notificationPublisher.publish(
+                        director.getId(),
+                        "homeroom-invite-accepted",
+                        NotificationText.title(tutor.getDisplayName() + " 선생님이 " + classGroup.getName() + " 담임이 됐어요"),
+                        "반 화면에서 담임과 학생 명단을 확인해 보세요.",
+                        "/organization/classes/" + classGroup.getId(),
+                        "homeroom-invite-accepted:" + invite.getId()));
     }
 
     private static String normalize(String code) {
@@ -134,9 +162,21 @@ public class ClassHomeroomInviteService {
         if (invite == null) {
             throw notFound();
         }
-        TokenValidation.requireUsable(invite.getUsedAt(), invite.getExpiresAt(),
-                ErrorCode.INVALID_INVITE, "만료되었거나 이미 사용된 담임 초대 코드예요.", 410);
+        // 이미 썼는지 → 새 코드로 바뀌었는지(만료 전에 바뀐 경우만) → 만료됐는지 순서로 알린다.
+        if (invite.getUsedAt() != null) {
+            throw gone(USED_DETAIL);
+        }
+        if (invite.getRevokedAt() != null && invite.getRevokedAt().isBefore(invite.getExpiresAt())) {
+            throw gone(REPLACED_DETAIL);
+        }
+        if (!invite.getExpiresAt().isAfter(Instant.now())) {
+            throw gone(EXPIRED_DETAIL);
+        }
         return invite;
+    }
+
+    private static ApiException gone(String detail) {
+        return ApiException.contractError(ErrorCode.INVALID_INVITE, detail, 410);
     }
 
     private static ApiException notFound() {

@@ -12,6 +12,7 @@ import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.service.ConsentService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
+import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassReportResponse;
 import com.qstory.backend.org.dto.ClassPreviewResponse;
@@ -68,6 +69,7 @@ public class ClassService {
     private final LessonRepository lessonRepository;
     private final ClassHomeroomHistoryService homeroomHistoryService;
     private final ConsentService consentService;
+    private final NotificationPublisher notificationPublisher;
 
     public ClassService(
             ClassGroupRepository classGroupRepository, TutorStudentRepository tutorStudentRepository,
@@ -76,8 +78,10 @@ public class ClassService {
             AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
             TutorStudentService tutorStudentService, UserSummaryFactory userSummaryFactory,
             StoryCompletionRepository storyCompletionRepository, LessonRepository lessonRepository,
-            ClassHomeroomHistoryService homeroomHistoryService, ConsentService consentService) {
+            ClassHomeroomHistoryService homeroomHistoryService, ConsentService consentService,
+            NotificationPublisher notificationPublisher) {
         this.consentService = consentService;
+        this.notificationPublisher = notificationPublisher;
         this.classGroupRepository = classGroupRepository;
         this.tutorStudentRepository = tutorStudentRepository;
         this.organizationTutorRepository = organizationTutorRepository;
@@ -157,16 +161,21 @@ public class ClassService {
             return ClassResponse.of(classGroup);
         }
         AppUser homeroom = requireOrganizationTutor(classGroup.getOrganization().getId(), tutorId);
-        return applyHomeroom(classGroup, homeroom);
+        // 원장이 직접 배정한 경우의 알림 중복 방지 키 - 배정 시각(같은 배정이 재시도로 두 번 발행돼도 하나만 남는다).
+        return applyHomeroom(classGroup, homeroom, "assign-" + Instant.now().toEpochMilli());
     }
 
     /**
      * 담임 배정·변경의 본체 - 원장의 배정(assignHomeroom)과 담임 초대 수락(ClassHomeroomInviteService)이 같이 쓴다.
      * 정책은 assignHomeroom 설명 그대로다(담임 이력, 명단 학생과 예정 수업 이관). 권한 확인과 "기관 소속 선생님인지"
-     * 확인은 호출하는 쪽이 먼저 한다. 이미 그 선생님이 담임이면 아무것도 바꾸지 않는다.
+     * 확인은 호출하는 쪽이 먼저 한다. 이미 그 선생님이 담임이면 아무것도 바꾸지 않는다(알림도 없다).
+     *
+     * <p>새 담임에게 "담임이 됐어요"(homeroom-assigned), 이전 담임이 있으면 그 선생님에게 "담임이 바뀌었어요"
+     * (homeroom-changed)를 보낸다. 원장 알림은 호출하는 쪽 몫이다 - 원장이 직접 배정했으면 보내지 않는다.
+     * eventKey는 알림 중복 방지 키의 끝부분(담임 초대 id 또는 배정 시각)이다.
      */
     @Transactional
-    public ClassResponse applyHomeroom(ClassGroup classGroup, AppUser homeroom) {
+    public ClassResponse applyHomeroom(ClassGroup classGroup, AppUser homeroom, String eventKey) {
         UUID classId = classGroup.getId();
         AppUser previous = classGroup.getTutor();
         if (previous != null && previous.getId().equals(homeroom.getId())) {
@@ -196,7 +205,29 @@ public class ClassService {
         if (previous != null) {
             transferScheduledLessons(classGroup, previous, homeroom, moved, now);
         }
+        notifyHomeroomChange(classGroup, previous, homeroom, eventKey);
         return ClassResponse.of(classGroup);
+    }
+
+    private void notifyHomeroomChange(ClassGroup classGroup, AppUser previous, AppUser homeroom, String eventKey) {
+        String className = classGroup.getName();
+        String orgName = classGroup.getOrganization() == null ? "" : classGroup.getOrganization().getName();
+        notificationPublisher.publish(
+                homeroom.getId(),
+                "homeroom-assigned",
+                NotificationText.title(className + " 담임이 됐어요"),
+                NotificationText.body((orgName + " " + className).trim() + " 수업과 리포트를 이 계정에서 볼 수 있어요."),
+                "/tutor/classes",
+                "homeroom-assigned:" + classGroup.getId() + ":" + homeroom.getId() + ":" + eventKey);
+        if (previous != null && previous.getDeletedAt() == null) {
+            notificationPublisher.publish(
+                    previous.getId(),
+                    "homeroom-changed",
+                    NotificationText.title(className + " 담임이 " + homeroom.getDisplayName() + " 선생님으로 바뀌었어요"),
+                    "지금까지 진행한 수업 기록은 그대로 남아 있어요.",
+                    "/tutor/classes",
+                    "homeroom-changed:" + classGroup.getId() + ":" + previous.getId() + ":" + eventKey);
+        }
     }
 
     /** 이전 담임의 이 반 예정 수업을 새 담임에게 넘긴다. 참여 학생 중 새 담임에게 넘어가지 못한 학생은 뺀다. */

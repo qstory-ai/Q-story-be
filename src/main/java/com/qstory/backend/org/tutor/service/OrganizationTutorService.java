@@ -185,7 +185,8 @@ public class OrganizationTutorService {
      *
      * <p>새 소속이 실제로 생긴 경우에만 원장에게 알림 - 이미 소속됐던 튜터가 초대를 재사용 시도한(=idempotent)
      * 경우엔 원장에게 스팸을 보내지 않는다. Organization은 owning director를 FK로 가지지 않으므로 role=DIRECTOR인
-     * 소속 사용자를 조회한다. notificationKey는 같은 알림이 두 번 가지 않게 하는 중복 방지 키다.
+     * 소속 사용자를 조회한다. notificationKey는 같은 알림이 두 번 가지 않게 하는 중복 방지 키다. null이면 소속 알림을
+     * 보내지 않는다 - 담임 초대 수락은 "담임이 됐어요" 알림 하나로 원장에게 알린다(같은 일로 알림 두 개가 가지 않게).
      */
     @Transactional
     public OrganizationTutor linkTutor(Organization organization, AppUser tutor, String notificationKey) {
@@ -199,6 +200,9 @@ public class OrganizationTutorService {
                 .tutor(tutor)
                 .joinedAt(Instant.now())
                 .build());
+        if (notificationKey == null) {
+            return link;
+        }
         userRepository
                 .findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(organization.getId(), Role.DIRECTOR)
                 .ifPresent(director -> notificationPublisher.publish(

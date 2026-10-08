@@ -21,7 +21,7 @@ import org.hibernate.annotations.UuidGenerator;
 
 /**
  * 반 담임 초대(db/schema/074). 선생님이 이 코드로 수락하면 기관에 소속되고 그 반의 담임이 된다. 1회용, 만료 14일.
- * 반마다 쓰지 않은 초대는 하나뿐이다 - 새로 발급하면 이전 것을 지운다.
+ * 반마다 살아 있는 초대는 하나뿐이다 - 새로 발급하면 이전 것에 revokedAt을 남긴다(새 코드로 바뀜).
  */
 @Entity
 @Table(name = "class_homeroom_invite")
@@ -66,4 +66,8 @@ public class ClassHomeroomInvite {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "used_by")
     private AppUser usedBy;
+
+    /** 원장이 새 코드를 발급해 이 초대가 바뀐 시각. 바뀌지 않았으면 null. */
+    @Column(name = "revoked_at")
+    private Instant revokedAt;
 }

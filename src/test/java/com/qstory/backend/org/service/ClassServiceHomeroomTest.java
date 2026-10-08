@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -19,6 +21,7 @@ import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
+import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.dto.ClassReportResponse;
 import com.qstory.backend.org.dto.ClassStudentReportResponse;
 import com.qstory.backend.org.entity.ClassGroup;
@@ -58,12 +61,13 @@ class ClassServiceHomeroomTest {
     private final StoryCompletionRepository storyCompletionRepository = mock(StoryCompletionRepository.class);
     private final LessonRepository lessonRepository = mock(LessonRepository.class);
     private final ClassHomeroomHistoryService historyService = mock(ClassHomeroomHistoryService.class);
+    private final NotificationPublisher notificationPublisher = mock(NotificationPublisher.class);
     private final ClassService service = new ClassService(
             classGroupRepository, tutorStudentRepository, organizationTutorRepository, mock(AppUserRepository.class),
             mock(OrganizationService.class), mock(JoinCodeGenerator.class), mock(AuthValidator.class),
             mock(PasswordEncoder.class), mock(JwtService.class), mock(TutorStudentService.class),
             mock(UserSummaryFactory.class), storyCompletionRepository, lessonRepository, historyService,
-            mock(com.qstory.backend.identity.service.ConsentService.class));
+            mock(com.qstory.backend.identity.service.ConsentService.class), notificationPublisher);
 
     private final Organization organization = Organization.builder().id(UUID.randomUUID()).name("햇살유치원").build();
     private final CurrentUser director = new CurrentUser(UUID.randomUUID(), Role.DIRECTOR, organization.getId());
@@ -134,6 +138,34 @@ class ClassServiceHomeroomTest {
 
         verify(historyService, never()).start(any(), any(), any());
         verify(tutorStudentRepository, never()).saveAll(any());
+        verify(notificationPublisher, never()).publish(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void directAssignmentNotifiesTheNewHomeroomOnly() {
+        service.assignHomeroom(director, classGroup.getId(), newTutor.getId());
+
+        verify(notificationPublisher).publish(eq(newTutor.getId()), eq("homeroom-assigned"), eq("햇님반 담임이 됐어요"),
+                eq("햇살유치원 햇님반 수업과 리포트를 이 계정에서 볼 수 있어요."), eq("/tutor/classes"),
+                startsWith("homeroom-assigned:" + classGroup.getId() + ":" + newTutor.getId() + ":assign-"));
+        verify(notificationPublisher, never()).publish(any(), eq("homeroom-changed"), any(), any(), any(), any());
+        // 원장이 직접 배정했으니 원장에게는 알리지 않는다.
+        verify(notificationPublisher, never()).publish(eq(director.userId()), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void directChangeAlsoNotifiesThePreviousHomeroom() {
+        classGroup.setTutor(oldTutor);
+        when(tutorStudentRepository.findByClassGroup_IdAndTutor_IdAndDeletedAtIsNullOrderByCreatedAtAsc(
+                classGroup.getId(), oldTutor.getId())).thenReturn(List.of());
+
+        service.assignHomeroom(director, classGroup.getId(), newTutor.getId());
+
+        verify(notificationPublisher).publish(eq(newTutor.getId()), eq("homeroom-assigned"), anyString(), anyString(),
+                eq("/tutor/classes"), anyString());
+        verify(notificationPublisher).publish(eq(oldTutor.getId()), eq("homeroom-changed"),
+                eq("햇님반 담임이 이선생 선생님으로 바뀌었어요"), anyString(), eq("/tutor/classes"),
+                startsWith("homeroom-changed:" + classGroup.getId() + ":" + oldTutor.getId() + ":assign-"));
     }
 
     @Test

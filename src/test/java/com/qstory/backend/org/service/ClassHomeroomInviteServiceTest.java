@@ -77,14 +77,14 @@ class ClassHomeroomInviteServiceTest {
             mock(OrganizationService.class), new JoinCodeGenerator(), mock(AuthValidator.class),
             mock(PasswordEncoder.class), mock(JwtService.class), mock(TutorStudentService.class),
             mock(UserSummaryFactory.class), mock(StoryCompletionRepository.class), lessonRepository, historyService,
-            mock(ConsentService.class));
+            mock(ConsentService.class), notificationPublisher);
     private final OrganizationTutorService organizationTutorService = new OrganizationTutorService(
             organizationTutorRepository, mock(OrganizationTutorInviteRepository.class), mock(OrganizationRepository.class),
             userRepository, new SecureTokenGenerator(), new JoinCodeGenerator(), notificationPublisher,
             classGroupRepository, tutorStudentRepository, lessonRepository, historyService);
     private final ClassHomeroomInviteService service = new ClassHomeroomInviteService(
             inviteRepository, classService, organizationTutorService, userRepository,
-            new SecureTokenGenerator(), new JoinCodeGenerator());
+            new SecureTokenGenerator(), new JoinCodeGenerator(), notificationPublisher);
 
     private final Organization organization = Organization.builder().id(UUID.randomUUID()).name("햇살유치원").build();
     private final AppUser directorUser = AppUser.builder().id(UUID.randomUUID()).role(Role.DIRECTOR)
@@ -115,11 +115,11 @@ class ClassHomeroomInviteServiceTest {
     /* ---------------------------------------------------------- issue */
 
     @Test
-    void issuingDeletesThePreviousUnusedInviteBeforeSavingTheNewOne() {
+    void issuingRevokesThePreviousLiveInviteBeforeSavingTheNewOne() {
         ClassHomeroomInviteResponse response = service.issue(director, classGroup.getId());
 
         InOrder order = inOrder(inviteRepository);
-        order.verify(inviteRepository).deleteUnusedByClassGroupId(classGroup.getId());
+        order.verify(inviteRepository).revokeLiveByClassGroupId(eq(classGroup.getId()), any());
         ArgumentCaptor<ClassHomeroomInvite> saved = ArgumentCaptor.forClass(ClassHomeroomInvite.class);
         order.verify(inviteRepository).save(saved.capture());
 
@@ -138,7 +138,8 @@ class ClassHomeroomInviteServiceTest {
         ClassHomeroomInviteResponse second = service.issue(director, classGroup.getId());
 
         assertTrue(!first.shortCode().equals(second.shortCode()) && !first.token().equals(second.token()));
-        verify(inviteRepository, org.mockito.Mockito.times(2)).deleteUnusedByClassGroupId(classGroup.getId());
+        verify(inviteRepository, org.mockito.Mockito.times(2)).revokeLiveByClassGroupId(eq(classGroup.getId()), any());
+        verify(notificationPublisher, never()).publish(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -148,13 +149,13 @@ class ClassHomeroomInviteServiceTest {
             ApiException error = assertThrows(ApiException.class, () -> service.issue(caller, classGroup.getId()));
             assertEquals(403, error.statusCode());
         }
-        verify(inviteRepository, never()).deleteUnusedByClassGroupId(any());
+        verify(inviteRepository, never()).revokeLiveByClassGroupId(any(), any());
         verify(inviteRepository, never()).save(any());
     }
 
     @Test
     void currentIs404WhenThereIsNoActiveInvite() {
-        when(inviteRepository.findFirstByClassGroup_IdAndUsedAtIsNullAndExpiresAtAfterOrderByCreatedAtDesc(
+        when(inviteRepository.findFirstByClassGroup_IdAndUsedAtIsNullAndRevokedAtIsNullAndExpiresAtAfterOrderByCreatedAtDesc(
                 eq(classGroup.getId()), any())).thenReturn(Optional.empty());
 
         ApiException error = assertThrows(ApiException.class, () -> service.current(director, classGroup.getId()));
@@ -164,7 +165,7 @@ class ClassHomeroomInviteServiceTest {
     @Test
     void currentReturnsTheActiveInvite() {
         ClassHomeroomInvite invite = invite(null, Instant.now().plus(Duration.ofDays(3)));
-        when(inviteRepository.findFirstByClassGroup_IdAndUsedAtIsNullAndExpiresAtAfterOrderByCreatedAtDesc(
+        when(inviteRepository.findFirstByClassGroup_IdAndUsedAtIsNullAndRevokedAtIsNullAndExpiresAtAfterOrderByCreatedAtDesc(
                 eq(classGroup.getId()), any())).thenReturn(Optional.of(invite));
 
         ClassHomeroomInviteResponse response = service.current(director, classGroup.getId());
@@ -199,10 +200,42 @@ class ClassHomeroomInviteServiceTest {
         ApiException expiredError = assertThrows(ApiException.class, () -> service.preview("ABCD2345"));
         assertEquals(410, expiredError.statusCode());
         assertEquals(ErrorCode.INVALID_INVITE, expiredError.code());
+        assertEquals("초대 코드 기한이 지났어요. 원장 선생님께 새 링크를 받아 주세요.", expiredError.safeDetail());
 
         ClassHomeroomInvite used = invite(Instant.now(), Instant.now().plus(Duration.ofDays(3)));
         when(inviteRepository.findByShortCode("ABCD2345")).thenReturn(Optional.of(used));
-        assertEquals(410, assertThrows(ApiException.class, () -> service.preview("ABCD2345")).statusCode());
+        ApiException usedError = assertThrows(ApiException.class, () -> service.preview("ABCD2345"));
+        assertEquals(410, usedError.statusCode());
+        assertEquals("이미 사용한 초대 코드예요.", usedError.safeDetail());
+    }
+
+    @Test
+    void replacedCodeIs410WithReplacedMessage() {
+        ClassHomeroomInvite replaced = invite(null, Instant.now().plus(Duration.ofDays(3)));
+        replaced.setRevokedAt(Instant.now().minusSeconds(60));
+        when(inviteRepository.findByShortCode("ABCD2345")).thenReturn(Optional.of(replaced));
+        when(inviteRepository.lockByShortCode("ABCD2345")).thenReturn(Optional.of(replaced));
+        String detail = "새 코드로 바뀌어서 이 초대 코드는 쓸 수 없어요. 원장 선생님께 새 링크를 받아 주세요.";
+
+        ApiException previewError = assertThrows(ApiException.class, () -> service.preview("ABCD2345"));
+        assertEquals(410, previewError.statusCode());
+        assertEquals(detail, previewError.safeDetail());
+        ApiException acceptError = assertThrows(ApiException.class, () -> service.accept(tutorCaller, "ABCD2345"));
+        assertEquals(410, acceptError.statusCode());
+        assertEquals(detail, acceptError.safeDetail());
+        assertNull(classGroup.getTutor());
+        verify(notificationPublisher, never()).publish(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void codeReplacedAfterItExpiredSaysExpired() {
+        Instant expiresAt = Instant.now().minus(Duration.ofDays(1));
+        ClassHomeroomInvite invite = invite(null, expiresAt);
+        invite.setRevokedAt(expiresAt.plusSeconds(60));
+        when(inviteRepository.findByShortCode("ABCD2345")).thenReturn(Optional.of(invite));
+
+        assertEquals("초대 코드 기한이 지났어요. 원장 선생님께 새 링크를 받아 주세요.",
+                assertThrows(ApiException.class, () -> service.preview("ABCD2345")).safeDetail());
     }
 
     /* ---------------------------------------------------------- accept */
@@ -222,8 +255,15 @@ class ClassHomeroomInviteServiceTest {
         verify(organizationTutorRepository).save(link.capture());
         assertSame(organization, link.getValue().getOrganization());
         assertSame(newTutor, link.getValue().getTutor());
-        verify(notificationPublisher).publish(eq(directorUser.getId()), eq("org-tutor-invite-accepted"),
-                anyString(), anyString(), anyString(), eq("class-homeroom-invite-accepted:" + invite.getId()));
+        // 원장에게는 "담임이 됐어요" 하나만 - 기관 소속 알림은 따로 보내지 않는다.
+        verify(notificationPublisher).publish(directorUser.getId(), "homeroom-invite-accepted",
+                "이선생 선생님이 햇님반 담임이 됐어요", "반 화면에서 담임과 학생 명단을 확인해 보세요.",
+                "/organization/classes/" + classGroup.getId(), "homeroom-invite-accepted:" + invite.getId());
+        verify(notificationPublisher, never()).publish(any(), eq("org-tutor-invite-accepted"), any(), any(), any(), any());
+        verify(notificationPublisher).publish(newTutor.getId(), "homeroom-assigned", "햇님반 담임이 됐어요",
+                "햇살유치원 햇님반 수업과 리포트를 이 계정에서 볼 수 있어요.", "/tutor/classes",
+                "homeroom-assigned:" + classGroup.getId() + ":" + newTutor.getId() + ":" + invite.getId());
+        verify(notificationPublisher, never()).publish(any(), eq("homeroom-changed"), any(), any(), any(), any());
 
         assertSame(newTutor, classGroup.getTutor());
         assertEquals(newTutor.getId(), response.tutorId());
@@ -245,9 +285,24 @@ class ClassHomeroomInviteServiceTest {
         service.accept(tutorCaller, "ABCD2345");
 
         verify(organizationTutorRepository, never()).save(any());
-        verify(notificationPublisher, never()).publish(any(), any(), any(), any(), any(), any());
+        verify(notificationPublisher, never()).publish(any(), eq("org-tutor-invite-accepted"), any(), any(), any(), any());
         assertSame(newTutor, classGroup.getTutor());
         assertNotNull(invite.getUsedAt());
+    }
+
+    @Test
+    void acceptingWhenAlreadyHomeroomOnlyMarksUsed() {
+        when(organizationTutorRepository.findByOrganization_IdAndTutor_Id(organization.getId(), newTutor.getId()))
+                .thenReturn(Optional.of(OrganizationTutor.builder().organization(organization).tutor(newTutor).build()));
+        classGroup.setTutor(newTutor);
+        ClassHomeroomInvite invite = invite(null, Instant.now().plus(Duration.ofDays(3)));
+        when(inviteRepository.lockByShortCode("ABCD2345")).thenReturn(Optional.of(invite));
+
+        service.accept(tutorCaller, "ABCD2345");
+
+        assertNotNull(invite.getUsedAt());
+        verify(historyService, never()).start(any(), any(), any());
+        verify(notificationPublisher, never()).publish(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -263,6 +318,11 @@ class ClassHomeroomInviteServiceTest {
 
         assertSame(newTutor, classGroup.getTutor());
         verify(historyService).start(eq(classGroup), eq(newTutor), any());
+        verify(notificationPublisher).publish(oldTutor.getId(), "homeroom-changed", "햇님반 담임이 이선생 선생님으로 바뀌었어요",
+                "지금까지 진행한 수업 기록은 그대로 남아 있어요.", "/tutor/classes",
+                "homeroom-changed:" + classGroup.getId() + ":" + oldTutor.getId() + ":" + invite.getId());
+        verify(notificationPublisher).publish(eq(directorUser.getId()), eq("homeroom-invite-accepted"),
+                any(), any(), any(), any());
     }
 
     @Test
