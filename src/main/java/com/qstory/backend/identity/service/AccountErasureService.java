@@ -1,6 +1,7 @@
 package com.qstory.backend.identity.service;
 
 import com.qstory.backend.bookmark.repository.BookmarkRepository;
+import com.qstory.backend.common.util.StorageDeletionRetry;
 import com.qstory.backend.common.util.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.conversationrecord.repository.ConversationRecordRepository;
@@ -70,6 +71,7 @@ public class AccountErasureService {
     private final OrganizationTutorRepository organizationTutorRepository;
     private final OrganizationTutorService organizationTutorService;
     private final SupabaseStorageClient storageClient;
+    private final StorageDeletionRetry storageDeletionRetry;
     private final AppProperties config;
 
     public AccountErasureService(
@@ -83,7 +85,7 @@ public class AccountErasureService {
             ClassGroupRepository classGroupRepository, ClassHomeroomHistoryRepository homeroomHistoryRepository,
             OrganizationTutorRepository organizationTutorRepository,
             OrganizationTutorService organizationTutorService, SupabaseStorageClient storageClient,
-            AppProperties config) {
+            StorageDeletionRetry storageDeletionRetry, AppProperties config) {
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.bookmarkRepository = bookmarkRepository;
@@ -100,6 +102,7 @@ public class AccountErasureService {
         this.organizationTutorRepository = organizationTutorRepository;
         this.organizationTutorService = organizationTutorService;
         this.storageClient = storageClient;
+        this.storageDeletionRetry = storageDeletionRetry;
         this.config = config;
     }
 
@@ -191,7 +194,10 @@ public class AccountErasureService {
         user.setDeletedAt(now);
     }
 
-    /** 저장소 삭제는 되돌릴 수 없으니 커밋 뒤에 한다. 실패해도 컬럼은 이미 비어 있어 다시 노출되지 않는다. */
+    /**
+     * 저장소 삭제는 되돌릴 수 없으니 커밋 뒤에 한다. 실패해도 컬럼은 이미 비어 있어 다시 노출되지 않지만, 파일은 지워야 하므로
+     * 다시 시도 목록에 넣는다(StorageDeletionRetry가 한 시간마다 다시 지운다).
+     */
     private void deleteProfileImageAfterCommit(UUID userId, String objectName) {
         if (objectName == null || !objectName.startsWith("profiles/" + userId + "/")) {
             return;
@@ -204,7 +210,8 @@ public class AccountErasureService {
         }
         Runnable delete = () -> {
             if (!storageClient.delete(supabase.profileImageBucket(), objectName)) {
-                log.warn("account-delete.profile-image-delete-failed userId={} object={}", userId, objectName);
+                log.warn("account-delete.profile-image-delete-failed userId={} object={} retry=queued", userId, objectName);
+                storageDeletionRetry.enqueue(supabase.profileImageBucket(), objectName);
             }
         };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {

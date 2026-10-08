@@ -62,11 +62,13 @@ class AccountErasureServiceTest {
     private final OrganizationTutorService orgTutorService = mock(OrganizationTutorService.class);
     private final SupabaseStorageClient storage = mock(SupabaseStorageClient.class);
     private final AppProperties config = mock(AppProperties.class);
+    private final com.qstory.backend.common.util.StorageDeletionRetry deletionRetry =
+            mock(com.qstory.backend.common.util.StorageDeletionRetry.class);
 
     private final AccountErasureService service = new AccountErasureService(
             users, resetTokens, bookmarks, notifications, notificationSettings, improvementFeedback,
             conversationRecords, completions, children, students, lessons, classGroups, homeroomHistory,
-            orgTutors, orgTutorService, storage, config);
+            orgTutors, orgTutorService, storage, deletionRetry, config);
 
     private AppUser user(Role role) {
         return AppUser.builder()
@@ -207,12 +209,27 @@ class AccountErasureServiceTest {
         tutor.setProfileImageObjectName(objectName);
         tutor.setProfileImageUrl("https://x/" + objectName);
         when(config.supabase()).thenReturn(new AppProperties.Supabase("u", "k", null, null, null, null, "profile-images"));
+        when(storage.delete("profile-images", objectName)).thenReturn(true);
 
         service.erase(tutor);
 
         verify(storage).delete("profile-images", objectName);
         assertNull(tutor.getProfileImageObjectName());
         assertNull(tutor.getProfileImageUrl());
+        verify(deletionRetry, never()).enqueue(anyString(), anyString());
+    }
+
+    @Test
+    void failedProfileImageDeleteIsQueuedForRetry() {
+        AppUser tutor = user(Role.TUTOR);
+        String objectName = "profiles/" + tutor.getId() + "/a.png";
+        tutor.setProfileImageObjectName(objectName);
+        when(config.supabase()).thenReturn(new AppProperties.Supabase("u", "k", null, null, null, null, "profile-images"));
+        when(storage.delete("profile-images", objectName)).thenReturn(false);
+
+        service.erase(tutor);
+
+        verify(deletionRetry).enqueue("profile-images", objectName);
     }
 
     @Test

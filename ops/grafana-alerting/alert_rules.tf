@@ -20,7 +20,7 @@
 #
 # severity 라벨은 실제 파급도 기준:
 #   critical - 이용자에게 5xx가 나가거나 시스템 전체가 흔들리는 것: gemini-tts.empty-audio(실장애 이력),
-#              uncaught-5xx, db-pool-exhaustion
+#              uncaught-5xx, server-5xx-ratio, db-pool-exhaustion
 #   warning  - 개별 요청 실패지만 상위 파이프라인이 폴백/재시도로 흡수 가능: openrouter/rtzr 프로바이더 실패,
 #              ERROR 급증(전조), retention 스케줄러(하루 지연 허용).
 # 라우팅은 아직 단일 Discord contact point이지만, severity 라벨을 붙여두면 이후 notification policy로 채널을
@@ -77,6 +77,18 @@ locals {
       EOT
       logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"request.failed\" [5m]))"
       threshold   = var.uncaught_5xx_threshold
+    }
+    # 건수 규칙(uncaught-5xx)은 트래픽이 많을 때 늦고 적을 때 예민하다 - 요청 대비 비율로 한 번 더 본다.
+    # 요청이 적은 시간(5분에 ${var.server_5xx_min_requests}건 미만)에는 한두 건으로 비율이 튀므로 보지 않는다.
+    server-5xx-ratio = {
+      severity    = "critical"
+      summary     = "API 응답 중 5xx 비율이 5분간 ${var.server_5xx_ratio_threshold * 100}%를 넘었어요."
+      description = <<-EOT
+        http.request 로그의 status=5xx / 전체 요청. 처리된 5xx(외부 AI·음성 장애로 503 등)까지 포함하므로
+        uncaught-5xx가 함께 울리지 않으면 의존 서비스 장애 쪽을 먼저 본다.
+      EOT
+      logql       = "(sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"http.request\" |~ \"status=5[0-9][0-9]\" [5m])) / sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"http.request\" [5m]))) and (sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"http.request\" [5m])) >= ${var.server_5xx_min_requests})"
+      threshold   = var.server_5xx_ratio_threshold
     }
     db-pool-exhaustion = {
       severity    = "critical"
