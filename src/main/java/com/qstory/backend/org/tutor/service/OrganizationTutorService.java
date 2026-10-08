@@ -1,5 +1,6 @@
 package com.qstory.backend.org.tutor.service;
 
+import com.qstory.backend.common.util.TeacherName;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
@@ -208,7 +209,7 @@ public class OrganizationTutorService {
                 .ifPresent(director -> notificationPublisher.publish(
                         director.getId(),
                         "org-tutor-invite-accepted",
-                        tutor.getDisplayName() + " 선생님이 소속을 수락했어요",
+                        TeacherName.of(tutor.getDisplayName()) + "이 소속을 수락했어요",
                         organization.getName() + " 소속 선생님 목록에 추가됐어요.",
                         "/organization/tutors",
                         notificationKey));

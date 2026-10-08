@@ -1,5 +1,6 @@
 package com.qstory.backend.org.service;
 
+import com.qstory.backend.common.util.TeacherName;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.Role;
@@ -223,7 +224,7 @@ public class ClassService {
             notificationPublisher.publish(
                     previous.getId(),
                     "homeroom-changed",
-                    NotificationText.title(className + " 담임이 " + homeroom.getDisplayName() + " 선생님으로 바뀌었어요"),
+                    NotificationText.title(className + " 담임이 " + TeacherName.of(homeroom.getDisplayName()) + "으로 바뀌었어요"),
                     "지금까지 진행한 수업 기록은 그대로 남아 있어요.",
                     "/tutor/classes",
                     "homeroom-changed:" + classGroup.getId() + ":" + previous.getId() + ":" + eventKey);

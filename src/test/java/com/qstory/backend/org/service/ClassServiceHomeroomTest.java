@@ -164,7 +164,7 @@ class ClassServiceHomeroomTest {
         verify(notificationPublisher).publish(eq(newTutor.getId()), eq("homeroom-assigned"), anyString(), anyString(),
                 eq("/tutor/classes"), anyString());
         verify(notificationPublisher).publish(eq(oldTutor.getId()), eq("homeroom-changed"),
-                eq("햇님반 담임이 이선생 선생님으로 바뀌었어요"), anyString(), eq("/tutor/classes"),
+                eq("햇님반 담임이 이선생님으로 바뀌었어요"), anyString(), eq("/tutor/classes"),
                 startsWith("homeroom-changed:" + classGroup.getId() + ":" + oldTutor.getId() + ":assign-"));
     }
 
