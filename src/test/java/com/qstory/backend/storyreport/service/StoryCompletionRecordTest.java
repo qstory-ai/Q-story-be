@@ -20,6 +20,7 @@ import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.entity.ClassGroup;
+import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.parent.child.repository.ChildRepository;
 import com.qstory.backend.storyreport.dto.RecordStoryCompletionRequest;
 import com.qstory.backend.storyreport.dto.StoryCompletionSummary;
@@ -90,6 +91,26 @@ class StoryCompletionRecordTest {
         verify(notificationPublisher, times(2)).publish(
                 any(UUID.class), eq("tutor-report"), eq("햇님반 수업 기록이 도착했어요"), anyString(),
                 eq("/reports/" + completion.getId()), eq("tutor-report:" + completion.getId()));
+    }
+
+    @Test
+    void organizationClassLessonAlsoNotifiesTheDirector() {
+        Organization org = Organization.builder().id(UUID.randomUUID()).name("햇살유치원").build();
+        ClassGroup sunClass = ClassGroup.builder().id(UUID.randomUUID()).name("햇살반").organization(org).build();
+        AppUser director = AppUser.builder().id(UUID.randomUUID()).displayName("원장").build();
+        when(userRepository.findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(org.getId(), Role.DIRECTOR))
+                .thenReturn(Optional.of(director));
+        Lesson lesson = lesson(sunClass, student("민서", parent()));
+
+        service.record(caller, request(lesson.getId()));
+
+        ArgumentCaptor<StoryCompletion> saved = ArgumentCaptor.forClass(StoryCompletion.class);
+        verify(repository).save(saved.capture());
+        UUID completionId = saved.getValue().getId();
+        verify(notificationPublisher).publish(
+                eq(director.getId()), eq("class-report"), eq("햇살반 수업 기록이 도착했어요"),
+                eq("김선생 선생님이 수업을 마쳤어요. 반 리포트에서 확인해 보세요."),
+                eq("/organization/classes/" + sunClass.getId()), eq("class-report:" + completionId));
     }
 
     @Test
