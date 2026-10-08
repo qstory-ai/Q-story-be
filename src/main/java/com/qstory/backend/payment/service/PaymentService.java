@@ -71,7 +71,7 @@ public class PaymentService {
             }
             amount = config.payments().toss().parentMonthlyAmount();
             unitAmount = amount;
-            orderName = "Q-Story 보호자 이용권 (30일)";
+            orderName = "Q-Story 보호자 이용권 (" + accessDuration().toDays() + "일)";
         } else {
             organization = requireDirectorOrganization(caller, "기관 이용권은 기관 관리자만 결제할 수 있어요.");
             unitAmount = config.payments().toss().organizationStudentMonthlyAmount();

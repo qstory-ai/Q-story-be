@@ -76,6 +76,23 @@ class PaymentServiceOrganizationTest {
     }
 
     @Test
+    void parentOrderNameUsesConfiguredAccessDays() {
+        CurrentUser parent = new CurrentUser(UUID.randomUUID(), Role.PARENT, null);
+        when(config.payments()).thenReturn(new AppProperties.Payments(
+                new AppProperties.Toss("secret", 9900, UNIT, 7)));
+        when(userRepository.findByIdAndDeletedAtIsNull(parent.userId()))
+                .thenReturn(Optional.of(AppUser.builder().id(parent.userId()).role(Role.PARENT).build()));
+        when(paymentOrderRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        PaymentService service = new PaymentService(
+                paymentOrderRepository, userRepository, organizationRepository, tutorStudentRepository,
+                tossPaymentsClient, config);
+
+        PaymentOrderResponse order = service.create(parent, new CreatePaymentOrderRequest(PaymentOrderTarget.PARENT));
+
+        assertEquals("Q-Story 보호자 이용권 (7일)", order.orderName());
+    }
+
+    @Test
     void orderIsRefusedWhenThePerStudentAmountIsNotConfigured() {
         PaymentService service = serviceWithUnit(0);
         when(tutorStudentRepository.countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(orgId)).thenReturn(12L);
