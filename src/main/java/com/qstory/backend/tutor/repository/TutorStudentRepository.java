@@ -27,56 +27,82 @@ public interface TutorStudentRepository extends JpaRepository<TutorStudent, UUID
     /** 반 수업을 만들 때 그 반의 학생을 참여 학생으로 자동 채운다(LessonService). */
     List<TutorStudent> findByClassGroup_IdAndTutor_IdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID classGroupId, UUID tutorId);
 
-    /** 반 상세의 학생 명단 - 담임이 없는 반의 학생도 포함한다. */
-    List<TutorStudent> findByClassGroup_IdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID classGroupId);
+    /** 반 상세의 학생 명단(지금 학생) - 담임이 없는 반의 학생도 포함하고, 졸업한 학생(076)은 뺀다. */
+    @Query("select s from TutorStudent s where s.classGroup.id = :classGroupId and s.deletedAt is null "
+            + "and s.graduatedAt is null order by s.createdAt asc")
+    List<TutorStudent> findByClassGroup_IdAndDeletedAtIsNullOrderByCreatedAtAsc(@Param("classGroupId") UUID classGroupId);
 
     /** 기관 리포트의 반별 인원수 - [classGroupId, count] 행. 학생이 없는 반은 결과에 없다. */
     @Query("select s.classGroup.id, count(s) from TutorStudent s "
-            + "where s.classGroup.organization.id = :organizationId and s.deletedAt is null group by s.classGroup.id")
+            + "where s.classGroup.organization.id = :organizationId and s.deletedAt is null and s.graduatedAt is null "
+            + "group by s.classGroup.id")
     List<Object[]> countByClassGroupInOrganization(@Param("organizationId") UUID organizationId);
 
-    /** 담임이 배정되기 전에 들어온 학생 - 배정하면 이 학생들이 담임의 학생이 된다(ClassService.assignHomeroom). */
-    List<TutorStudent> findByClassGroup_IdAndTutorIsNullAndDeletedAtIsNull(UUID classGroupId);
+    /**
+     * 담임이 배정되기 전에 들어온 학생 - 배정하면 이 학생들이 담임의 학생이 된다(ClassService.assignHomeroom). 졸업한
+     * 학생(076)도 담임이 비어 있지만 새 담임에게 넘기지 않는다.
+     */
+    @Query("select s from TutorStudent s where s.classGroup.id = :classGroupId and s.tutor is null "
+            + "and s.deletedAt is null and s.graduatedAt is null")
+    List<TutorStudent> findByClassGroup_IdAndTutorIsNullAndDeletedAtIsNull(@Param("classGroupId") UUID classGroupId);
 
-    boolean existsByClassGroup_IdAndChild_IdAndDeletedAtIsNull(UUID classGroupId, UUID childId);
+    /** 이 아이가 이 반의 지금 학생인가 - 졸업한 학생(076)은 세지 않는다(같은 반에 다시 들어올 수 있다). */
+    @Query("select case when count(s) > 0 then true else false end from TutorStudent s "
+            + "where s.classGroup.id = :classGroupId and s.child.id = :childId "
+            + "and s.deletedAt is null and s.graduatedAt is null")
+    boolean existsByClassGroup_IdAndChild_IdAndDeletedAtIsNull(
+            @Param("classGroupId") UUID classGroupId, @Param("childId") UUID childId);
+
+    /** 반 옮기기(076) - 이 선생님의 다른 학생 등록이 같은 아이를 이미 가리키는가((tutor_id, child_id) 유니크). */
+    boolean existsByTutor_IdAndChild_IdAndDeletedAtIsNullAndIdNot(UUID tutorId, UUID childId, UUID id);
 
     /** 학부모가 자기 아이가 들어가 있는 반을 볼 때(ClassService.listMemberships). */
     List<TutorStudent> findByLinkedParentUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID parentUserId);
 
-    /** 기관 사용 현황 - 기관 반에 올라 있는 학생 수. */
-    long countByClassGroup_Organization_IdAndDeletedAtIsNull(UUID organizationId);
+    /** 기관 사용 현황 - 기관 반에 올라 있는 학생 수. 졸업한 학생(076)은 세지 않는다. */
+    @Query("select count(s) from TutorStudent s where s.classGroup.organization.id = :organizationId "
+            + "and s.deletedAt is null and s.graduatedAt is null")
+    long countByClassGroup_Organization_IdAndDeletedAtIsNull(@Param("organizationId") UUID organizationId);
 
     /** 기관 사용 현황 - 기관 반 학생에 연결된 학부모 수(중복 제외). */
     @Query("select count(distinct s.linkedParentUser.id) from TutorStudent s "
-            + "where s.classGroup.organization.id = :organizationId and s.deletedAt is null and s.linkedParentUser is not null")
+            + "where s.classGroup.organization.id = :organizationId and s.deletedAt is null and s.graduatedAt is null "
+            + "and s.linkedParentUser is not null")
     long countLinkedParentsByOrganization(@Param("organizationId") UUID organizationId);
 
     /** 학부모의 이용권 근거 - 이 부모의 아이가 들어가 있는 기관 반과 그 기관(EntitlementService). */
     @Query("select new com.qstory.backend.tutor.repository.ParentClassSeat(s.id, coalesce(s.linkedAt, s.createdAt), o) "
             + "from TutorStudent s join s.classGroup c join c.organization o "
-            + "where s.linkedParentUser.id = :parentUserId and s.deletedAt is null")
+            + "where s.linkedParentUser.id = :parentUserId and s.deletedAt is null and s.graduatedAt is null")
     List<ParentClassSeat> findClassSeatsOfParent(@Param("parentUserId") UUID parentUserId);
 
     /**
      * 기관 이용권의 과금 대상 - 기관 반에 올라 있고 학부모가 연결된 학생. 기관 이용권의 혜택(학부모의 이야기 이용)은
-     * 학부모가 연결돼야 생기므로, 초대만 받고 연결 전이거나 학부모가 반에서 뺀 학생은 세지 않는다.
+     * 학부모가 연결돼야 생기므로, 초대만 받고 연결 전이거나 학부모가 반에서 뺀 학생은 세지 않는다. 졸업한 학생(076)도
+     * 세지 않는다.
      */
-    long countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(UUID organizationId);
+    @Query("select count(s) from TutorStudent s where s.classGroup.organization.id = :organizationId "
+            + "and s.deletedAt is null and s.graduatedAt is null and s.linkedParentUser is not null")
+    long countByClassGroup_Organization_IdAndDeletedAtIsNullAndLinkedParentUserIsNotNull(
+            @Param("organizationId") UUID organizationId);
 
     /**
      * 기관 안에서 이 학생보다 먼저 학부모가 연결된 과금 대상 학생 수 - 결제한 인원 안에 드는지(순번) 판단한다. 등록
      * 순서가 아니라 연결 순서라서, 오래전에 등록만 해 둔 학생이 나중에 연결돼도 이미 이용 중인 학부모를 밀어내지 않는다.
      */
     @Query("select count(s) from TutorStudent s where s.classGroup.organization.id = :organizationId "
-            + "and s.deletedAt is null and s.linkedParentUser is not null "
+            + "and s.deletedAt is null and s.graduatedAt is null and s.linkedParentUser is not null "
             + "and (coalesce(s.linkedAt, s.createdAt) < :linkedAt "
             + "or (coalesce(s.linkedAt, s.createdAt) = :linkedAt and s.id < :studentId))")
     long countEarlierInOrganization(
             @Param("organizationId") UUID organizationId, @Param("linkedAt") Instant linkedAt,
             @Param("studentId") UUID studentId);
 
-    /** 반 코드로 들어온 학부모를 선생님이 미리 올려 둔(아직 학부모가 없는) 학생에 잇기 위한 후보. */
-    List<TutorStudent> findByClassGroup_IdAndLinkedParentUserIsNullAndDeletedAtIsNull(UUID classGroupId);
+    /** 반 코드로 들어온 학부모를 선생님이 미리 올려 둔(아직 학부모가 없는) 학생에 잇기 위한 후보. 졸업한 학생(076)은 뺀다. */
+    @Query("select s from TutorStudent s where s.classGroup.id = :classGroupId and s.linkedParentUser is null "
+            + "and s.deletedAt is null and s.graduatedAt is null")
+    List<TutorStudent> findByClassGroup_IdAndLinkedParentUserIsNullAndDeletedAtIsNull(
+            @Param("classGroupId") UUID classGroupId);
 
     boolean existsByTutor_IdAndChild_IdAndDeletedAtIsNull(UUID tutorId, UUID childId);
 
@@ -103,4 +129,13 @@ public interface TutorStudentRepository extends JpaRepository<TutorStudent, UUID
     @Query("delete from TutorStudent s where s.classGroup.id in "
             + "(select g.id from ClassGroup g where g.tutor.id = :tutorId and g.organization is null)")
     int deleteStudentsOfPersonalClasses(@Param("tutorId") UUID tutorId);
+
+    /**
+     * 회원 탈퇴 - 기관 없는 개인 반의 학생 반 이력(076). 학생을 지우면 이력도 같이 지워지지만(cascade), 반 쪽에는
+     * cascade가 없어 반을 지우기 전에 남은 이력을 먼저 비운다.
+     */
+    @Modifying
+    @Query("delete from TutorStudentClassHistory h where h.classGroup.id in "
+            + "(select g.id from ClassGroup g where g.tutor.id = :tutorId and g.organization is null)")
+    int deleteClassHistoryOfPersonalClasses(@Param("tutorId") UUID tutorId);
 }

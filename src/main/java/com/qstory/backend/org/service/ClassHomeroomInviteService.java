@@ -68,6 +68,7 @@ public class ClassHomeroomInviteService {
     @Transactional
     public ClassHomeroomInviteResponse issue(CurrentUser caller, UUID classId) {
         ClassGroup classGroup = classService.requireOwnedByDirector(caller, classId);
+        ClassService.requireNotArchived(classGroup);
         Instant now = Instant.now();
         inviteRepository.revokeLiveByClassGroupId(classGroup.getId(), now);
         ClassHomeroomInvite saved = inviteRepository.save(ClassHomeroomInvite.builder()
@@ -162,6 +163,10 @@ public class ClassHomeroomInviteService {
     private static ClassHomeroomInvite requireUsable(ClassHomeroomInvite invite) {
         if (invite == null) {
             throw notFound();
+        }
+        // 지난 반(076)이면 초대가 살아 있었어도 들어갈 수 없다 - 반 코드와 같은 안내.
+        if (invite.getClassGroup() != null && invite.getClassGroup().isArchived()) {
+            throw gone(ClassService.ARCHIVED_JOIN_DETAIL);
         }
         // 이미 썼는지 → 새 코드로 바뀌었는지(만료 전에 바뀐 경우만) → 만료됐는지 순서로 알린다.
         if (invite.getUsedAt() != null) {

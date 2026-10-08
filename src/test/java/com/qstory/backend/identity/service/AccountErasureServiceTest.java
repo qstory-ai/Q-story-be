@@ -253,6 +253,8 @@ class AccountErasureServiceTest {
         // 반을 먼저 지우면 tutor_student.class_group_id가 set null로 비어 반 id로 학생을 찾지 못한다.
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(students, homeroomHistory, classGroups);
         order.verify(students).deleteStudentsOfPersonalClasses(tutor.getId());
+        // 학생 반 이력(076)은 반 쪽 cascade가 없어 반보다 먼저 비운다.
+        order.verify(students).deleteClassHistoryOfPersonalClasses(tutor.getId());
         order.verify(classGroups).deletePersonalClassesOf(tutor.getId());
     }
 

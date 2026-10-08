@@ -75,6 +75,10 @@ public class StoryCompletion {
     @JoinColumn(name = "class_group_id")
     private ClassGroup classGroup;
 
+    /** 저장할 때의 반 이름(076) - 반 이름을 바꿔도 지난 리포트는 그때 이름으로 보인다. 반 없는 기록은 null. */
+    @Column(name = "class_name")
+    private String className;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tutor_student_id")
     private TutorStudent tutorStudent;
@@ -169,6 +173,12 @@ public class StoryCompletion {
     /** 부모에게 공유하는 선생님 한마디. */
     @Column(name = "teacher_note_for_parents")
     private String teacherNoteForParents;
+
+    /** 리포트에 보일 반 이름 - 저장할 때의 스냅샷, 없으면(076 이전에 반이 비었던 기록) 지금 반 이름. */
+    public String classNameSnapshot() {
+        if (className != null) return className;
+        return classGroup == null ? null : classGroup.getName();
+    }
 
     /** 리포트 화면의 구분 - CLASS(반 수업), TUTOR(선생님 개별 수업), HOME(집에서 읽은 기록). */
     public String sessionKind() {

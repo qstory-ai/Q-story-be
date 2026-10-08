@@ -77,7 +77,7 @@ class ClassHomeroomInviteServiceTest {
             mock(OrganizationService.class), new JoinCodeGenerator(), mock(AuthValidator.class),
             mock(PasswordEncoder.class), mock(JwtService.class), mock(TutorStudentService.class),
             mock(UserSummaryFactory.class), mock(StoryCompletionRepository.class), lessonRepository, historyService,
-            mock(ConsentService.class), notificationPublisher);
+            mock(ConsentService.class), notificationPublisher, mock(StudentClassHistoryService.class));
     private final OrganizationTutorService organizationTutorService = new OrganizationTutorService(
             organizationTutorRepository, mock(OrganizationTutorInviteRepository.class), mock(OrganizationRepository.class),
             userRepository, new SecureTokenGenerator(), new JoinCodeGenerator(), notificationPublisher,
@@ -171,6 +171,28 @@ class ClassHomeroomInviteServiceTest {
         ClassHomeroomInviteResponse response = service.current(director, classGroup.getId());
         assertEquals(invite.getShortCode(), response.shortCode());
         assertEquals(invite.getToken(), response.token());
+    }
+
+    /* ---------------------------------------------------------- 지난 반(076) */
+
+    @Test
+    void archivedClassRejectsIssuingPreviewAndAccept() {
+        classGroup.setArchivedAt(Instant.now());
+        ApiException issue = assertThrows(ApiException.class, () -> service.issue(director, classGroup.getId()));
+        assertEquals(409, issue.statusCode());
+        assertEquals(ErrorCode.CLASS_ARCHIVED, issue.code());
+
+        ClassHomeroomInvite invite = invite(null, Instant.now().plus(Duration.ofDays(3)));
+        when(inviteRepository.findByShortCode("ABCD2345")).thenReturn(Optional.of(invite));
+        when(inviteRepository.lockByShortCode("ABCD2345")).thenReturn(Optional.of(invite));
+        for (org.junit.jupiter.api.function.Executable call : List.<org.junit.jupiter.api.function.Executable>of(
+                () -> service.preview("ABCD2345"), () -> service.accept(tutorCaller, "ABCD2345"))) {
+            ApiException error = assertThrows(ApiException.class, call);
+            assertEquals(410, error.statusCode());
+            assertEquals(ErrorCode.INVALID_INVITE, error.code());
+            assertEquals(ClassService.ARCHIVED_JOIN_DETAIL, error.safeDetail());
+        }
+        assertNull(invite.getUsedAt());
     }
 
     /* ---------------------------------------------------------- preview */

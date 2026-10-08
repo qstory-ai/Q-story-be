@@ -59,4 +59,20 @@ public class ClassGroup {
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
+
+    /**
+     * 지난 반으로 보관한 시각(076). 반은 지우지 않고 보관한다 - 보관된 반은 반 코드·담임 초대로 더 들어올 수 없고
+     * 원장 목록에서 기본으로 빠지지만, 수업 기록과 명단 이력은 그대로 남는다. null이면 지금 쓰는 반.
+     */
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
+    /** 보관한 원장(076). 계정이 지워지면 null. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "archived_by")
+    private AppUser archivedBy;
+
+    public boolean isArchived() {
+        return archivedAt != null;
+    }
 }

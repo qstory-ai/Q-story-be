@@ -112,6 +112,17 @@ public class TutorStudent {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    /**
+     * 졸업한 시각(076). 졸업한 학생은 지금 명단·이용권·인원수에서 빠지고 담임(tutor)도 비지만, 반(classGroup)과
+     * 학부모 연결은 남는다 - 학부모는 지난 수업 리포트를 계속 보고, 원장·지난 담임은 지난 반에서 이 학생을 본다.
+     */
+    @Column(name = "graduated_at")
+    private Instant graduatedAt;
+
+    public boolean isGraduated() {
+        return graduatedAt != null;
+    }
+
     public String currentAgeBand() {
         return birthYear == null ? ageBand : ChildAge.tutorLabel(birthYear);
     }

@@ -37,7 +37,7 @@ class ClassServiceJoinConsentTest {
     private final ClassService service = new ClassService(
             classGroups, null, null, users, null, mock(JoinCodeGenerator.class), mock(AuthValidator.class),
             mock(PasswordEncoder.class), mock(JwtService.class), mock(TutorStudentService.class),
-            mock(UserSummaryFactory.class), null, null, null, consents, null);
+            mock(UserSummaryFactory.class), null, null, null, consents, null, null);
 
     private JoinClassRequest request(ConsentPayload consent) {
         return new JoinClassRequest("SUN123", "loginid", "a@b.co", "password1", "이름", "아이", 2020, null, consent);

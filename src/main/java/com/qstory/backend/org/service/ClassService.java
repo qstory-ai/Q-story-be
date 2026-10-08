@@ -71,6 +71,10 @@ public class ClassService {
     private final ClassHomeroomHistoryService homeroomHistoryService;
     private final ConsentService consentService;
     private final NotificationPublisher notificationPublisher;
+    private final StudentClassHistoryService classHistoryService;
+
+    /** 지난 반(076)의 반 코드·담임 초대로 들어오려 할 때 - 410 INVALID_INVITE. */
+    public static final String ARCHIVED_JOIN_DETAIL = "지난 반이라 더 이상 들어갈 수 없어요. 원장 선생님께 새 반 코드를 받아 주세요.";
 
     public ClassService(
             ClassGroupRepository classGroupRepository, TutorStudentRepository tutorStudentRepository,
@@ -80,7 +84,8 @@ public class ClassService {
             TutorStudentService tutorStudentService, UserSummaryFactory userSummaryFactory,
             StoryCompletionRepository storyCompletionRepository, LessonRepository lessonRepository,
             ClassHomeroomHistoryService homeroomHistoryService, ConsentService consentService,
-            NotificationPublisher notificationPublisher) {
+            NotificationPublisher notificationPublisher, StudentClassHistoryService classHistoryService) {
+        this.classHistoryService = classHistoryService;
         this.consentService = consentService;
         this.notificationPublisher = notificationPublisher;
         this.classGroupRepository = classGroupRepository;
@@ -102,15 +107,13 @@ public class ClassService {
     @Transactional
     public ClassResponse create(CurrentUser caller, UUID organizationId, CreateClassRequest request) {
         Organization organization = organizationService.requireOwned(caller, organizationId);
-        if (request.name() == null || request.name().isBlank()) {
-            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "반 이름을 입력해 주세요.");
-        }
+        String name = requireClassName(request.name());
         AppUser homeroom = request.homeroomTutorId() == null
                 ? null : requireOrganizationTutor(organizationId, request.homeroomTutorId());
         ClassGroup classGroup = classGroupRepository.save(ClassGroup.builder()
                 .organization(organization)
                 .tutor(homeroom)
-                .name(request.name().trim())
+                .name(name)
                 .joinCode(generateUniqueJoinCode())
                 .createdAt(Instant.now())
                 .build());
@@ -120,24 +123,59 @@ public class ClassService {
         return ClassResponse.of(classGroup);
     }
 
-    public List<ClassResponse> list(CurrentUser caller, UUID organizationId) {
+    /** 반 이름 확인(만들기·바꾸기 공통) - 비어 있으면 400, 앞뒤 공백은 지운다. */
+    static String requireClassName(String name) {
+        if (name == null || name.isBlank()) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "반 이름을 입력해 주세요.");
+        }
+        String trimmed = name.trim();
+        if (trimmed.length() > 255) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "반 이름은 255자 안으로 적어 주세요.");
+        }
+        return trimmed;
+    }
+
+    /** 기관의 반 목록 - 지난 반(076)은 includeArchived일 때만. */
+    public List<ClassResponse> list(CurrentUser caller, UUID organizationId, boolean includeArchived) {
         organizationService.requireOwned(caller, organizationId);
         return classGroupRepository.findByOrganization_IdOrderByCreatedAtAsc(organizationId).stream()
+                .filter(classGroup -> includeArchived || !classGroup.isArchived())
                 .map(ClassResponse::of)
                 .toList();
     }
 
     public ClassResponse get(CurrentUser caller, UUID classId) {
-        return ClassResponse.of(requireVisible(caller, classId));
+        Access access = requireAccess(caller, classId);
+        ClassResponse response = ClassResponse.of(access.classGroup());
+        return access.level() == AccessLevel.FORMER_HOMEROOM ? response.withoutJoinCode() : response;
     }
 
-    /** 반 상세의 학생 명단 - 담임이 아직 없는 반의 학생과 학부모가 아직 연결되지 않은 학생도 포함한다. */
+    /**
+     * 반 상세의 학생 명단 - 담임이 아직 없는 반의 학생과 학부모가 아직 연결되지 않은 학생도 포함한다. 졸업한 학생은 지금
+     * 명단에서 빠진다(076). includePast면 이 반을 떠난 학생(다른 반으로 옮김·졸업)도 뒤에 붙인다(endedAt, endReason).
+     * 지난 담임은 자기가 이 반에서 진행한 수업에 참여한 학생만 본다.
+     */
     @Transactional(readOnly = true)
-    public List<ClassStudentResponse> listStudents(CurrentUser caller, UUID classId) {
-        requireVisible(caller, classId);
-        return tutorStudentRepository.findByClassGroup_IdAndDeletedAtIsNullOrderByCreatedAtAsc(classId).stream()
-                .map(ClassStudentResponse::of)
-                .toList();
+    public List<ClassStudentResponse> listStudents(CurrentUser caller, UUID classId, boolean includePast) {
+        Access access = requireAccess(caller, classId);
+        List<ClassStudentResponse> result = new java.util.ArrayList<>();
+        java.util.Set<UUID> currentIds = new java.util.HashSet<>();
+        for (TutorStudent student : tutorStudentRepository.findByClassGroup_IdAndDeletedAtIsNullOrderByCreatedAtAsc(classId)) {
+            currentIds.add(student.getId());
+            result.add(ClassStudentResponse.of(student));
+        }
+        if (includePast) {
+            classHistoryService.endedInClass(classId).stream()
+                    .filter(ended -> !currentIds.contains(ended.getTutorStudent().getId()))
+                    .map(ClassStudentResponse::past)
+                    .forEach(result::add);
+        }
+        if (access.level() == AccessLevel.FORMER_HOMEROOM) {
+            java.util.Set<UUID> taught = new java.util.HashSet<>(
+                    storyCompletionRepository.findParticipantIdsOfClassSessionsByUser(classId, caller.userId()));
+            return result.stream().filter(student -> taught.contains(student.id())).toList();
+        }
+        return result;
     }
 
     /**
@@ -154,6 +192,7 @@ public class ClassService {
     @Transactional
     public ClassResponse assignHomeroom(CurrentUser caller, UUID classId, UUID tutorId) {
         ClassGroup classGroup = requireOwnedByDirector(caller, classId);
+        requireNotArchived(classGroup);
         if (tutorId == null) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "담임으로 배정할 선생님을 골라 주세요.");
         }
@@ -256,29 +295,60 @@ public class ClassService {
     }
 
     /**
-     * 반 학생 한 명의 수업 리포트 목록. 원장은 이 학생이 참여한 기록 전부(담임이 바뀌었으면 두 선생님 것 모두),
-     * 담임 선생님은 자기가 진행한 기록만 본다 - 지난 담임의 기록은 지난 담임 것으로 남는다.
+     * 학생 한 명의 수업 리포트 목록(반을 옮긴 학생은 지난 반 기록까지, 076).
+     *
+     * <ul>
+     *   <li>원장: 기관 학생이면 지금 어느 반이든(classId가 달라도) 이 학생이 참여한 기록 전부 - 담임이 바뀌었으면 두
+     *       선생님 것 모두, 반을 옮겼으면 지난 반 것도.
+     *   <li>지금 담임: 이 반의 지금 학생이면 자기가 진행한 기록과 이 학생이 지난 반(같은 기관)에서 남긴 기록. 같은 반의
+     *       지난 담임 기록은 지난 담임 것으로 남는다(Q-35). 이 반을 떠난 학생(옮김·졸업)이면 자기가 진행한 기록만.
+     *   <li>지난 담임: 자기가 이 반에서 가르친 학생의, 자기가 진행한 기록만.
+     * </ul>
      */
     @Transactional(readOnly = true)
     public List<ClassStudentReportResponse> listStudentReports(CurrentUser caller, UUID classId, UUID studentId) {
-        ClassGroup classGroup = requireVisible(caller, classId);
+        Access access = requireAccess(caller, classId);
+        ClassGroup classGroup = access.classGroup();
         TutorStudent student = tutorStudentRepository.findById(studentId)
-                .filter(found -> found.getClassGroup() != null && found.getClassGroup().getId().equals(classGroup.getId()))
+                .filter(found -> switch (access.level()) {
+                    case DIRECTOR -> found.getClassGroup() != null && found.getClassGroup().getOrganization() != null
+                            && classGroup.getOrganization().getId().equals(found.getClassGroup().getOrganization().getId());
+                    case HOMEROOM -> isInClass(found, classGroup) || wasInClass(found, classGroup);
+                    case FORMER_HOMEROOM -> storyCompletionRepository
+                            .findParticipantIdsOfClassSessionsByUser(classGroup.getId(), caller.userId())
+                            .contains(found.getId());
+                })
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
-        boolean director = isOwningDirector(caller, classGroup);
+        boolean continuity = access.level() == AccessLevel.HOMEROOM && isInClass(student, classGroup) && !student.isGraduated();
         return storyCompletionRepository.findByParticipant(student.getId()).stream()
-                .filter(completion -> director || completion.getUser().getId().equals(caller.userId()))
+                .filter(completion -> access.level() == AccessLevel.DIRECTOR
+                        || (continuity
+                                ? ClassReportAccess.visibleToHomeroom(completion, student, caller.userId())
+                                : completion.getUser().getId().equals(caller.userId())))
                 .map(ClassStudentReportResponse::of)
                 .toList();
     }
 
-    /** 반의 최근 수업 리포트(가정 기록 제외, 최신순). 관리자는 모든 선생님 기록, 담임은 자기가 진행한 기록만. */
+    private static boolean isInClass(TutorStudent student, ClassGroup classGroup) {
+        return student.getClassGroup() != null && student.getClassGroup().getId().equals(classGroup.getId());
+    }
+
+    private boolean wasInClass(TutorStudent student, ClassGroup classGroup) {
+        return classHistoryService.list(student.getId()).stream()
+                .anyMatch(entry -> entry.getClassGroup().getId().equals(classGroup.getId()));
+    }
+
+    /**
+     * 반의 최근 수업 리포트(가정 기록 제외, 최신순). 관리자는 모든 선생님 기록, 담임과 지난 담임(076)은 자기가 진행한
+     * 기록만.
+     */
     @Transactional(readOnly = true)
     public List<ClassReportResponse> listClassReports(CurrentUser caller, UUID classId, Integer limit) {
-        ClassGroup classGroup = requireVisible(caller, classId);
+        Access access = requireAccess(caller, classId);
+        ClassGroup classGroup = access.classGroup();
         int size = limit == null || limit < 1 ? 20 : Math.min(limit, 50);
         PageRequest page = PageRequest.of(0, size);
-        List<StoryCompletion> completions = isOwningDirector(caller, classGroup)
+        List<StoryCompletion> completions = access.level() == AccessLevel.DIRECTOR
                 ? storyCompletionRepository.findClassReports(classGroup.getId(), page)
                 : storyCompletionRepository.findClassReportsByUser(classGroup.getId(), caller.userId(), page);
         return completions.stream().map(ClassReportResponse::of).toList();
@@ -339,8 +409,9 @@ public class ClassService {
 
     @Transactional(readOnly = true)
     public List<ClassMembershipResponse> listMemberships(CurrentUser caller) {
+        // 졸업한 아이(076)는 지금 반에 없으니 빼고 보인다 - 지난 수업 리포트는 "수업 리포트"에서 계속 본다.
         return tutorStudentRepository.findByLinkedParentUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(caller.userId()).stream()
-                .filter(student -> student.getClassGroup() != null)
+                .filter(student -> student.getClassGroup() != null && !student.isGraduated())
                 .map(ClassMembershipResponse::of)
                 .toList();
     }
@@ -382,6 +453,9 @@ public class ClassService {
         if (classGroup.getTutor() != null && classGroup.getTutor().getDeletedAt() != null) {
             throw ApiException.contractError(ErrorCode.INVALID_JOIN_CODE, "더 이상 사용할 수 없는 반 코드예요.", 404);
         }
+        if (classGroup.isArchived()) {
+            throw ApiException.contractError(ErrorCode.INVALID_INVITE, ARCHIVED_JOIN_DETAIL, 410);
+        }
         return classGroup;
     }
 
@@ -400,16 +474,43 @@ public class ClassService {
         return classGroup;
     }
 
-    /** 반을 볼 수 있는 사람: 그 반이 속한 기관의 원장, 그리고 담임 선생님. */
-    private ClassGroup requireVisible(CurrentUser caller, UUID classId) {
-        ClassGroup classGroup = requireClass(classId);
-        boolean isHomeroomTutor = caller.role() == Role.TUTOR
-                && classGroup.getTutor() != null
-                && classGroup.getTutor().getId().equals(caller.userId());
-        if (!isOwningDirector(caller, classGroup) && !isHomeroomTutor) {
-            throw forbidden();
+    /** 지난 반(076)에는 담임 배정·초대·학생 옮겨 넣기를 하지 않는다 - 409 CLASS_ARCHIVED. */
+    public static void requireNotArchived(ClassGroup classGroup) {
+        if (classGroup.isArchived()) {
+            throw ApiException.contractError(
+                    ErrorCode.CLASS_ARCHIVED, "지난 반이에요. 다시 쓰려면 먼저 지난 반에서 꺼내 주세요.", 409);
         }
-        return classGroup;
+    }
+
+    enum AccessLevel { DIRECTOR, HOMEROOM, FORMER_HOMEROOM }
+
+    record Access(ClassGroup classGroup, AccessLevel level) {}
+
+    /**
+     * 반을 볼 수 있는 사람: 그 반이 속한 기관의 원장, 담임 선생님, 그리고 지난 담임(076 - 담임 이력에 있고 아직 그 기관
+     * 소속인 선생님). 지난 담임은 자기가 진행한 수업만 본다.
+     */
+    private Access requireAccess(CurrentUser caller, UUID classId) {
+        ClassGroup classGroup = requireClass(classId);
+        if (isOwningDirector(caller, classGroup)) {
+            return new Access(classGroup, AccessLevel.DIRECTOR);
+        }
+        if (caller.role() == Role.TUTOR) {
+            if (classGroup.getTutor() != null && classGroup.getTutor().getId().equals(caller.userId())) {
+                return new Access(classGroup, AccessLevel.HOMEROOM);
+            }
+            if (isFormerHomeroom(caller.userId(), classGroup)) {
+                return new Access(classGroup, AccessLevel.FORMER_HOMEROOM);
+            }
+        }
+        throw forbidden();
+    }
+
+    private boolean isFormerHomeroom(UUID tutorId, ClassGroup classGroup) {
+        return classGroup.getOrganization() != null
+                && homeroomHistoryService.hasLed(classGroup.getId(), tutorId)
+                && organizationTutorRepository
+                        .findByOrganization_IdAndTutor_Id(classGroup.getOrganization().getId(), tutorId).isPresent();
     }
 
     private ClassGroup requireClass(UUID classId) {

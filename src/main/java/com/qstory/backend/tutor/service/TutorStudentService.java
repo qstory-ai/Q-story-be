@@ -9,6 +9,7 @@ import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.entity.ClassGroup;
+import com.qstory.backend.org.service.StudentClassHistoryService;
 import com.qstory.backend.parent.child.entity.Child;
 import com.qstory.backend.parent.child.repository.ChildRepository;
 import com.qstory.backend.tutor.TutorLessonType;
@@ -48,10 +49,13 @@ public class TutorStudentService {
     private final ChildRepository childRepository;
     private final LessonRepository lessonRepository;
 
+    private final StudentClassHistoryService classHistoryService;
+
     public TutorStudentService(
             TutorStudentRepository tutorStudentRepository, AppUserRepository userRepository,
             NotificationPublisher notificationPublisher, ChildRepository childRepository,
-            LessonRepository lessonRepository) {
+            LessonRepository lessonRepository, StudentClassHistoryService classHistoryService) {
+        this.classHistoryService = classHistoryService;
         this.tutorStudentRepository = tutorStudentRepository;
         this.userRepository = userRepository;
         this.notificationPublisher = notificationPublisher;
@@ -127,6 +131,8 @@ public class TutorStudentService {
             throw ApiException.contractError(
                     ErrorCode.DUPLICATE_CHILD_LINK, "이 아이는 이미 이 선생님의 학생으로 등록되어 있어요.", 409);
         }
+        // 반 소속 이력(076) - 새로 들어온 학생은 JOINED 구간을 연다. 명단에 미리 있던 학생은 이미 열린 구간을 그대로 둔다.
+        classHistoryService.recordJoined(student, classGroup, now);
         if (tutor != null) {
             addToScheduledClassLessons(tutor.getId(), student, classGroup);
         }

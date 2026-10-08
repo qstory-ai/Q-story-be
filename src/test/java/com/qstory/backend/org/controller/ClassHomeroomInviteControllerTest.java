@@ -121,7 +121,7 @@ class ClassHomeroomInviteControllerTest {
         CurrentUser tutor = login(Role.TUTOR);
         UUID orgId = UUID.randomUUID();
         when(service.accept(eq(tutor), any())).thenReturn(
-                new ClassResponse(classId, orgId, tutor.userId(), "햇님반", "SUN12345", Instant.now()));
+                new ClassResponse(classId, orgId, tutor.userId(), "햇님반", "SUN12345", Instant.now(), null));
         mvc.perform(post("/v1/class-homeroom-invites/by-code/ABCD2345/accept"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tutorId").value(tutor.userId().toString()));
