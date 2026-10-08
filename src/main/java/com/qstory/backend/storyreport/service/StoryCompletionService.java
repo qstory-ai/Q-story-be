@@ -168,6 +168,7 @@ public class StoryCompletionService {
             StoryCompletion completion = saveCompletion(
                     user, lesson, null, null, participants, true, request, companionChatSummary, now, endStatus);
             notifyParentsOfClassSession(participants, completion);
+            notifyDirectorOfClassSession(user, completion);
             return StoryCompletionSummary.of(completion);
         }
         TutorStudent participant = participants.get(0);
@@ -268,6 +269,24 @@ public class StoryCompletionService {
                     "/reports/" + completion.getId(),
                     "tutor-report:" + completion.getId());
         }
+    }
+
+    /**
+     * 기관 반의 수업 기록은 원장에게도 알린다 - 원장은 반 상세의 최근 리포트에서 바로 본다. 기관이 없는 반(개인
+     * 선생님)이나 원장 계정이 없으면 건너뛴다. 원장이 직접 수업을 진행한 경우는 자기 자신에게 알리지 않는다.
+     */
+    private void notifyDirectorOfClassSession(AppUser teacher, StoryCompletion completion) {
+        ClassGroup classGroup = completion.getClassGroup();
+        if (classGroup == null || classGroup.getOrganization() == null) return;
+        userRepository.findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(classGroup.getOrganization().getId(), Role.DIRECTOR)
+                .filter(director -> !director.getId().equals(teacher.getId()))
+                .ifPresent(director -> notificationPublisher.publish(
+                        director.getId(),
+                        "class-report",
+                        classGroup.getName() + " 수업 기록이 도착했어요",
+                        teacher.getDisplayName() + " 선생님이 수업을 마쳤어요. 반 리포트에서 확인해 보세요.",
+                        "/organization/classes/" + classGroup.getId(),
+                        "class-report:" + completion.getId()));
     }
 
     /**
