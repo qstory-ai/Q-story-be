@@ -25,6 +25,7 @@ threshold(변수, `variables.tf`)를 넘으면 Discord로 알린다. `backend-si
 | `gemini-tts-failure` | **critical** | `gemini-http.failed`, `gemini-tts.empty-audio` | `GeminiTtsClient.java` (실장애 이력) |
 | `rtzr-stt-failure` | warning | `rtzr-http.failed`, `rtzr-transcription.failed` | `RtzrSttClient.java` (인증/제출/폴링 실패 + status="failed") |
 | `uncaught-5xx` | **critical** | `request.failed` | `GlobalExceptionHandler.java` (미처리 예외가 5xx로 응답할 때) |
+| `server-5xx-ratio` | **critical** | `http.request`의 `status=5xx` / 전체 요청 | `RequestIdFilter.java` (5분 요청 20건 이상일 때 5% 초과) |
 | `db-pool-exhaustion` | **critical** | `Connection is not available` | HikariCP 기본 타임아웃 경고 |
 | `companion-retention-failure` | warning | `companion-chat-retention.failed` | `CompanionChatRetentionScheduler.java` (일일 정리 실패) |
 | `gemini-tts-quota` | **critical** | `gemini-http.failed` + `status=429\|402` | `GeminiTtsClient.java` (하루 한도 초과·크레딧 소진, 1건이면 울림) |
@@ -190,6 +191,11 @@ Explore 링크로 원본 로그를 연다.
 ### uncaught-5xx
 1. 로그의 `request_id`로 같은 요청의 다른 줄(`http.request`, 예외 스택)을 모은다.
 2. 새 배포 직후면 되돌리기(Railway에서 이전 배포 Redeploy)를 먼저 고려.
+
+### server-5xx-ratio
+1. 백엔드 개요 대시보드의 "5xx 비율"·"경로별 응답 시간"에서 어느 경로인지 본다.
+2. `uncaught-5xx`가 같이 울렸으면 코드 결함 쪽(그 런북), 아니면 같이 울린 provider 규칙(OpenRouter·Gemini·Rtzr)부터 확인.
+3. 새 배포 직후면 되돌리기를 먼저 고려.
 
 ### db-pool-exhaustion
 1. Supabase 대시보드에서 DB CPU·연결 수 확인. 오래 걸리는 쿼리가 커넥션을 잡고 있지 않은지 본다.

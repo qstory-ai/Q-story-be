@@ -6,12 +6,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
 /**
@@ -50,6 +57,35 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<FailureBody> handleMethodNotAllowed() {
         return respond(405, ErrorCode.METHOD_NOT_ALLOWED, null);
+    }
+
+    /**
+     * 요청 형식이 틀린 경우(필수 값·파트 누락, 숫자 자리에 글자, 깨진 multipart·JSON) - 호출자의 실수라 500이 아니라 400으로
+     * 답한다(Q-41: 형식이 틀린 음성 업로드가 500으로 떨어져 서버 오류 알림까지 울리던 문제).
+     */
+    @ExceptionHandler({
+            ServletRequestBindingException.class,
+            MissingServletRequestPartException.class,
+            MethodArgumentTypeMismatchException.class,
+            MultipartException.class
+    })
+    public ResponseEntity<FailureBody> handleMalformedRequest() {
+        return respond(400, ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<FailureBody> handleUnreadableBody() {
+        return respond(400, ErrorCode.INVALID_JSON, "요청 형식이 올바르지 않아요.");
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<FailureBody> handleUploadTooLarge() {
+        return respond(413, ErrorCode.PAYLOAD_TOO_LARGE, "파일이 너무 커요.");
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<FailureBody> handleUnsupportedMediaType() {
+        return respond(415, ErrorCode.UNSUPPORTED_CONTENT_TYPE, "요청 형식이 올바르지 않아요.");
     }
 
     @ExceptionHandler(Exception.class)

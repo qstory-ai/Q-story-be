@@ -43,6 +43,18 @@ variable "provider_failure_threshold" {
   default     = 5
 }
 
+variable "server_5xx_ratio_threshold" {
+  description = "5분 창의 API 응답 중 5xx 비율이 이 값(0~1)을 넘으면 알림."
+  type        = number
+  default     = 0.05
+}
+
+variable "server_5xx_min_requests" {
+  description = "5xx 비율 알림은 5분 창의 요청이 이 수 이상일 때만 본다(요청이 적을 때 한두 건으로 튀는 것을 막음)."
+  type        = number
+  default     = 20
+}
+
 variable "uncaught_5xx_threshold" {
   description = "5분 창 안에서 이 건수를 넘는 처리되지 않은 서버 에러(GlobalExceptionHandler의 request.failed)가 쌓이면 알림."
   type        = number
