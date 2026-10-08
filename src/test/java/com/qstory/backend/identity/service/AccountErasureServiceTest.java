@@ -23,6 +23,7 @@ import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.repository.PasswordResetTokenRepository;
+import com.qstory.backend.interaction.service.InteractionService;
 import com.qstory.backend.notification.repository.NotificationRepository;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.repository.ClassGroupRepository;
@@ -32,6 +33,7 @@ import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.org.tutor.service.OrganizationTutorService;
 import com.qstory.backend.parent.child.repository.ChildRepository;
 import com.qstory.backend.parent.notification.repository.NotificationSettingsRepository;
+import com.qstory.backend.recordingconsent.service.RecordingConsentService;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.TutorStudentStatus;
 import com.qstory.backend.tutor.entity.TutorStudent;
@@ -64,11 +66,13 @@ class AccountErasureServiceTest {
     private final AppProperties config = mock(AppProperties.class);
     private final com.qstory.backend.common.util.StorageDeletionRetry deletionRetry =
             mock(com.qstory.backend.common.util.StorageDeletionRetry.class);
+    private final RecordingConsentService recordingConsent = mock(RecordingConsentService.class);
+    private final InteractionService interactions = mock(InteractionService.class);
 
     private final AccountErasureService service = new AccountErasureService(
             users, resetTokens, bookmarks, notifications, notificationSettings, improvementFeedback,
             conversationRecords, completions, children, students, lessons, classGroups, homeroomHistory,
-            orgTutors, orgTutorService, storage, deletionRetry, config);
+            orgTutors, orgTutorService, storage, deletionRetry, config, recordingConsent, interactions);
 
     private AppUser user(Role role) {
         return AppUser.builder()
@@ -90,6 +94,9 @@ class AccountErasureServiceTest {
         verify(notificationSettings).deleteAllByUserId(userId);
         verify(improvementFeedback).deleteAllByUserId(userId);
         verify(conversationRecords).deleteAllByUserId(userId);
+        // 073: 화면 녹화·녹화 동의·상호작용은 user_id만 비우지 않고 지운다.
+        verify(recordingConsent).eraseForAccount(userId);
+        verify(interactions).deleteAllByUserId(userId);
     }
 
     @Test
@@ -324,5 +331,17 @@ class AccountErasureServiceTest {
         String sql = StoryCompletionRepository.class.getMethod("clearParentAccessOf", UUID.class)
                 .getAnnotation(org.springframework.data.jpa.repository.Query.class).value();
         assertTrue(sql.startsWith("update story_completion_participant set parent_user_id = null"), sql);
+    }
+
+    @Test
+    void recordingsAreErasedBeforeHomeSessionsSoLinkedBetaSessionsCanStillBeFound() {
+        AppUser parent = user(Role.PARENT);
+
+        service.erase(parent);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(recordingConsent, completions);
+        order.verify(recordingConsent).eraseForAccount(parent.getId());
+        order.verify(completions).deleteHomeSessionsOf(parent.getId());
+        verify(interactions).deleteAllByUserId(parent.getId());
     }
 }

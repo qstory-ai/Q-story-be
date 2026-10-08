@@ -10,6 +10,7 @@ import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.repository.PasswordResetTokenRepository;
+import com.qstory.backend.interaction.service.InteractionService;
 import com.qstory.backend.notification.repository.NotificationRepository;
 import com.qstory.backend.org.repository.ClassGroupRepository;
 import com.qstory.backend.org.repository.ClassHomeroomHistoryRepository;
@@ -17,6 +18,7 @@ import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.org.tutor.service.OrganizationTutorService;
 import com.qstory.backend.parent.child.repository.ChildRepository;
 import com.qstory.backend.parent.notification.repository.NotificationSettingsRepository;
+import com.qstory.backend.recordingconsent.service.RecordingConsentService;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.TutorStudentStatus;
 import com.qstory.backend.tutor.entity.TutorStudent;
@@ -37,7 +39,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * 딸린 데이터는 여기서 직접 지운다.
  *
  * <ul>
- *   <li>공통: 비밀번호 재설정 토큰, 북마크, 알림, 알림 설정, 개선 의견, 이 계정의 대화 원장, 프로필 사진.</li>
+ *   <li>공통: 비밀번호 재설정 토큰, 북마크, 알림, 알림 설정, 개선 의견, 이 계정의 대화 원장, 프로필 사진, 화면 녹화(이어진
+ *   베타 세션 포함)·화면 녹화 동의, 화면 상호작용.</li>
  *   <li>보호자: 가정 세션 기록 삭제, 지난 반 수업 열람 권한 해제(참여 명단은 유지), 반 명단 연결 해제, 아이 프로필 마스킹(가입 기록만 남김).</li>
  *   <li>선생님: 기관 반은 담임만 비우고(반·수업·학생·기록 유지), 기관 밖 자기 반·수업·학생·기록은 지운다.</li>
  *   <li>관리자: 기관과 기관 데이터는 그대로, 계정만 익명화.</li>
@@ -73,6 +76,8 @@ public class AccountErasureService {
     private final SupabaseStorageClient storageClient;
     private final StorageDeletionRetry storageDeletionRetry;
     private final AppProperties config;
+    private final RecordingConsentService recordingConsentService;
+    private final InteractionService interactionService;
 
     public AccountErasureService(
             AppUserRepository userRepository, PasswordResetTokenRepository passwordResetTokenRepository,
@@ -85,7 +90,8 @@ public class AccountErasureService {
             ClassGroupRepository classGroupRepository, ClassHomeroomHistoryRepository homeroomHistoryRepository,
             OrganizationTutorRepository organizationTutorRepository,
             OrganizationTutorService organizationTutorService, SupabaseStorageClient storageClient,
-            StorageDeletionRetry storageDeletionRetry, AppProperties config) {
+            StorageDeletionRetry storageDeletionRetry, AppProperties config,
+            RecordingConsentService recordingConsentService, InteractionService interactionService) {
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.bookmarkRepository = bookmarkRepository;
@@ -104,6 +110,8 @@ public class AccountErasureService {
         this.storageClient = storageClient;
         this.storageDeletionRetry = storageDeletionRetry;
         this.config = config;
+        this.recordingConsentService = recordingConsentService;
+        this.interactionService = interactionService;
     }
 
     /** 한 트랜잭션으로 지우고 익명화한다. 음성 연구 녹음 철회는 호출자(AuthService)가 먼저 별도 트랜잭션으로 한다. */
@@ -111,6 +119,10 @@ public class AccountErasureService {
     public void erase(AppUser user) {
         UUID userId = user.getId();
         Instant now = Instant.now();
+
+        // 회차(play_session)로 이어진 베타 세션도 찾아 지우므로, 회차를 지우는 역할별 정리보다 먼저 한다.
+        recordingConsentService.eraseForAccount(userId);
+        interactionService.deleteAllByUserId(userId);
 
         if (user.getRole() == Role.PARENT) {
             eraseParentData(user, now);
