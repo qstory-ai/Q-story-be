@@ -1,5 +1,6 @@
 package com.qstory.backend.org.service;
 
+import com.qstory.backend.common.util.TeacherName;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.SecureTokenGenerator;
@@ -144,7 +145,7 @@ public class ClassHomeroomInviteService {
                 .ifPresent(director -> notificationPublisher.publish(
                         director.getId(),
                         "homeroom-invite-accepted",
-                        NotificationText.title(tutor.getDisplayName() + " 선생님이 " + classGroup.getName() + " 담임이 됐어요"),
+                        NotificationText.title(TeacherName.of(tutor.getDisplayName()) + "이 " + classGroup.getName() + " 담임이 됐어요"),
                         "반 화면에서 담임과 학생 명단을 확인해 보세요.",
                         "/organization/classes/" + classGroup.getId(),
                         "homeroom-invite-accepted:" + invite.getId()));

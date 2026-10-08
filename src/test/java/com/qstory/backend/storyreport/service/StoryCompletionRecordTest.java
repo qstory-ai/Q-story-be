@@ -109,7 +109,7 @@ class StoryCompletionRecordTest {
         UUID completionId = saved.getValue().getId();
         verify(notificationPublisher).publish(
                 eq(director.getId()), eq("class-report"), eq("햇살반 수업 기록이 도착했어요"),
-                eq("김선생 선생님이 수업을 마쳤어요. 반 리포트에서 확인해 보세요."),
+                eq("김선생님이 수업을 마쳤어요. 반 리포트에서 확인해 보세요."),
                 eq("/organization/classes/" + sunClass.getId()), eq("class-report:" + completionId));
     }
 

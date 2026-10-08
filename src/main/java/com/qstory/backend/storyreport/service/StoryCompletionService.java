@@ -1,5 +1,6 @@
 package com.qstory.backend.storyreport.service;
 
+import com.qstory.backend.common.util.TeacherName;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.common.error.ApiException;
@@ -249,7 +250,7 @@ public class StoryCompletionService {
         notificationPublisher.publish(
                 parent.getId(),
                 "tutor-report",
-                tutorStudent.getName() + " 선생님 수업 기록이 도착했어요",
+                tutorStudent.getName() + "의 수업 기록이 도착했어요",
                 tutorStudent.getName() + "의 오늘 이야기 세션을 리포트로 확인해 보세요.",
                 "/reports/" + completion.getId(),
                 "tutor-report:" + completion.getId());
@@ -284,7 +285,7 @@ public class StoryCompletionService {
                         director.getId(),
                         "class-report",
                         classGroup.getName() + " 수업 기록이 도착했어요",
-                        teacher.getDisplayName() + " 선생님이 수업을 마쳤어요. 반 리포트에서 확인해 보세요.",
+                        TeacherName.of(teacher.getDisplayName()) + "이 수업을 마쳤어요. 반 리포트에서 확인해 보세요.",
                         "/organization/classes/" + classGroup.getId(),
                         "class-report:" + completion.getId()));
     }

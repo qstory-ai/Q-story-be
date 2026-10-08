@@ -257,7 +257,7 @@ class ClassHomeroomInviteServiceTest {
         assertSame(newTutor, link.getValue().getTutor());
         // 원장에게는 "담임이 됐어요" 하나만 - 기관 소속 알림은 따로 보내지 않는다.
         verify(notificationPublisher).publish(directorUser.getId(), "homeroom-invite-accepted",
-                "이선생 선생님이 햇님반 담임이 됐어요", "반 화면에서 담임과 학생 명단을 확인해 보세요.",
+                "이선생님이 햇님반 담임이 됐어요", "반 화면에서 담임과 학생 명단을 확인해 보세요.",
                 "/organization/classes/" + classGroup.getId(), "homeroom-invite-accepted:" + invite.getId());
         verify(notificationPublisher, never()).publish(any(), eq("org-tutor-invite-accepted"), any(), any(), any(), any());
         verify(notificationPublisher).publish(newTutor.getId(), "homeroom-assigned", "햇님반 담임이 됐어요",
@@ -318,7 +318,7 @@ class ClassHomeroomInviteServiceTest {
 
         assertSame(newTutor, classGroup.getTutor());
         verify(historyService).start(eq(classGroup), eq(newTutor), any());
-        verify(notificationPublisher).publish(oldTutor.getId(), "homeroom-changed", "햇님반 담임이 이선생 선생님으로 바뀌었어요",
+        verify(notificationPublisher).publish(oldTutor.getId(), "homeroom-changed", "햇님반 담임이 이선생님으로 바뀌었어요",
                 "지금까지 진행한 수업 기록은 그대로 남아 있어요.", "/tutor/classes",
                 "homeroom-changed:" + classGroup.getId() + ":" + oldTutor.getId() + ":" + invite.getId());
         verify(notificationPublisher).publish(eq(directorUser.getId()), eq("homeroom-invite-accepted"),

@@ -1,5 +1,6 @@
 package com.qstory.backend.tutor.lesson.service;
 
+import com.qstory.backend.common.util.TeacherName;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.tutor.entity.TutorStudent;
@@ -59,7 +60,7 @@ public class LessonReminderScheduler {
                         parent.getId(),
                         "lesson-reminder",
                         "곧 [" + lesson.getName() + "] 수업이 시작해요",
-                        tutorName + " 선생님과 30분 후 수업이 예정되어 있어요.",
+                        TeacherName.of(tutorName) + "과 30분 후 수업이 예정되어 있어요.",
                         null,
                         "lesson-reminder:" + lesson.getId() + ":" + student.getId());
                 sent += 1;
