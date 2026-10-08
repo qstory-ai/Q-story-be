@@ -33,6 +33,7 @@ import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.org.tutor.service.OrganizationTutorService;
 import com.qstory.backend.parent.child.repository.ChildRepository;
 import com.qstory.backend.parent.notification.repository.NotificationSettingsRepository;
+import com.qstory.backend.push.repository.PushDeviceTokenRepository;
 import com.qstory.backend.recordingconsent.service.RecordingConsentService;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.TutorStudentStatus;
@@ -68,11 +69,12 @@ class AccountErasureServiceTest {
             mock(com.qstory.backend.common.util.StorageDeletionRetry.class);
     private final RecordingConsentService recordingConsent = mock(RecordingConsentService.class);
     private final InteractionService interactions = mock(InteractionService.class);
+    private final PushDeviceTokenRepository pushTokens = mock(PushDeviceTokenRepository.class);
 
     private final AccountErasureService service = new AccountErasureService(
             users, resetTokens, bookmarks, notifications, notificationSettings, improvementFeedback,
             conversationRecords, completions, children, students, lessons, classGroups, homeroomHistory,
-            orgTutors, orgTutorService, storage, deletionRetry, config, recordingConsent, interactions);
+            orgTutors, orgTutorService, storage, deletionRetry, config, recordingConsent, interactions, pushTokens);
 
     private AppUser user(Role role) {
         return AppUser.builder()
@@ -92,6 +94,8 @@ class AccountErasureServiceTest {
         verify(bookmarks).deleteAllByUserId(userId);
         verify(notifications).deleteAllByUserId(userId);
         verify(notificationSettings).deleteAllByUserId(userId);
+        // 075: 계정 행이 남아 FK cascade가 돌지 않으므로 기기 토큰을 직접 지워야 탈퇴 계정으로 푸시가 가지 않는다.
+        verify(pushTokens).deleteAllByUserId(userId);
         verify(improvementFeedback).deleteAllByUserId(userId);
         verify(conversationRecords).deleteAllByUserId(userId);
         // 073: 화면 녹화·녹화 동의·상호작용은 user_id만 비우지 않고 지운다.

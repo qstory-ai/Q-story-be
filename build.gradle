@@ -36,6 +36,10 @@ dependencies {
     // logback-spring.xml의 <if>/<then> 조건부 설정(LOKI_URL 존재 여부로 appender 유무 결정)에 필요.
     runtimeOnly 'org.codehaus.janino:janino'
 
+    // 앱 푸시(FCM HTTP v1)의 OAuth2 액세스 토큰 - 서비스 계정 키로 JWT를 서명해 교환하고 만료 전까지 재사용한다.
+    // 발송 자체는 java.net.http로 한다(push/service/FcmClient). firebase-admin은 쓰지 않는다.
+    implementation 'com.google.auth:google-auth-library-oauth2-http:1.54.0'
+
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 

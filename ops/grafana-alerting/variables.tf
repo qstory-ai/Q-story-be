@@ -85,6 +85,12 @@ variable "slow_request_p95_ms" {
   default     = 8000
 }
 
+variable "fcm_failure_threshold" {
+  description = "5분 창 안에서 앱 푸시(FCM) 발송 실패(fcm.send-failed, 죽은 토큰 제외)가 이 건수를 넘으면 알림. 토큰마다 한 줄이라 한 알림이 여러 건이 될 수 있다."
+  type        = number
+  default     = 10
+}
+
 variable "client_error_threshold" {
   description = "5분 창 안에서 브라우저 에러(client.error)가 이 건수를 넘으면 알림. 서버는 분당 120건까지만 남긴다."
   type        = number

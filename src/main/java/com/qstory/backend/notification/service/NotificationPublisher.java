@@ -5,6 +5,8 @@ import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.notification.entity.Notification;
 import com.qstory.backend.notification.repository.NotificationRepository;
 import com.qstory.backend.parent.notification.repository.NotificationSettingsRepository;
+import com.qstory.backend.push.service.PushDispatcher;
+import com.qstory.backend.push.service.PushMessage;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
@@ -20,6 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>dedupKey를 지정하면 (user, dedupKey) 유니크 제약이 걸린 상태에서 이미 존재하는 알림은
  * 조용히 건너뛴다 - 프로듀서가 트랜잭션 재시도로 두 번 호출되거나, 같은 이벤트를 두 경로에서
  * 발행해도 사용자 벨에는 하나만 남는다.
+ *
+ * <p>실제로 저장된 알림만(설정·중복 검사 통과) 커밋 뒤에 앱 푸시로도 보낸다(PushDispatcher). 푸시가 꺼져 있거나
+ * 실패해도 인앱 알림에는 영향이 없다.
  */
 @Component
 public class NotificationPublisher {
@@ -35,14 +40,17 @@ public class NotificationPublisher {
     private final NotificationRepository notificationRepository;
     private final AppUserRepository userRepository;
     private final NotificationSettingsRepository notificationSettingsRepository;
+    private final PushDispatcher pushDispatcher;
 
     public NotificationPublisher(
             NotificationRepository notificationRepository,
             AppUserRepository userRepository,
-            NotificationSettingsRepository notificationSettingsRepository) {
+            NotificationSettingsRepository notificationSettingsRepository,
+            PushDispatcher pushDispatcher) {
         this.notificationRepository = notificationRepository;
         this.userRepository = userRepository;
         this.notificationSettingsRepository = notificationSettingsRepository;
+        this.pushDispatcher = pushDispatcher;
     }
 
     /**
@@ -76,6 +84,7 @@ public class NotificationPublisher {
                 .dedupKey(dedupKey)
                 .build());
         log.debug("notification.published id={} userId={} kind={}", saved.getId(), userId, kind);
+        pushDispatcher.dispatchAfterCommit(userId, new PushMessage(saved.getId(), kind, title, body, href));
     }
 
     /**
