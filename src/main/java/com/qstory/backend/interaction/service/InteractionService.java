@@ -116,7 +116,7 @@ public class InteractionService {
         return rows.size();
     }
 
-    /** 보관 기간(90일)이 지난 상호작용을 지운다(InteractionRetentionScheduler). */
+    /** 보관 기간(1년)이 지난 상호작용을 지운다(InteractionRetentionScheduler). */
     @Transactional
     public int deleteReceivedBefore(Instant cutoff) {
         return jdbc.update("delete from interaction_event where received_at < ?", Timestamp.from(cutoff));

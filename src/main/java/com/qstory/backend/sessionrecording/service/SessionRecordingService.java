@@ -239,7 +239,7 @@ public class SessionRecordingService {
                 : new String(data, StandardCharsets.UTF_8);
     }
 
-    /** 보관 기간(90일)이 지난 조각을 지운다(SessionRecordingRetentionScheduler). */
+    /** 보관 기간(1년)이 지난 조각을 지운다(SessionRecordingRetentionScheduler). */
     @Transactional
     public int deleteReceivedBefore(Instant cutoff) {
         return jdbc.update("delete from session_recording_chunk where received_at < ?", Timestamp.from(cutoff));
