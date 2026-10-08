@@ -44,7 +44,11 @@ public record AppProperties(
         }
     }
 
-    public record Auth(String jwtSecret, long accessTokenTtlMinutes) {
+    /**
+     * rememberMeTtlDays는 "로그인 유지"를 켠 로그인(과 모든 회원가입)의 토큰 수명, sessionTtlHours는 끈 로그인의
+     * 토큰 수명이다. 어느 쪽이든 POST /v1/auth/refresh로 같은 모드의 새 토큰을 받아 수명을 늘린다.
+     */
+    public record Auth(String jwtSecret, long rememberMeTtlDays, long sessionTtlHours) {
         public boolean configured() {
             return notBlank(jwtSecret);
         }

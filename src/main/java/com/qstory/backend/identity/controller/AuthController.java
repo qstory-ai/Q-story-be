@@ -86,10 +86,20 @@ public class AuthController {
         return authService.signupStaff(request);
     }
 
-    @Operation(summary = "Log in", description = "loginId is the free-form id the user chose at signup.")
+    @Operation(summary = "Log in", description = "loginId is the free-form id the user chose at signup. rememberMe "
+            + "(default true) picks the token lifetime: true = qstory.auth.remember-me-ttl-days, false = "
+            + "qstory.auth.session-ttl-hours.")
     @PostMapping("/v1/auth/login")
     public AuthResponse login(@RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @Operation(summary = "Renew the current token",
+            description = "Requires a valid (unexpired) token. Returns a fresh token with the same rememberMe mode "
+                    + "and a full lifetime. 401 if the token is missing/expired or the account was deleted.")
+    @PostMapping("/v1/auth/refresh")
+    public AuthResponse refresh() {
+        return authService.refresh(currentUserResolver.require());
     }
 
     @Operation(summary = "Get the current logged-in user")

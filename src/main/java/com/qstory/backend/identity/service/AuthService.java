@@ -165,7 +165,7 @@ public class AuthService {
         if (user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw ApiException.contractError(ErrorCode.INVALID_CREDENTIALS, "아이디 또는 비밀번호가 올바르지 않아요.");
         }
-        return issueResponse(user);
+        return issueResponse(user, rememberMeOrDefault(request.rememberMe()));
     }
 
     /**
@@ -186,7 +186,7 @@ public class AuthService {
 
         Optional<AppUser> existing = userRepository.findByOauthProviderAndOauthSubject(provider, identity.subject());
         if (existing.isPresent()) {
-            return issueResponse(existing.get());
+            return issueResponse(existing.get(), rememberMeOrDefault(request.rememberMe()));
         }
 
         if (request.role() == null || !OAUTH_SIGNUP_ROLES.contains(request.role())) {
@@ -240,6 +240,15 @@ public class AuthService {
         // not-null unique라 provider:subject 조합으로 대체한다(사람이 직접 보거나 입력하는
         // 값이 아니다).
         return provider.name().toLowerCase() + ":" + identity.subject();
+    }
+
+    /**
+     * 지금 토큰과 같은 모드(로그인 유지 여부)로 새 토큰을 발급한다. role/orgId는 토큰이 아니라 DB에서 다시 읽는다 -
+     * 탈퇴한 계정은 me()와 똑같이 401이다.
+     */
+    @Transactional(readOnly = true)
+    public AuthResponse refresh(CurrentUser caller) {
+        return issueResponse(requireActiveUser(caller.userId()), caller.rememberMe());
     }
 
     public UserSummary me(CurrentUser caller) {
@@ -420,9 +429,20 @@ public class AuthService {
         return issueResponse(user);
     }
 
+    /** rememberMe 필드를 보내지 않는 예전 클라이언트는 이전과 같은 장기 토큰을 받는다. */
+    private static boolean rememberMeOrDefault(Boolean rememberMe) {
+        return rememberMe == null || rememberMe;
+    }
+
+    /** 회원가입·비밀번호 재설정 - 모드를 고르는 화면이 아니라서 로그인 유지로 발급한다. */
     private AuthResponse issueResponse(AppUser user) {
+        return issueResponse(user, true);
+    }
+
+    private AuthResponse issueResponse(AppUser user, boolean rememberMe) {
         CurrentUser currentUser = new CurrentUser(
-                user.getId(), user.getRole(), user.getOrganization() == null ? null : user.getOrganization().getId());
+                user.getId(), user.getRole(), user.getOrganization() == null ? null : user.getOrganization().getId(),
+                rememberMe);
         return new AuthResponse(jwtService.issue(currentUser), userSummaryFactory.of(user));
     }
 }
