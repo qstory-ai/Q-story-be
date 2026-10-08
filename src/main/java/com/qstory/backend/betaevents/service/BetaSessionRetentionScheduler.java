@@ -9,12 +9,12 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 마지막 활동 후 90일이 지난 베타 세션을 매일 삭제한다(이벤트는 FK cascade로 함께 삭제). */
+/** 마지막 활동 후 1년이 지난 베타 세션을 매일 삭제한다(이벤트는 FK cascade로 함께 삭제). */
 @Component
 public class BetaSessionRetentionScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(BetaSessionRetentionScheduler.class);
-    private static final Duration RETENTION = Duration.ofDays(90);
+    private static final Duration RETENTION = Duration.ofDays(365);
 
     private final StorySessionRepository repository;
 
