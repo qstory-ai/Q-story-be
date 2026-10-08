@@ -38,6 +38,14 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
     List<StoryCompletion> findClassReportsByUser(
             @Param("classId") UUID classId, @Param("userId") UUID userId, Pageable pageable);
 
+    /**
+     * 지난 담임(076)이 이 반에서 진행한 수업의 참여 학생 - 지난 담임에게는 자기가 가르친 학생만 반 명단에 보인다.
+     */
+    @Query(value = "select distinct p.tutor_student_id from story_completion_participant p "
+            + "join story_completion c on c.id = p.completion_id "
+            + "where c.class_group_id = :classId and c.user_id = :userId", nativeQuery = true)
+    List<UUID> findParticipantIdsOfClassSessionsByUser(@Param("classId") UUID classId, @Param("userId") UUID userId);
+
     /** 특정 학생이 참여한 선생님 세션(개별·반 수업) - TutorController가 그 학생을 소유했는지 먼저 확인한 뒤 호출한다. */
     @Query("select c from StoryCompletion c join c.participants p where p.id = :studentId order by c.completedAt desc")
     List<StoryCompletion> findByParticipant(@Param("studentId") UUID studentId);
@@ -52,20 +60,28 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
     List<Object[]> findVisibleParticipantNames(@Param("parentId") UUID parentId);
 
     /**
+     * 학생 s가 기록 c의 반 학생으로 그 반 수업 기록을 볼 수 있는가(Q-39, 076) - 지금 그 반 학생(졸업 전)이면 날짜 제한
+     * 없이, 그 반을 떠났으면(다른 반으로 옮김·졸업) 떠난 날까지의 기록만. 떠난 구간은 tutor_student_class_history에 있다.
+     */
+    String CLASS_MEMBER_SEES_SESSION = "((s.class_group_id = c.class_group_id and s.graduated_at is null) "
+            + "or exists (select 1 from tutor_student_class_history h where h.tutor_student_id = s.id "
+            + "and h.class_group_id = c.class_group_id and h.ended_at is not null and c.completed_at <= h.ended_at))";
+
+    /**
      * 반에 연결된 부모가 보는 반 수업 기록(Q-39) - 부모가 그 반의 학생(미삭제)에 연결돼 있으면 연결한 날 이전 수업까지
-     * 반 수업 기록(group_session)을 모두 본다. 참여 학생 스냅샷에 없어도(수업 뒤에 들어온 아이) 보인다.
-     * 이름은 이 부모에게 연결된 그 반 학생 이름.
+     * 반 수업 기록(group_session)을 모두 본다. 참여 학생 스냅샷에 없어도(수업 뒤에 들어온 아이) 보인다. 아이가 다른 반으로
+     * 옮겼거나 졸업했으면 그 반의 기록은 떠난 날까지만 보인다(076). 이름은 이 부모에게 연결된 그 반 학생 이름.
      */
     @Query(value = "select cast(c.id as varchar), s.name from story_completion c "
-            + "join tutor_student s on s.class_group_id = c.class_group_id "
-            + "where c.group_session = true and s.deleted_at is null and s.linked_parent_user_id = :parentId", nativeQuery = true)
+            + "join tutor_student s on s.deleted_at is null and s.linked_parent_user_id = :parentId "
+            + "where c.group_session = true and " + CLASS_MEMBER_SEES_SESSION, nativeQuery = true)
     List<Object[]> findVisibleClassSessionNames(@Param("parentId") UUID parentId);
 
-    /** 상세 열람 권한 - 호출자가 이 반 수업 기록의 반에 연결된 부모인가(Q-39, 날짜 제한 없음). */
+    /** 상세 열람 권한 - 호출자가 이 반 수업 기록의 반에 연결된 부모인가(Q-39 - 지금 반이면 날짜 제한 없음, 076). */
     @Query(value = "select exists (select 1 from story_completion c "
-            + "join tutor_student s on s.class_group_id = c.class_group_id "
-            + "where c.id = :completionId and c.group_session = true and s.deleted_at is null "
-            + "and s.linked_parent_user_id = :parentId)", nativeQuery = true)
+            + "join tutor_student s on s.deleted_at is null and s.linked_parent_user_id = :parentId "
+            + "where c.id = :completionId and c.group_session = true and " + CLASS_MEMBER_SEES_SESSION + ")",
+            nativeQuery = true)
     boolean isVisibleToClassParent(@Param("completionId") UUID completionId, @Param("parentId") UUID parentId);
 
     /**
@@ -74,9 +90,10 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
      */
     @Query(value = "select distinct cast(ch.id as varchar), ch.name from tutor_student s "
             + "join parent_child ch on ch.id = s.child_id "
+            + "join story_completion c on c.id = :completionId "
             + "where s.deleted_at is null and s.linked_parent_user_id = :parentId and ("
-            + "s.id in (select p.tutor_student_id from story_completion_participant p where p.completion_id = :completionId) "
-            + "or s.class_group_id = (select c.class_group_id from story_completion c where c.id = :completionId))", nativeQuery = true)
+            + "s.id in (select p.tutor_student_id from story_completion_participant p where p.completion_id = c.id) "
+            + "or " + CLASS_MEMBER_SEES_SESSION + ")", nativeQuery = true)
     List<Object[]> findLinkedChildren(@Param("completionId") UUID completionId, @Param("parentId") UUID parentId);
 
     @EntityGraph(attributePaths = {"user", "classGroup", "classGroup.organization"})

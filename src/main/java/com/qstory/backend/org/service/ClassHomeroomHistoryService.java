@@ -45,6 +45,18 @@ public class ClassHomeroomHistoryService {
         }
     }
 
+    /** 이 선생님이 이 반의 담임이었던 적이 있는가(지금 담임 포함, 076). */
+    @Transactional(readOnly = true)
+    public boolean hasLed(java.util.UUID classGroupId, java.util.UUID tutorId) {
+        return repository.existsByClassGroup_IdAndTutor_Id(classGroupId, tutorId);
+    }
+
+    /** 이 선생님의 담임 이력 전체(오래된 것부터, 076). */
+    @Transactional(readOnly = true)
+    public List<ClassHomeroomHistory> listByTutor(java.util.UUID tutorId) {
+        return repository.findByTutor_IdOrderByStartedAtAsc(tutorId);
+    }
+
     @Transactional(readOnly = true)
     public List<ClassHomeroomHistory> list(ClassGroup classGroup) {
         return repository.findByClassGroup_IdOrderByStartedAtAsc(classGroup.getId());

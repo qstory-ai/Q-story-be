@@ -3,6 +3,7 @@ package com.qstory.backend.tutor.controller;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.org.dto.ClassResponse;
+import com.qstory.backend.org.dto.PastClassResponse;
 import com.qstory.backend.tutor.dto.CreateTutorClassRequest;
 import com.qstory.backend.tutor.service.TutorClassService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,6 +34,15 @@ public class TutorClassController {
     @GetMapping("/v1/tutor-classes")
     public List<ClassResponse> list() {
         return service.listVisible(currentUserResolver.requireRole(Role.TUTOR));
+    }
+
+    @Operation(summary = "List classes the caller used to lead",
+            description = "TUTOR only. Organization classes from the homeroom history that the tutor no longer leads, plus "
+                    + "classes they still lead that are archived. Only while the tutor still belongs to the organization. "
+                    + "Class detail/reports of these classes show only sessions the tutor ran.")
+    @GetMapping("/v1/tutor-classes/past")
+    public List<PastClassResponse> listPast() {
+        return service.listPast(currentUserResolver.requireRole(Role.TUTOR));
     }
 
     @Operation(summary = "Create a class",

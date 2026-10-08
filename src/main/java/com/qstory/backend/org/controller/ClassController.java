@@ -15,6 +15,13 @@ import com.qstory.backend.org.dto.HomeroomHistoryEntryResponse;
 import com.qstory.backend.org.dto.CreateClassRequest;
 import com.qstory.backend.org.dto.JoinClassRequest;
 import com.qstory.backend.org.dto.JoinExistingClassRequest;
+import com.qstory.backend.org.dto.ClassHistoryEntryResponse;
+import com.qstory.backend.org.dto.MoveStudentsRequest;
+import com.qstory.backend.org.dto.MoveStudentsResponse;
+import com.qstory.backend.org.dto.RenameClassRequest;
+import com.qstory.backend.org.dto.TermTransitionRequest;
+import com.qstory.backend.org.dto.TermTransitionResponse;
+import com.qstory.backend.org.service.ClassLifecycleService;
 import com.qstory.backend.org.service.ClassService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +30,7 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -36,10 +44,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class ClassController {
 
     private final ClassService service;
+    private final ClassLifecycleService lifecycleService;
     private final CurrentUserResolver currentUserResolver;
 
-    public ClassController(ClassService service, CurrentUserResolver currentUserResolver) {
+    public ClassController(
+            ClassService service, ClassLifecycleService lifecycleService, CurrentUserResolver currentUserResolver) {
         this.service = service;
+        this.lifecycleService = lifecycleService;
         this.currentUserResolver = currentUserResolver;
     }
 
@@ -50,22 +61,78 @@ public class ClassController {
         return service.create(currentUserResolver.requireRole(Role.DIRECTOR), orgId, request);
     }
 
-    @Operation(summary = "List an organization's classes", description = "DIRECTOR of the organization only.")
+    @Operation(summary = "List an organization's classes",
+            description = "DIRECTOR of the organization only. Archived (past) classes are excluded unless includeArchived=true.")
     @GetMapping("/v1/organizations/{orgId}/classes")
-    public List<ClassResponse> list(@PathVariable UUID orgId) {
-        return service.list(currentUserResolver.requireRole(Role.DIRECTOR), orgId);
+    public List<ClassResponse> list(
+            @PathVariable UUID orgId, @RequestParam(defaultValue = "false") boolean includeArchived) {
+        return service.list(currentUserResolver.requireRole(Role.DIRECTOR), orgId, includeArchived);
     }
 
-    @Operation(summary = "Get a class", description = "The owning DIRECTOR or the class's homeroom TUTOR.")
+    @Operation(summary = "Get a class",
+            description = "The owning DIRECTOR, the class's homeroom TUTOR, or a former homeroom TUTOR still in the "
+                    + "organization (joinCode is null for former homerooms).")
     @GetMapping("/v1/classes/{classId}")
     public ClassResponse get(@PathVariable UUID classId) {
         return service.get(currentUserResolver.require(), classId);
     }
 
-    @Operation(summary = "List the students in a class", description = "The owning DIRECTOR or the class's homeroom TUTOR.")
+    @Operation(summary = "Rename a class",
+            description = "Owning DIRECTOR only. Body {name}. Archived classes can be renamed too. Past reports keep the "
+                    + "class name from when they were recorded.")
+    @PatchMapping("/v1/classes/{classId}")
+    public ClassResponse rename(@PathVariable UUID classId, @RequestBody RenameClassRequest request) {
+        return lifecycleService.rename(currentUserResolver.requireRole(Role.DIRECTOR), classId, request);
+    }
+
+    @Operation(summary = "Archive a class (past class)",
+            description = "Owning DIRECTOR only. 409 CLASS_HAS_ACTIVE_STUDENTS while the class still has current "
+                    + "(non-graduated) students - move or graduate them first (term-transition). The join code and "
+                    + "homeroom invites stop working (410). Records stay. Idempotent.")
+    @PostMapping("/v1/classes/{classId}/archive")
+    public ClassResponse archive(@PathVariable UUID classId) {
+        return lifecycleService.archive(currentUserResolver.requireRole(Role.DIRECTOR), classId);
+    }
+
+    @Operation(summary = "Unarchive a class", description = "Owning DIRECTOR only. The join code works again. Idempotent.")
+    @PostMapping("/v1/classes/{classId}/unarchive")
+    public ClassResponse unarchive(@PathVariable UUID classId) {
+        return lifecycleService.unarchive(currentUserResolver.requireRole(Role.DIRECTOR), classId);
+    }
+
+    @Operation(summary = "Move students to another class of the same organization",
+            description = "Owning DIRECTOR only. Body {studentIds, targetClassId}. The same student row moves (history, "
+                    + "parent link kept); the student becomes the target homeroom's student. Target in another "
+                    + "organization 404, archived 409. Per-student failures come back in skipped.")
+    @PostMapping("/v1/classes/{classId}/students/move")
+    public MoveStudentsResponse moveStudents(@PathVariable UUID classId, @RequestBody MoveStudentsRequest request) {
+        return lifecycleService.moveStudents(currentUserResolver.requireRole(Role.DIRECTOR), classId, request);
+    }
+
+    @Operation(summary = "Term transition",
+            description = "Owning DIRECTOR only. Body {decisions:[{studentId, action: MOVE|KEEP|GRADUATE, targetClassId?}], "
+                    + "archiveClass}. Every current student needs exactly one decision (400 otherwise). One transaction.")
+    @PostMapping("/v1/classes/{classId}/term-transition")
+    public TermTransitionResponse termTransition(
+            @PathVariable UUID classId, @RequestBody TermTransitionRequest request) {
+        return lifecycleService.termTransition(currentUserResolver.requireRole(Role.DIRECTOR), classId, request);
+    }
+
+    @Operation(summary = "List a student's class history",
+            description = "The organization's DIRECTOR, or the student's current or former homeroom TUTOR. Oldest first.")
+    @GetMapping("/v1/tutor-students/{studentId}/class-history")
+    public List<ClassHistoryEntryResponse> classHistory(@PathVariable UUID studentId) {
+        return lifecycleService.classHistory(currentUserResolver.require(), studentId);
+    }
+
+    @Operation(summary = "List the students in a class",
+            description = "The owning DIRECTOR, the class's homeroom TUTOR, or a former homeroom (only students they "
+                    + "taught). Graduated students are not current members; includePast=true appends students who left "
+                    + "(moved or graduated) with endedAt/endReason.")
     @GetMapping("/v1/classes/{classId}/students")
-    public List<ClassStudentResponse> listStudents(@PathVariable UUID classId) {
-        return service.listStudents(currentUserResolver.require(), classId);
+    public List<ClassStudentResponse> listStudents(
+            @PathVariable UUID classId, @RequestParam(defaultValue = "false") boolean includePast) {
+        return service.listStudents(currentUserResolver.require(), classId, includePast);
     }
 
     @Operation(summary = "Assign or change the homeroom tutor",

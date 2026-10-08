@@ -192,6 +192,7 @@ public class AccountErasureService {
         storyCompletionRepository.deletePersonalSessionsOfTutor(tutorId);
         lessonRepository.deletePersonalLessonsOf(tutorId);
         tutorStudentRepository.deleteStudentsOfPersonalClasses(tutorId);
+        tutorStudentRepository.deleteClassHistoryOfPersonalClasses(tutorId);
         homeroomHistoryRepository.deletePersonalHistoryOf(tutorId);
         classGroupRepository.deletePersonalClassesOf(tutorId);
     }

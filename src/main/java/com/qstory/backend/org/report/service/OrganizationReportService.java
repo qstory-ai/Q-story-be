@@ -75,7 +75,8 @@ public class OrganizationReportService {
                             studentCounts.getOrDefault(classGroup.getId(), 0L),
                             aggregate.completionCount,
                             aggregate.questionCount,
-                            aggregate.lastActivityAt);
+                            aggregate.lastActivityAt,
+                            classGroup.isArchived());
                 })
                 .toList();
         List<OrganizationReportResponse.StorySummary> topStories = byStory.entrySet().stream()

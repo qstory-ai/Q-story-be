@@ -62,12 +62,13 @@ class ClassServiceHomeroomTest {
     private final LessonRepository lessonRepository = mock(LessonRepository.class);
     private final ClassHomeroomHistoryService historyService = mock(ClassHomeroomHistoryService.class);
     private final NotificationPublisher notificationPublisher = mock(NotificationPublisher.class);
+    private final StudentClassHistoryService classHistoryService = mock(StudentClassHistoryService.class);
     private final ClassService service = new ClassService(
             classGroupRepository, tutorStudentRepository, organizationTutorRepository, mock(AppUserRepository.class),
             mock(OrganizationService.class), mock(JoinCodeGenerator.class), mock(AuthValidator.class),
             mock(PasswordEncoder.class), mock(JwtService.class), mock(TutorStudentService.class),
             mock(UserSummaryFactory.class), storyCompletionRepository, lessonRepository, historyService,
-            mock(com.qstory.backend.identity.service.ConsentService.class), notificationPublisher);
+            mock(com.qstory.backend.identity.service.ConsentService.class), notificationPublisher, classHistoryService);
 
     private final Organization organization = Organization.builder().id(UUID.randomUUID()).name("햇살유치원").build();
     private final CurrentUser director = new CurrentUser(UUID.randomUUID(), Role.DIRECTOR, organization.getId());

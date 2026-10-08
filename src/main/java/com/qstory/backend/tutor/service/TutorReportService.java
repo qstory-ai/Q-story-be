@@ -3,9 +3,11 @@ package com.qstory.backend.tutor.service;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.security.CurrentUser;
+import com.qstory.backend.org.service.ClassReportAccess;
 import com.qstory.backend.storyreport.dto.StoryCompletionSummary;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.dto.TutorReportSummary;
+import com.qstory.backend.tutor.entity.TutorStudent;
 import com.qstory.backend.tutor.lesson.repository.LessonRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.util.LinkedHashMap;
@@ -51,13 +53,14 @@ public class TutorReportService {
     /**
      * 선생님 자신의 학생 하나가 참여한 세션 기록(반 수업 포함) 중 이 선생님이 진행한 것만 - 소유하지 않은 학생 id면 404.
      * 담임이 바뀐 반의 학생은 새 담임에게 넘어오지만, 지난 담임이 진행한 기록은 지난 담임 것으로 남는다(Q-35).
+     * 원장이 다른 반에서 옮겨 온 학생(076)은 지난 반(같은 기관)에서 남긴 기록도 함께 본다(ClassReportAccess).
      */
     @Transactional(readOnly = true)
     public List<StoryCompletionSummary> listStudentCompletions(CurrentUser caller, UUID studentId) {
-        tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(studentId, caller.userId())
+        TutorStudent student = tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(studentId, caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "학생을 찾을 수 없어요.", 404));
         return storyCompletionRepository.findByParticipant(studentId).stream()
-                .filter(completion -> completion.getUser().getId().equals(caller.userId()))
+                .filter(completion -> ClassReportAccess.visibleToHomeroom(completion, student, caller.userId()))
                 .map(StoryCompletionSummary::of)
                 .toList();
     }

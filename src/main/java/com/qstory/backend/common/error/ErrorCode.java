@@ -69,7 +69,11 @@ public enum ErrorCode {
     /** 선택지 음성 미리 만들기 전용 Gemini 키가 설정되지 않았다 - TTS 호출 없이 거절한다. */
     PREFETCH_DISABLED(409),
     /** 화면 녹화 동의가 없거나 철회됐다 - 녹화 조각을 받지 않는다. */
-    RECORDING_NOT_CONSENTED(403);
+    RECORDING_NOT_CONSENTED(403),
+    /** 지난 반(보관된 반)이라 담임 배정·초대·학생 옮겨 넣기를 할 수 없다(076). */
+    CLASS_ARCHIVED(409),
+    /** 반에 아직 지금 학생이 있어 보관할 수 없다 - 학기 넘기기로 옮기거나 졸업 처리해야 한다(076). */
+    CLASS_HAS_ACTIVE_STUDENTS(409);
 
     private final int defaultStatus;
 

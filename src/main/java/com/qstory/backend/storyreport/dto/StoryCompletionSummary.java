@@ -28,7 +28,9 @@ public record StoryCompletionSummary(
         String sessionKind,
         int participantCount,
         /** COMPLETED | EXITED(중간에 나감) - 목록에서 "멈춤"으로 표시한다(Q-39). */
-        String endStatus) {
+        String endStatus,
+        /** 수업한 반의 그때 이름(076 스냅샷) - 반 이름을 바꿔도, 다른 반으로 옮긴 학생의 지난 반 기록도 그때 이름. 가정 기록은 null. */
+        String className) {
 
     public static StoryCompletionSummary of(StoryCompletion completion) {
         return new StoryCompletionSummary(
@@ -42,6 +44,7 @@ public record StoryCompletionSummary(
                 completion.getLesson() == null ? null : completion.getLesson().getId(),
                 completion.sessionKind(),
                 completion.getParticipants().size(),
-                completion.getEndStatus());
+                completion.getEndStatus(),
+                completion.classNameSnapshot());
     }
 }

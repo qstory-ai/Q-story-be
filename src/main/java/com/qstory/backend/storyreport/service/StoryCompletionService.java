@@ -198,6 +198,7 @@ public class StoryCompletionService {
                 .user(user)
                 .organization(organization)
                 .classGroup(classGroup)
+                .className(classGroup == null ? null : classGroup.getName())
                 .sessionId(request.companionConversationId())
                 .tutorStudent(tutorStudent)
                 .child(child)
