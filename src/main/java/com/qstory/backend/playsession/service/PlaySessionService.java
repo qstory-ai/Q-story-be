@@ -23,6 +23,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>같은 (session, seq)는 한 번만 들어간다(재전송 멱등). 회차의 주인은 처음 보낸 사용자로 고정되고, 다른
  * 사용자가 같은 session id로 보내면 없는 회차처럼 404를 준다. 아이·학생·수업 id는 호출자 것일 때만 남긴다.
+ *
+ * <p>랜딩의 데모처럼 로그인 전 플레이도 남긴다(072) - 이때 주인은 베타 세션 id(betaSessionId)다. 같은 베타 세션으로
+ * 익명 회차를 이어 쓰던 사람이 로그인한 채 보내면 그 계정이 회차를 가져간다(claim). 한 번 계정에 붙은 회차는 익명으로는
+ * 더 쓸 수 없다 - 베타 세션 id만 아는 사람이 아이 기록이 붙은 회차에 줄을 끼워 넣지 못하게 한다.
  */
 @Service
 public class PlaySessionService {
@@ -50,6 +54,10 @@ public class PlaySessionService {
         if (body == null || !body.isObject()) {
             throw ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요.");
         }
+        UUID betaSessionId = uuid(body.path("betaSessionId"));
+        if (caller == null && betaSessionId == null) {
+            throw ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401);
+        }
         String storyId = shortText(body.path("storyId"), 64);
         if (storyId == null) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "storyId가 필요해요.");
@@ -58,7 +66,7 @@ public class PlaySessionService {
         if (!turns.isArray() || turns.size() > MAX_TURNS_PER_REQUEST) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "대화는 한 번에 50개까지 보낼 수 있어요.");
         }
-        upsertSession(caller, sessionId, storyId, body);
+        upsertSession(caller, betaSessionId, sessionId, storyId, body);
         Instant now = Instant.now();
         for (JsonNode turn : turns) {
             insertTurn(sessionId, turn, now);
@@ -68,26 +76,70 @@ public class PlaySessionService {
         return max == null ? 0 : max;
     }
 
-    private void upsertSession(CurrentUser caller, UUID sessionId, String storyId, JsonNode body) {
-        List<UUID> owners = jdbc.queryForList("select user_id from play_session where id = ?", UUID.class, sessionId);
+    /** 기존 회차에 대한 호출자의 권한. */
+    enum Access { OWNER, CLAIM, DENIED }
+
+    /**
+     * 로그인 호출자는 자기 user_id 회차의 주인이고, 아직 계정이 없는 같은 베타 세션 회차는 가져간다(CLAIM).
+     * 익명 호출자는 계정이 없고 베타 세션 id가 같은 회차만 쓴다.
+     */
+    static Access access(UUID ownerUserId, UUID ownerBetaSessionId, UUID callerUserId, UUID callerBetaSessionId) {
+        boolean sameBeta = callerBetaSessionId != null && callerBetaSessionId.equals(ownerBetaSessionId);
+        if (callerUserId != null) {
+            if (callerUserId.equals(ownerUserId)) return Access.OWNER;
+            return ownerUserId == null && sameBeta ? Access.CLAIM : Access.DENIED;
+        }
+        return ownerUserId == null && sameBeta ? Access.OWNER : Access.DENIED;
+    }
+
+    record Owner(UUID userId, UUID betaSessionId) {}
+
+    private List<Owner> owners(UUID sessionId) {
+        return jdbc.query(
+                "select user_id, beta_session_id from play_session where id = ?",
+                (rs, rowNum) -> new Owner(rs.getObject("user_id", UUID.class), rs.getObject("beta_session_id", UUID.class)),
+                sessionId);
+    }
+
+    private void upsertSession(CurrentUser caller, UUID betaSessionId, UUID sessionId, String storyId, JsonNode body) {
+        UUID callerId = caller == null ? null : caller.userId();
+        List<Owner> owners = owners(sessionId);
         String contentVersion = shortText(body.path("contentVersion"), 80);
         String readFrom = shortText(body.path("readFromSceneId"), 64);
         String readThrough = shortText(body.path("readThroughSceneId"), 64);
         Timestamp now = Timestamp.from(Instant.now());
         if (owners.isEmpty()) {
+            // 아이·학생·수업은 로그인한 호출자 것일 때만 - 익명 데모 회차에는 붙지 않는다.
             jdbc.update(
-                    "insert into play_session (id, user_id, story_id, content_version, child_id, tutor_student_id, lesson_id, "
-                            + "read_from_scene_id, read_through_scene_id, started_at, updated_at) values (?,?,?,?,?,?,?,?,?,?,?) "
-                            + "on conflict (id) do nothing",
-                    sessionId, caller.userId(), storyId, contentVersion,
-                    ownedChild(caller, uuid(body.path("childId"))),
-                    ownedStudent(caller, uuid(body.path("tutorStudentId"))),
-                    ownedLesson(caller, uuid(body.path("lessonId"))),
+                    "insert into play_session (id, user_id, beta_session_id, story_id, content_version, child_id, tutor_student_id, "
+                            + "lesson_id, read_from_scene_id, read_through_scene_id, started_at, updated_at) "
+                            + "values (?,?,?,?,?,?,?,?,?,?,?,?) on conflict (id) do nothing",
+                    sessionId, callerId, betaSessionId, storyId, contentVersion,
+                    caller == null ? null : ownedChild(caller, uuid(body.path("childId"))),
+                    caller == null ? null : ownedStudent(caller, uuid(body.path("tutorStudentId"))),
+                    caller == null ? null : ownedLesson(caller, uuid(body.path("lessonId"))),
                     readFrom, readThrough, now, now);
-            owners = jdbc.queryForList("select user_id from play_session where id = ?", UUID.class, sessionId);
+            owners = owners(sessionId);
         }
-        if (owners.isEmpty() || !owners.get(0).equals(caller.userId())) {
+        Access access = owners.isEmpty()
+                ? Access.DENIED
+                : access(owners.get(0).userId(), owners.get(0).betaSessionId(), callerId, betaSessionId);
+        if (access == Access.DENIED) {
             throw ApiException.contractError(ErrorCode.NOT_FOUND, "회차를 찾을 수 없어요.", 404);
+        }
+        if (access == Access.CLAIM) {
+            // 데모로 시작해 로그인한 뒤 이어 보낸 회차 - 계정에 붙인다. 동시에 다른 계정이 가져갔으면 0행이라 404.
+            int claimed = jdbc.update(
+                    "update play_session set user_id = ? where id = ? and user_id is null and beta_session_id = ?",
+                    callerId, sessionId, betaSessionId);
+            if (claimed == 0) {
+                throw ApiException.contractError(ErrorCode.NOT_FOUND, "회차를 찾을 수 없어요.", 404);
+            }
+        }
+        if (betaSessionId != null) {
+            // 로그인 회차에도 베타 세션을 남겨 두면 화면 녹화·상호작용과 같은 회차로 이어 볼 수 있다.
+            jdbc.update("update play_session set beta_session_id = coalesce(beta_session_id, ?) where id = ?",
+                    betaSessionId, sessionId);
         }
         // 사용 조건(진입 경로·진행 형태·기기)은 처음 값을 유지한다(Q-40).
         jdbc.update(

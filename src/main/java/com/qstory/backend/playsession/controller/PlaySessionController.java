@@ -30,11 +30,14 @@ public class PlaySessionController {
     @Operation(
             summary = "Append dialogue turns to a play session",
             description = "Creates the session on first call (owned by the caller). Idempotent per (sessionId, seq). "
-                    + "At most 50 turns per call, text up to 500 characters.")
+                    + "At most 50 turns per call, text up to 500 characters. Login is optional: without a token, "
+                    + "betaSessionId is required (else 401) and owns the session; a logged-in caller with the same "
+                    + "betaSessionId claims an anonymous session.")
     @PostMapping("/v1/play-sessions/{sessionId}/turns")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, Object> appendTurns(@PathVariable UUID sessionId, @RequestBody JsonNode body) {
-        int savedThrough = service.appendTurns(currentUserResolver.require(), sessionId, body);
+        // 랜딩 데모처럼 로그인 전 플레이도 남긴다 - 토큰이 없으면 body의 betaSessionId가 주인이다(서비스가 검사).
+        int savedThrough = service.appendTurns(currentUserResolver.currentOrNull(), sessionId, body);
         return Map.of("ok", true, "savedThrough", savedThrough);
     }
 }
