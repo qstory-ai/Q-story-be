@@ -388,7 +388,7 @@ public class ClassService {
         tutorStudentService.enrollParentInClass(
                 parent, classGroup, request.childName(), request.childBirthYear(), request.childId(),
                 request.rosterStudentId());
-        return authResponse(parent);
+        return authResponse(parent, caller.rememberMe());
     }
 
     /** 반 초대 링크 미리보기 - 로그인 없이 반 코드만으로 기관·반·담임 이름을 보여 준다. */
@@ -440,7 +440,13 @@ public class ClassService {
     }
 
     private AuthResponse authResponse(AppUser parent) {
-        return new AuthResponse(jwtService.issue(new CurrentUser(parent.getId(), Role.PARENT, null)), userSummaryFactory.of(parent));
+        return authResponse(parent, true);
+    }
+
+    /** 이미 로그인한 학부모에게 다시 발급할 때는 지금 토큰의 로그인 유지 모드를 그대로 쓴다. */
+    private AuthResponse authResponse(AppUser parent, boolean rememberMe) {
+        return new AuthResponse(
+                jwtService.issue(new CurrentUser(parent.getId(), Role.PARENT, null, rememberMe)), userSummaryFactory.of(parent));
     }
 
     private ClassGroup resolveClassGroup(String classCode) {

@@ -21,7 +21,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/** 이 앱 자체의 액세스 토큰을 발급하고 검증한다 - HMAC 서명 방식의 단일한 장기 유효 토큰이며, 리프레시(refresh) 흐름은 없다. */
+/**
+ * 이 앱 자체의 액세스 토큰을 발급하고 검증한다 - HMAC 서명 방식의 단일 토큰이다. 수명은 "로그인 유지" 여부(rm claim)로
+ * 정해지고(remember-me-ttl-days / session-ttl-hours), 클라이언트는 만료 전에 POST /v1/auth/refresh로 같은 모드의 새
+ * 토큰을 받는다. rm claim이 없는 예전 토큰은 로그인 유지 토큰으로 취급한다.
+ */
 @Component
 public class JwtService {
 
@@ -29,6 +33,8 @@ public class JwtService {
 
     private static final String CLAIM_ROLE = "role";
     private static final String CLAIM_ORG_ID = "orgId";
+    /** "로그인 유지" 여부. 없으면(이 claim 이전에 발급된 토큰) true로 본다. */
+    static final String CLAIM_REMEMBER_ME = "rm";
 
     private final AppProperties config;
 
@@ -56,13 +62,15 @@ public class JwtService {
         }
     }
 
+    /** user.rememberMe()에 따라 수명을 정해 발급한다. */
     public String issue(CurrentUser user) {
         Instant now = Instant.now();
         var builder = Jwts.builder()
                 .subject(user.userId().toString())
                 .claim(CLAIM_ROLE, user.role().name())
+                .claim(CLAIM_REMEMBER_ME, user.rememberMe())
                 .issuedAt(Date.from(now))
-                .expiration(Date.from(now.plus(Duration.ofMinutes(config.auth().accessTokenTtlMinutes()))));
+                .expiration(Date.from(now.plus(ttl(user.rememberMe()))));
         if (user.orgId() != null) {
             builder.claim(CLAIM_ORG_ID, user.orgId().toString());
         }
@@ -79,10 +87,17 @@ public class JwtService {
             UUID userId = UUID.fromString(claims.getSubject());
             Role role = Role.valueOf(claims.get(CLAIM_ROLE, String.class));
             UUID orgId = uuidOrNull(claims.get(CLAIM_ORG_ID, String.class));
-            return Optional.of(new CurrentUser(userId, role, orgId));
+            Boolean rememberMe = claims.get(CLAIM_REMEMBER_ME, Boolean.class);
+            return Optional.of(new CurrentUser(userId, role, orgId, rememberMe == null || rememberMe));
         } catch (JwtException | IllegalArgumentException malformed) {
             return Optional.empty();
         }
+    }
+
+    Duration ttl(boolean rememberMe) {
+        return rememberMe
+                ? Duration.ofDays(config.auth().rememberMeTtlDays())
+                : Duration.ofHours(config.auth().sessionTtlHours());
     }
 
     private SecretKey key() {

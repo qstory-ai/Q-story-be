@@ -110,7 +110,9 @@ qstory:
     retention-days: ${QSTORY_CONVERSATION_RECORD_RETENTION_DAYS:365}
   auth:
     jwt-secret: ${QSTORY_JWT_SECRET:}
-    access-token-ttl-minutes: ${QSTORY_ACCESS_TOKEN_TTL_MINUTES:20160}
+    # "로그인 유지" 체크 시(와 회원가입) 토큰 수명 / 체크 해제 시 토큰 수명. 앱이 만료가 가까워지면 /v1/auth/refresh로 연장한다.
+    remember-me-ttl-days: ${QSTORY_REMEMBER_ME_TTL_DAYS:90}
+    session-ttl-hours: ${QSTORY_SESSION_TTL_HOURS:12}
   fcm:
     # 앱 푸시(FCM HTTP v1). Firebase 콘솔 > 프로젝트 설정 > 서비스 계정에서 받은 키 JSON 원문 또는 그 base64.
     # 비어 있으면 푸시는 보내지 않는다(부팅 때 fcm.disabled 한 줄). 인앱 알림은 영향 없다.
