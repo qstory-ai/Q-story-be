@@ -157,6 +157,21 @@ public class ClassService {
             return ClassResponse.of(classGroup);
         }
         AppUser homeroom = requireOrganizationTutor(classGroup.getOrganization().getId(), tutorId);
+        return applyHomeroom(classGroup, homeroom);
+    }
+
+    /**
+     * 담임 배정·변경의 본체 - 원장의 배정(assignHomeroom)과 담임 초대 수락(ClassHomeroomInviteService)이 같이 쓴다.
+     * 정책은 assignHomeroom 설명 그대로다(담임 이력, 명단 학생과 예정 수업 이관). 권한 확인과 "기관 소속 선생님인지"
+     * 확인은 호출하는 쪽이 먼저 한다. 이미 그 선생님이 담임이면 아무것도 바꾸지 않는다.
+     */
+    @Transactional
+    public ClassResponse applyHomeroom(ClassGroup classGroup, AppUser homeroom) {
+        UUID classId = classGroup.getId();
+        AppUser previous = classGroup.getTutor();
+        if (previous != null && previous.getId().equals(homeroom.getId())) {
+            return ClassResponse.of(classGroup);
+        }
         Instant now = Instant.now();
         classGroup.setTutor(homeroom);
         classGroupRepository.save(classGroup);
@@ -344,7 +359,8 @@ public class ClassService {
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "이 기관에 소속된 선생님이 아니에요.", 404));
     }
 
-    private ClassGroup requireOwnedByDirector(CurrentUser caller, UUID classId) {
+    /** 그 반이 속한 기관의 원장만 - 아니면 403, 반이 없으면 404. 담임 초대(ClassHomeroomInviteService)도 같은 규칙을 쓴다. */
+    public ClassGroup requireOwnedByDirector(CurrentUser caller, UUID classId) {
         ClassGroup classGroup = requireClass(classId);
         if (!isOwningDirector(caller, classGroup)) {
             throw forbidden();
