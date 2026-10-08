@@ -33,6 +33,7 @@ import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -169,41 +170,49 @@ public class OrganizationTutorService {
         }
         AppUser tutor = userRepository.findById(caller.userId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
-        Organization organization = invite.getOrganization();
-
-        // 이미 소속이면 초대만 사용 처리하고 기존 관계를 반환 - idempotent.
-        boolean[] createdNewLink = { false };
-        OrganizationTutor link = organizationTutorRepository
-                .findByOrganization_IdAndTutor_Id(organization.getId(), tutor.getId())
-                .orElseGet(() -> {
-                    createdNewLink[0] = true;
-                    return organizationTutorRepository.save(OrganizationTutor.builder()
-                            .organization(organization)
-                            .tutor(tutor)
-                            .joinedAt(Instant.now())
-                            .build());
-                });
+        OrganizationTutor link = linkTutor(invite.getOrganization(), tutor, "org-tutor-invite-accepted:" + invite.getId());
 
         invite.setUsedAt(Instant.now());
         invite.setUsedByTutor(tutor);
         organizationTutorInviteRepository.save(invite);
-
-        // 새 소속이 실제로 생긴 경우에만 원장에게 알림 - 이미 소속됐던 튜터가 초대를 재사용
-        // 시도한(=idempotent) 경우엔 원장에게 스팸을 보내지 않는다. Organization은 owning
-        // director를 FK로 가지지 않으므로 role=DIRECTOR인 소속 사용자를 조회한다.
-        if (createdNewLink[0]) {
-            userRepository
-                    .findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(organization.getId(), Role.DIRECTOR)
-                    .ifPresent(director -> notificationPublisher.publish(
-                            director.getId(),
-                            "org-tutor-invite-accepted",
-                            tutor.getDisplayName() + " 선생님이 소속을 수락했어요",
-                            organization.getName() + " 소속 선생님 목록에 추가됐어요.",
-                            "/organization/tutors",
-                            "org-tutor-invite-accepted:" + invite.getId()));
-        }
-
         return OrganizationTutorResponse.of(link);
+    }
+
+    /**
+     * 선생님을 기관에 소속시킨다 - 기관 선생님 초대 수락과 반 담임 초대 수락(ClassHomeroomInviteService)이 같이 쓴다.
+     * 이미 소속이면 기존 관계를 그대로 돌려준다(idempotent). 다른 기관에 이미 소속된 선생님도 막지 않는다 - 스키마가
+     * 여러 기관 소속을 허용한다(organization_tutor는 (organization_id, tutor_id)만 유니크).
+     *
+     * <p>새 소속이 실제로 생긴 경우에만 원장에게 알림 - 이미 소속됐던 튜터가 초대를 재사용 시도한(=idempotent)
+     * 경우엔 원장에게 스팸을 보내지 않는다. Organization은 owning director를 FK로 가지지 않으므로 role=DIRECTOR인
+     * 소속 사용자를 조회한다. notificationKey는 같은 알림이 두 번 가지 않게 하는 중복 방지 키다. null이면 소속 알림을
+     * 보내지 않는다 - 담임 초대 수락은 "담임이 됐어요" 알림 하나로 원장에게 알린다(같은 일로 알림 두 개가 가지 않게).
+     */
+    @Transactional
+    public OrganizationTutor linkTutor(Organization organization, AppUser tutor, String notificationKey) {
+        Optional<OrganizationTutor> existing =
+                organizationTutorRepository.findByOrganization_IdAndTutor_Id(organization.getId(), tutor.getId());
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        OrganizationTutor link = organizationTutorRepository.save(OrganizationTutor.builder()
+                .organization(organization)
+                .tutor(tutor)
+                .joinedAt(Instant.now())
+                .build());
+        if (notificationKey == null) {
+            return link;
+        }
+        userRepository
+                .findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(organization.getId(), Role.DIRECTOR)
+                .ifPresent(director -> notificationPublisher.publish(
+                        director.getId(),
+                        "org-tutor-invite-accepted",
+                        tutor.getDisplayName() + " 선생님이 소속을 수락했어요",
+                        organization.getName() + " 소속 선생님 목록에 추가됐어요.",
+                        "/organization/tutors",
+                        notificationKey));
+        return link;
     }
 
     /* ---------------------------------------------------------- unlink */
