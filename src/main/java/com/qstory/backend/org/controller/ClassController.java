@@ -8,6 +8,7 @@ import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassPreviewResponse;
 import com.qstory.backend.org.dto.ClassRosterEntryResponse;
 import com.qstory.backend.org.dto.ClassResponse;
+import com.qstory.backend.org.dto.ClassReportResponse;
 import com.qstory.backend.org.dto.ClassStudentReportResponse;
 import com.qstory.backend.org.dto.ClassStudentResponse;
 import com.qstory.backend.org.dto.HomeroomHistoryEntryResponse;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -87,6 +89,15 @@ public class ClassController {
     @GetMapping("/v1/classes/{classId}/students/{studentId}/reports")
     public List<ClassStudentReportResponse> listStudentReports(@PathVariable UUID classId, @PathVariable UUID studentId) {
         return service.listStudentReports(currentUserResolver.require(), classId, studentId);
+    }
+
+    @Operation(summary = "List a class's recent lesson reports",
+            description = "The owning DIRECTOR sees every tutor's reports of the class; the homeroom TUTOR only the sessions "
+                    + "they ran. Home sessions are excluded. Newest first; limit defaults to 20, max 50.")
+    @GetMapping("/v1/classes/{classId}/reports")
+    public List<ClassReportResponse> listClassReports(
+            @PathVariable UUID classId, @RequestParam(required = false) Integer limit) {
+        return service.listClassReports(currentUserResolver.require(), classId, limit);
     }
 
     @Operation(summary = "Preview a class by its join code",

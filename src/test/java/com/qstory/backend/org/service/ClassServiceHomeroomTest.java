@@ -19,6 +19,7 @@ import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
+import com.qstory.backend.org.dto.ClassReportResponse;
 import com.qstory.backend.org.dto.ClassStudentReportResponse;
 import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.org.entity.Organization;
@@ -198,6 +199,56 @@ class ClassServiceHomeroomTest {
         ApiException error = assertThrows(ApiException.class,
                 () -> service.listStudentReports(director, classGroup.getId(), elsewhere.getId()));
         assertEquals(404, error.statusCode());
+    }
+
+    @Test
+    void classReportsAreListedForDirectorAndOnlyOwnSessionsForHomeroomTutor() {
+        classGroup.setTutor(newTutor);
+        StoryCompletion before = completion(oldTutor);
+        StoryCompletion after = completion(newTutor);
+        when(storyCompletionRepository.findClassReports(eq(classGroup.getId()), any()))
+                .thenReturn(List.of(after, before));
+        when(storyCompletionRepository.findClassReportsByUser(eq(classGroup.getId()), eq(newTutor.getId()), any()))
+                .thenReturn(List.of(after));
+
+        List<ClassReportResponse> forDirector = service.listClassReports(director, classGroup.getId(), null);
+        assertEquals(2, forDirector.size());
+        assertEquals("이선생", forDirector.get(0).tutorName());
+        assertEquals("EXITED".equals(forDirector.get(0).summary().endStatus()), false);
+
+        CurrentUser homeroom = new CurrentUser(newTutor.getId(), Role.TUTOR, null);
+        List<ClassReportResponse> forTutor = service.listClassReports(homeroom, classGroup.getId(), 5);
+        assertEquals(1, forTutor.size());
+        assertEquals(after.getId(), forTutor.get(0).id());
+    }
+
+    @Test
+    void classReportsLimitDefaultsTo20AndIsCappedAt50() {
+        when(storyCompletionRepository.findClassReports(any(), any())).thenReturn(List.of());
+        org.mockito.ArgumentCaptor<org.springframework.data.domain.Pageable> page =
+                org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+
+        service.listClassReports(director, classGroup.getId(), null);
+        service.listClassReports(director, classGroup.getId(), 500);
+        service.listClassReports(director, classGroup.getId(), 0);
+        verify(storyCompletionRepository, org.mockito.Mockito.times(3))
+                .findClassReports(eq(classGroup.getId()), page.capture());
+        assertEquals(20, page.getAllValues().get(0).getPageSize());
+        assertEquals(50, page.getAllValues().get(1).getPageSize());
+        assertEquals(20, page.getAllValues().get(2).getPageSize());
+    }
+
+    @Test
+    void classReportsAreRefusedForOtherTutorsAndOtherOrganizationsDirectors() {
+        classGroup.setTutor(newTutor);
+        CurrentUser otherTutor = new CurrentUser(oldTutor.getId(), Role.TUTOR, null);
+        CurrentUser otherDirector = new CurrentUser(UUID.randomUUID(), Role.DIRECTOR, UUID.randomUUID());
+
+        assertEquals(403, assertThrows(ApiException.class,
+                () -> service.listClassReports(otherTutor, classGroup.getId(), null)).statusCode());
+        assertEquals(403, assertThrows(ApiException.class,
+                () -> service.listClassReports(otherDirector, classGroup.getId(), null)).statusCode());
+        verify(storyCompletionRepository, never()).findClassReports(any(), any());
     }
 
     private static AppUser tutor(String name) {

@@ -13,6 +13,7 @@ import com.qstory.backend.identity.service.ConsentService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
+import com.qstory.backend.org.dto.ClassReportResponse;
 import com.qstory.backend.org.dto.ClassPreviewResponse;
 import com.qstory.backend.org.dto.ClassRosterEntryResponse;
 import com.qstory.backend.org.dto.ClassResponse;
@@ -35,6 +36,8 @@ import com.qstory.backend.tutor.lesson.entity.Lesson;
 import com.qstory.backend.tutor.lesson.repository.LessonRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
 import com.qstory.backend.tutor.service.TutorStudentService;
+import com.qstory.backend.storyreport.entity.StoryCompletion;
+import org.springframework.data.domain.PageRequest;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -220,6 +223,18 @@ public class ClassService {
                 .filter(completion -> director || completion.getUser().getId().equals(caller.userId()))
                 .map(ClassStudentReportResponse::of)
                 .toList();
+    }
+
+    /** 반의 최근 수업 리포트(가정 기록 제외, 최신순). 관리자는 모든 선생님 기록, 담임은 자기가 진행한 기록만. */
+    @Transactional(readOnly = true)
+    public List<ClassReportResponse> listClassReports(CurrentUser caller, UUID classId, Integer limit) {
+        ClassGroup classGroup = requireVisible(caller, classId);
+        int size = limit == null || limit < 1 ? 20 : Math.min(limit, 50);
+        PageRequest page = PageRequest.of(0, size);
+        List<StoryCompletion> completions = isOwningDirector(caller, classGroup)
+                ? storyCompletionRepository.findClassReports(classGroup.getId(), page)
+                : storyCompletionRepository.findClassReportsByUser(classGroup.getId(), caller.userId(), page);
+        return completions.stream().map(ClassReportResponse::of).toList();
     }
 
     /** 반 코드로 학부모 계정을 만들고 아이를 그 반의 학생으로 올린다 - 가입과 동시에 연결된다. */

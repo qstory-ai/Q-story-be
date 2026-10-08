@@ -20,6 +20,24 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
     /** 수업 하나의 완주 기록 - LessonController가 수업 소유를 먼저 확인한 뒤 호출한다. */
     List<StoryCompletion> findByLesson_IdOrderByCompletedAtDesc(UUID lessonId);
 
+    /**
+     * 반 수업 기록(가정 기록 제외) 최신순 - 호출자가 반을 볼 수 있는지 먼저 확인한 뒤 호출한다. classGroup이 있는
+     * 기록 중 수업 세션(반 수업·개별 수업)만.
+     */
+    @EntityGraph(attributePaths = {"user"})
+    @Query("select c from StoryCompletion c where c.classGroup.id = :classId and "
+            + "(c.groupSession = true or c.lesson is not null or c.tutorStudent is not null or c.participants is not empty) "
+            + "order by c.completedAt desc")
+    List<StoryCompletion> findClassReports(@Param("classId") UUID classId, Pageable pageable);
+
+    /** 위와 같되 한 선생님이 진행한 기록만 - 담임 선생님은 자기 기록만 본다. */
+    @EntityGraph(attributePaths = {"user"})
+    @Query("select c from StoryCompletion c where c.classGroup.id = :classId and c.user.id = :userId and "
+            + "(c.groupSession = true or c.lesson is not null or c.tutorStudent is not null or c.participants is not empty) "
+            + "order by c.completedAt desc")
+    List<StoryCompletion> findClassReportsByUser(
+            @Param("classId") UUID classId, @Param("userId") UUID userId, Pageable pageable);
+
     /** 특정 학생이 참여한 선생님 세션(개별·반 수업) - TutorController가 그 학생을 소유했는지 먼저 확인한 뒤 호출한다. */
     @Query("select c from StoryCompletion c join c.participants p where p.id = :studentId order by c.completedAt desc")
     List<StoryCompletion> findByParticipant(@Param("studentId") UUID studentId);
