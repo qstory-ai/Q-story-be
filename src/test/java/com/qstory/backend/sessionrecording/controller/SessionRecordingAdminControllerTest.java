@@ -58,7 +58,10 @@ class SessionRecordingAdminControllerTest {
     void staffReadsChunks() throws Exception {
         login(Role.STAFF);
         UUID beta = UUID.randomUUID();
-        when(service.listChunks(beta)).thenReturn(List.of(Map.of("seq", 0, "encoding", "json", "data", "[]")));
+        java.util.Map<String, Object> page = new java.util.LinkedHashMap<>();
+        page.put("chunks", List.of(Map.of("seq", 0, "encoding", "json", "data", "[]")));
+        page.put("nextAfterSeq", null);
+        when(service.chunkPage(beta, -1)).thenReturn(page);
         mvc.perform(get("/v1/admin/session-recordings/" + beta + "/chunks"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.chunks[0].seq").value(0))

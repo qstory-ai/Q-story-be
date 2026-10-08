@@ -175,12 +175,48 @@ public class SessionRecordingService {
         return sessions;
     }
 
-    /** 재생용 - 한 베타 세션의 조각 전부를 seq 순으로. gzip 조각은 base64로 다시 싸고, json 조각은 문자열 그대로. */
+    /**
+     * 한 번에 돌려줄 조각 바이트(저장 크기 기준). 응답은 Vercel 프록시를 거치는데 함수 응답이 4.5MB를 넘으면 잘린다 -
+     * base64로 4/3배가 되므로 2.5MB로 끊고, 재생 화면이 nextAfterSeq로 이어 받는다.
+     */
+    static final int PAGE_BYTE_BUDGET = 2_500_000;
+    private static final int PAGE_ROW_LIMIT = 20;
+
+    /** 재생용 페이지 - afterSeq보다 큰 조각을 seq 순으로 예산만큼. 다음 페이지가 있으면 nextAfterSeq를 준다(없으면 null). */
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listChunks(UUID betaSessionId) {
+    public Map<String, Object> chunkPage(UUID betaSessionId, int afterSeq) {
+        List<Map<String, Object>> rows = listChunks(betaSessionId, afterSeq, PAGE_ROW_LIMIT);
+        List<Map<String, Object>> page = new java.util.ArrayList<>();
+        int bytes = 0;
+        for (Map<String, Object> row : rows) {
+            int size = (Integer) row.remove("byteSize");
+            // 첫 조각은 예산을 넘어도 넣는다(조각 하나는 업로드 한도로 이미 1MB 안쪽).
+            if (!page.isEmpty() && bytes + size > PAGE_BYTE_BUDGET) break;
+            page.add(row);
+            bytes += size;
+        }
+        boolean more = page.size() < rows.size() || (rows.size() == PAGE_ROW_LIMIT && hasChunkAfter(betaSessionId, lastSeq(page)));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("chunks", page);
+        result.put("nextAfterSeq", more && !page.isEmpty() ? lastSeq(page) : null);
+        return result;
+    }
+
+    private static int lastSeq(List<Map<String, Object>> page) {
+        return page.isEmpty() ? -1 : (Integer) page.get(page.size() - 1).get("seq");
+    }
+
+    private boolean hasChunkAfter(UUID betaSessionId, int seq) {
+        Integer count = jdbc.queryForObject(
+                "select count(*) from session_recording_chunk where beta_session_id = ? and seq > ?",
+                Integer.class, betaSessionId, seq);
+        return count != null && count > 0;
+    }
+
+    List<Map<String, Object>> listChunks(UUID betaSessionId, int afterSeq, int limit) {
         return jdbc.query(
-                "select seq, started_at, ended_at, event_count, encoding, data from session_recording_chunk "
-                        + "where beta_session_id = ? order by seq",
+                "select seq, started_at, ended_at, event_count, encoding, data, byte_size from session_recording_chunk "
+                        + "where beta_session_id = ? and seq > ? order by seq limit ?",
                 (rs, rowNum) -> {
                     String encoding = rs.getString("encoding");
                     byte[] data = rs.getBytes("data");
@@ -191,9 +227,10 @@ public class SessionRecordingService {
                     chunk.put("eventCount", rs.getInt("event_count"));
                     chunk.put("encoding", encoding);
                     chunk.put("data", encodeForReplay(encoding, data));
+                    chunk.put("byteSize", rs.getInt("byte_size"));
                     return chunk;
                 },
-                betaSessionId);
+                betaSessionId, afterSeq, limit);
     }
 
     static String encodeForReplay(String encoding, byte[] data) {

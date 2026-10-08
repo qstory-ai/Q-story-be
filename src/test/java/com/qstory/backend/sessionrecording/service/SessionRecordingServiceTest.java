@@ -133,4 +133,39 @@ class SessionRecordingServiceTest {
         body.put("data", data);
         return body;
     }
+
+    @Test
+    void chunkPageStopsAtTheByteBudgetSoTheProxyResponseStaysSmall() {
+        SessionRecordingService paged = new SessionRecordingService(jdbc) {
+            @Override
+            java.util.List<java.util.Map<String, Object>> listChunks(UUID id, int afterSeq, int limit) {
+                return java.util.List.of(row(0, 2_000_000), row(1, 1_000_000), row(2, 100));
+            }
+        };
+        java.util.Map<String, Object> page = paged.chunkPage(beta, -1);
+        assertThat((java.util.List<?>) page.get("chunks")).hasSize(1);
+        assertThat(page.get("nextAfterSeq")).isEqualTo(0);
+        assertThat(((java.util.Map<?, ?>) ((java.util.List<?>) page.get("chunks")).get(0)).containsKey("byteSize")).isFalse();
+    }
+
+    @Test
+    void lastChunkPageHasNoNextSeq() {
+        SessionRecordingService paged = new SessionRecordingService(jdbc) {
+            @Override
+            java.util.List<java.util.Map<String, Object>> listChunks(UUID id, int afterSeq, int limit) {
+                return java.util.List.of(row(5, 100), row(6, 100));
+            }
+        };
+        java.util.Map<String, Object> page = paged.chunkPage(beta, 4);
+        assertThat((java.util.List<?>) page.get("chunks")).hasSize(2);
+        assertThat(page.get("nextAfterSeq")).isNull();
+    }
+
+    private static java.util.Map<String, Object> row(int seq, int byteSize) {
+        java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+        row.put("seq", seq);
+        row.put("data", "x");
+        row.put("byteSize", byteSize);
+        return row;
+    }
 }

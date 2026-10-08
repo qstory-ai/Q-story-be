@@ -40,11 +40,14 @@ public class SessionRecordingAdminController {
     }
 
     @Operation(
-            summary = "All chunks of one recorded beta session",
-            description = "STAFF only. Ordered by seq. gzip-base64 chunks come back base64-encoded, json chunks as the raw string.")
+            summary = "Chunks of one recorded beta session, paged",
+            description = "STAFF only. Ordered by seq, chunks with seq > afterSeq (default -1), about 2.5 MB per page. "
+                    + "nextAfterSeq is the afterSeq for the next page, or null at the end. gzip-base64 chunks come back "
+                    + "base64-encoded, json chunks as the raw string.")
     @GetMapping("/v1/admin/session-recordings/{betaSessionId}/chunks")
-    public Map<String, Object> chunks(@PathVariable UUID betaSessionId) {
+    public Map<String, Object> chunks(
+            @PathVariable UUID betaSessionId, @RequestParam(value = "afterSeq", defaultValue = "-1") int afterSeq) {
         currentUserResolver.requireRole(Role.STAFF);
-        return Map.of("chunks", service.listChunks(betaSessionId));
+        return service.chunkPage(betaSessionId, afterSeq);
     }
 }
