@@ -45,4 +45,21 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    /**
+     * 앱 푸시(FCM) 발송 전용 풀 - PushDispatcher가 알림 트랜잭션 커밋 뒤에 넘긴다. 알림을 만든 요청이 FCM 응답을
+     * 기다리지 않게 한다. 대기열이 차면 그 푸시는 버리고 fcm.send-failed reason=queue-full을 남긴다(인앱 알림은 이미 저장돼 있다).
+     */
+    @Bean
+    public Executor pushExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(1000);
+        executor.setThreadNamePrefix("fcm-push-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(10);
+        executor.initialize();
+        return executor;
+    }
 }

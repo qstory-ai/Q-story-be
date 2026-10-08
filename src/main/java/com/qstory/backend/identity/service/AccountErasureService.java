@@ -18,6 +18,7 @@ import com.qstory.backend.org.tutor.repository.OrganizationTutorRepository;
 import com.qstory.backend.org.tutor.service.OrganizationTutorService;
 import com.qstory.backend.parent.child.repository.ChildRepository;
 import com.qstory.backend.parent.notification.repository.NotificationSettingsRepository;
+import com.qstory.backend.push.repository.PushDeviceTokenRepository;
 import com.qstory.backend.recordingconsent.service.RecordingConsentService;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
 import com.qstory.backend.tutor.TutorStudentStatus;
@@ -39,7 +40,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * 딸린 데이터는 여기서 직접 지운다.
  *
  * <ul>
- *   <li>공통: 비밀번호 재설정 토큰, 북마크, 알림, 알림 설정, 개선 의견, 이 계정의 대화 원장, 프로필 사진, 화면 녹화(이어진
+ *   <li>공통: 비밀번호 재설정 토큰, 북마크, 알림, 알림 설정, 앱 푸시 기기 토큰, 개선 의견, 이 계정의 대화 원장, 프로필 사진, 화면 녹화(이어진
  *   베타 세션 포함)·화면 녹화 동의, 화면 상호작용.</li>
  *   <li>보호자: 가정 세션 기록 삭제, 지난 반 수업 열람 권한 해제(참여 명단은 유지), 반 명단 연결 해제, 아이 프로필 마스킹(가입 기록만 남김).</li>
  *   <li>선생님: 기관 반은 담임만 비우고(반·수업·학생·기록 유지), 기관 밖 자기 반·수업·학생·기록은 지운다.</li>
@@ -78,6 +79,7 @@ public class AccountErasureService {
     private final AppProperties config;
     private final RecordingConsentService recordingConsentService;
     private final InteractionService interactionService;
+    private final PushDeviceTokenRepository pushDeviceTokenRepository;
 
     public AccountErasureService(
             AppUserRepository userRepository, PasswordResetTokenRepository passwordResetTokenRepository,
@@ -91,7 +93,8 @@ public class AccountErasureService {
             OrganizationTutorRepository organizationTutorRepository,
             OrganizationTutorService organizationTutorService, SupabaseStorageClient storageClient,
             StorageDeletionRetry storageDeletionRetry, AppProperties config,
-            RecordingConsentService recordingConsentService, InteractionService interactionService) {
+            RecordingConsentService recordingConsentService, InteractionService interactionService,
+            PushDeviceTokenRepository pushDeviceTokenRepository) {
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.bookmarkRepository = bookmarkRepository;
@@ -112,6 +115,7 @@ public class AccountErasureService {
         this.config = config;
         this.recordingConsentService = recordingConsentService;
         this.interactionService = interactionService;
+        this.pushDeviceTokenRepository = pushDeviceTokenRepository;
     }
 
     /** 한 트랜잭션으로 지우고 익명화한다. 음성 연구 녹음 철회는 호출자(AuthService)가 먼저 별도 트랜잭션으로 한다. */
@@ -134,6 +138,8 @@ public class AccountErasureService {
         bookmarkRepository.deleteAllByUserId(userId);
         notificationRepository.deleteAllByUserId(userId);
         notificationSettingsRepository.deleteAllByUserId(userId);
+        // 탈퇴한 계정의 기기로 푸시가 가지 않게 한다(075).
+        pushDeviceTokenRepository.deleteAllByUserId(userId);
         improvementFeedbackRepository.deleteAllByUserId(userId);
         conversationRecordRepository.deleteAllByUserId(userId);
 

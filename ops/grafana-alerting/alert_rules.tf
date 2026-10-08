@@ -15,13 +15,15 @@
 #   APPLICATION FAILED TO START / Application run failed <- Spring Boot 기본 부팅 실패 문구
 #   http.request ... duration_ms=  <- common/web/RequestIdFilter.java (요청마다 한 줄)
 #   client.error                   <- clienterror/ClientErrorController.java (브라우저에서 보낸 에러)
+#   fcm.send-failed                <- push/service/FcmClient.java, PushDispatcher.java (앱 푸시 발송 실패. disabled=true는
+#                                     앱 삭제 등으로 토큰이 죽은 늘 있는 경우라 규칙에서 뺀다)
 #
 # 각 규칙의 런북(대응 순서)은 README.md '런북' 절의 같은 이름 항목에 있다.
 #
 # severity 라벨은 실제 파급도 기준:
 #   critical - 이용자에게 5xx가 나가거나 시스템 전체가 흔들리는 것: gemini-tts.empty-audio(실장애 이력),
 #              uncaught-5xx, server-5xx-ratio, db-pool-exhaustion
-#   warning  - 개별 요청 실패지만 상위 파이프라인이 폴백/재시도로 흡수 가능: openrouter/rtzr 프로바이더 실패,
+#   warning  - 개별 요청 실패지만 상위 파이프라인이 폴백/재시도로 흡수 가능: openrouter/rtzr 프로바이더 실패, 앱 푸시 실패,
 #              ERROR 급증(전조), retention 스케줄러(하루 지연 허용).
 # 라우팅은 아직 단일 Discord contact point이지만, severity 라벨을 붙여두면 이후 notification policy로 채널을
 # 나누기 쉽다(critical만 @everyone 붙이기 등).
@@ -152,6 +154,16 @@ locals {
       EOT
       logql       = "max(quantile_over_time(0.95, {app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"http.request\" != \"live-branch\" | regexp \"duration_ms=(?P<duration_ms>[0-9]+)\" | unwrap duration_ms [5m]))"
       threshold   = var.slow_request_p95_ms
+    }
+    fcm-push-failure = {
+      severity    = "warning"
+      summary     = "앱 푸시(FCM) 발송 실패가 5분간 ${var.fcm_failure_threshold}건을 넘었어요."
+      description = <<-EOT
+        인앱 알림은 그대로 쌓이고 기기 알림만 안 간다. reason=auth면 서비스 계정 키·권한, UNAVAILABLE/INTERNAL/
+        QUOTA_EXCEEDED면 FCM 쪽, queue-full이면 발송 대기열 포화. 토큰이 죽은 경우(disabled=true)는 세지 않는다.
+      EOT
+      logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"fcm.send-failed\" != \"disabled=true\" [5m]))"
+      threshold   = var.fcm_failure_threshold
     }
     client-error-spike = {
       severity    = "warning"

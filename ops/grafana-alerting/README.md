@@ -33,6 +33,7 @@ threshold(변수, `variables.tf`)를 넘으면 Discord로 알린다. `backend-si
 | `backend-silent` | **critical** | `app.heartbeat`가 15분째 없음 | `HeartbeatLogger.java` (요청이 없어도 5분마다 찍힘) |
 | `slow-requests` | warning | `http.request`의 `duration_ms` p95 | `RequestIdFilter.java` (실시간 분기 생성 제외) |
 | `client-error-spike` | warning | `client.error` | `ClientErrorController.java` (브라우저에서 보낸 에러) |
+| `fcm-push-failure` | warning | `fcm.send-failed` (단 `disabled=true` 제외) | `FcmClient.java`, `PushDispatcher.java` (앱 푸시 발송 실패) |
 | `backend-unreachable` | **critical** | `probe_success` (Prometheus) | `synthetic.tf` - 바깥에서 본 `/health/ready` |
 
 로그 태그는 실제 소스에서 그대로 가져온 것들이다(추측 아님) - 태그 문자열이 바뀌면 이 파일도
@@ -225,6 +226,16 @@ Explore 링크로 원본 로그를 연다.
 1. Explore에서 `|= "client.error"`로 열어 `kind`·`route`·`release`로 묶는다.
 2. 특정 `release`(프런트 배포)에서만 나면 그 배포를 Vercel에서 되돌린다.
 3. `PLAYBACK`이 많으면 음성 파일 주소(Supabase Storage)·브라우저 자동재생 제한을 의심.
+
+### fcm-push-failure
+1. 인앱 알림은 정상으로 쌓이고 기기 푸시만 안 가는 상태다. 로그의 `reason=`으로 가른다.
+2. `reason=auth`: 액세스 토큰을 못 받음. Railway `QSTORY_FCM_SERVICE_ACCOUNT_JSON`(키 JSON 원문 또는 base64)이 맞는지,
+   Firebase 콘솔에서 그 서비스 계정 키가 폐기되지 않았는지 본다. `status=401/403`(`UNAUTHENTICATED`/`PERMISSION_DENIED`)도
+   같은 쪽 - 서비스 계정에 Firebase Cloud Messaging 권한과 `QSTORY_FCM_PROJECT_ID`(비우면 JSON의 project_id)를 확인.
+3. `UNAVAILABLE`·`INTERNAL`·`QUOTA_EXCEEDED`·`network`: FCM 쪽 장애나 한도. status.firebase.google.com 확인. 놓친 푸시는
+   다시 보내지 않는다(인앱 알림으로 남아 있음).
+4. `queue-full`: 발송 대기열(1000건) 포화 - 한꺼번에 알림이 쏟아진 경우. 지속되면 `AsyncConfig.pushExecutor` 크기를 본다.
+5. 부팅 로그의 `fcm.disabled`는 키가 없거나 읽을 수 없다는 뜻이다(이때는 이 규칙이 울리지 않는다).
 
 ### backend-unreachable
 1. `/health/ready`를 직접 열어 본다. 503이면 DB(Supabase 상태), 응답이 없으면 Railway 서비스.
