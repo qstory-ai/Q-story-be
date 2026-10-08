@@ -116,6 +116,12 @@ public class InteractionService {
         return rows.size();
     }
 
+    /** 회원 탈퇴(AccountErasureService) - 이 계정으로 남긴 상호작용을 지운다. */
+    @Transactional
+    public int deleteAllByUserId(UUID userId) {
+        return jdbc.update("delete from interaction_event where user_id = ?", userId);
+    }
+
     /** 보관 기간(1년)이 지난 상호작용을 지운다(InteractionRetentionScheduler). */
     @Transactional
     public int deleteReceivedBefore(Instant cutoff) {
