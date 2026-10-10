@@ -13,6 +13,7 @@ import com.qstory.backend.companionchat.DialogueInput;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.story.ActionFamily;
 import com.qstory.backend.story.Anchor;
+import com.qstory.backend.story.ChildFacingTerms;
 import com.qstory.backend.story.service.RoutePromptService;
 import java.net.http.HttpClient;
 import java.util.List;
@@ -96,18 +97,104 @@ class CompanionDialogueTest {
     }
 
     @Test
-    void promptAnswersFirstAndDoesNotEndEveryReplyWithAQuestion() {
+    void promptAnswersBrieflyThenReturnsTheThinkingToTheChild() {
         String chat = client.companionSystemPrompt(request(DialogueInput.empty(), null));
 
         assertThat(chat).contains("먼저 그 질문에 답한다");
-        assertThat(chat).contains("모든 답을 질문으로 끝내지 않는다");
-        assertThat(chat).contains("childWantsToEnd");
-        assertThat(chat).doesNotContain("되질문을 자주");
+        assertThat(chat).contains("사실은 1~2문장으로 짧게");
+        assertThat(chat).contains("생각을 아이에게 돌려준다");
+        assertThat(chat).contains("막다른 답으로 끝내지 않는다");
+        assertThat(chat).contains("앞에서 한 답을 되풀이하지 않는다");
+        // 매번 묻지는 않는다 - 감정·작별·이야기 계속에는 질문하지 않는다.
+        assertThat(chat).contains("매번 질문하지는 않는다");
+        assertThat(chat).contains("이야기를 계속 듣고 싶다고 하면 질문하지 않고");
         assertThat(chat).contains("proposedActionFamilyId는 항상 null");
+        assertThat(chat).contains("할 일을 '~해 보자'고 제안하거나 약속하지 않는다");
 
         String invite = client.companionSystemPrompt(request(DialogueInput.empty(), anchorC()));
         assertThat(invite).contains("preparedActions");
         assertThat(invite).contains("아직 실행했다고 말하지 않는다");
+        assertThat(invite).contains("아이가 그것에 동의하면");
+        assertThat(invite).contains("preparedActions에 있는 행동만 제안한다");
+        assertThat(invite).doesNotContain("대화만 하는 곳이다");
+    }
+
+    @Test
+    void inviteWithoutPreparedActionsForbidsProposingThingsToDo() {
+        Anchor talkOnly = new Anchor(
+                "B", "HG-F05", "과자집 문 앞", "HG-SPK-GRETEL", List.of("HG-SPK-GRETEL"),
+                List.of(), null, "HG-F05-ENTER-HOUSE", null, List.of(), List.of(), false);
+        String prompt = client.companionSystemPrompt(request(DialogueInput.empty(), talkOnly));
+
+        assertThat(prompt).contains("대화만 하는 곳이다");
+        assertThat(prompt).contains("이야기에서 같이 보자");
+    }
+
+    private static DialogueInput withHelp(String anchorId) {
+        return new DialogueInput(
+                List.of(new DialogueInput.Turn("CHILD", "어떤 방법이 있을까?")), null, List.of(), anchorId, "NONE",
+                new DialogueInput.Help(1, 4, "마녀가 두 열쇠를 작업대 끝에 내려놨어."));
+    }
+
+    @Test
+    void helpRequestCarriesTheStepHintOnlyInsideAnInvite() {
+        JsonNode payload = client.companionUserPayload(request(withHelp("HG-Q-C"), anchorC()));
+        assertThat(payload.path("helpRequest").path("step").asInt()).isEqualTo(1);
+        assertThat(payload.path("helpRequest").path("totalSteps").asInt()).isEqualTo(4);
+        assertThat(payload.path("helpRequest").path("hint").asText()).contains("작업대 끝");
+        assertThat(payload.path("conversationSoFar")).hasSize(1);
+        assertThat(client.companionSystemPrompt(request(withHelp("HG-Q-C"), anchorC())))
+                .contains("helpRequest.hint는 이번 도움 단계에서 줄 도움의 방향")
+                .contains("이미 나온 내용은 되풀이하지 않고");
+
+        // 상시 대화에는 도움 단계가 없다.
+        assertThat(client.companionUserPayload(request(withHelp(null), null)).has("helpRequest")).isFalse();
+    }
+
+    @Test
+    void helpFieldIsReadOnlyWhenWellFormed() {
+        DialogueInput ok = DialogueInput.fromBody(json(
+                "{\"anchorId\":\"HG-Q-A\",\"help\":{\"step\":2,\"total\":3,\"hint\":\"너는 어떤 게 더 궁금해?\"}}"));
+        assertThat(ok.help()).isEqualTo(new DialogueInput.Help(2, 3, "너는 어떤 게 더 궁금해?"));
+        assertThat(DialogueInput.fromBody(json("{\"help\":{\"step\":4,\"total\":3,\"hint\":\"x\"}}")).help()).isNull();
+        assertThat(DialogueInput.fromBody(json("{\"help\":{\"step\":1,\"total\":3,\"hint\":\" \"}}")).help()).isNull();
+        assertThat(DialogueInput.fromBody(json("{}")).help()).isNull();
+    }
+
+    @Test
+    void helpReplyNeverAsksToOfferHelpAgain() {
+        String reply = "{\"interactionMode\":\"ANSWER\",\"responseText\":\"열쇠가 작업대 끝에 있어. 너라면 언제 가져올 것 같아?\","
+                + "\"speakerId\":\"HG-SPK-GRETEL\",\"topicTag\":null,\"toneTag\":null,\"valueTag\":null,"
+                + "\"replyKind\":\"ANSWER\",\"childWantsToEnd\":false,\"childMeaning\":\"도움을 청함\","
+                + "\"asksForHelp\":true,\"proposedActionFamilyId\":null}";
+        assertThat(client.validateCompanionReply(json(reply), request(withHelp("HG-Q-C"), anchorC())).asksForHelp()).isFalse();
+        assertThat(client.validateCompanionReply(json(reply), request(DialogueInput.empty(), anchorC())).asksForHelp()).isTrue();
+    }
+
+    @Test
+    void oldWomanIsNeverSentToOrReturnedFromTheModel() {
+        DialogueInput dialogue = DialogueInput.fromBody(json(
+                "{\"scene\":{\"title\":\"과자집 문 앞의 초대\",\"storySoFar\":[],"
+                        + "\"recentLines\":[\"노파: 안에서 따뜻한 빵을 먹고 좀 쉬었다 가렴.\"],\"visual\":\"문을 연 노파\"}}"));
+        var terms = ChildFacingTerms.forScene("HG", "HG-F05", dialogue.scene().recentLines());
+        var request = new OpenRouterClient.CompanionRequest(
+                "저 노파는 누구야?", "v6", "헨젤과 그레텔", "HG-SPK-GRETEL", List.of("HG-SPK-GRETEL"),
+                List.of("과자집 노파의 정체"), null, dialogue, null, terms);
+
+        String sentPayload = terms.apply(client.companionUserPayload(request).toString());
+        assertThat(sentPayload).doesNotContain("노파").contains("할머니: 안에서");
+        String prompt = client.companionSystemPrompt(request);
+        assertThat(prompt).contains("'할머니'라고 부른다").doesNotContain("'마녀'라고 부른다");
+        // 호칭 규칙 문장 안의 금지어 언급 말고는 "노파"가 없다.
+        assertThat(prompt.replace("'노파'라는 말은 쓰지 않는다", "")).doesNotContain("노파");
+
+        String reply = "{\"interactionMode\":\"ANSWER\",\"responseText\":\"처음 보는 노파야. 너는 어떤 분 같아?\","
+                + "\"speakerId\":\"HG-SPK-GRETEL\",\"topicTag\":null,\"toneTag\":null,\"valueTag\":null,"
+                + "\"replyKind\":\"ANSWER\",\"childWantsToEnd\":false,\"childMeaning\":\"노파가 누구인지 궁금함\","
+                + "\"asksForHelp\":false,\"proposedActionFamilyId\":null}";
+        var validated = client.validateCompanionReply(json(reply), request);
+        assertThat(validated.responseText()).isEqualTo("처음 보는 할머니야. 너는 어떤 분 같아?");
+        assertThat(validated.childMeaning()).isEqualTo("할머니가 누구인지 궁금함");
     }
 
     @Test

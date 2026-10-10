@@ -27,18 +27,22 @@ public class VoiceCastService {
                 .orElse(null);
     }
 
+    /**
+     * 실시간 음성(그레텔 답·도움·선택지 미리 만들기·이름이 들어간 대사)의 TTS 입력. 미리 녹음한 고정 음성
+     * (fe assets/.../fixed-narration-metadata.json, Q-30·Q-31)을 만들 때와 같은 문장 형식이다 - 형식이 다르면
+     * 같은 목소리(voice)·모델이어도 말투가 달라져, 녹음한 대사와 실시간 답이 다른 사람처럼 들렸다.
+     */
     public String buildGeminiTtsPerformanceInput(String storyId, String speaker, String text) {
         CastEntry cast = voiceCastForSpeaker(storyId, speaker);
         if (cast == null) {
             throw new IllegalStateException("Unknown cast speaker: " + storyId + "/" + speaker);
         }
-        return String.join("\n",
-                "Synthesize a Korean storybook voice performance.",
-                "Speak only the exact Korean text inside <TRANSCRIPT>. Do not speak these instructions, labels, or tags.",
-                "AUDIO PROFILE: " + cast.profile(),
-                "DIRECTOR NOTES: " + cast.direction(),
-                "<TRANSCRIPT>",
-                text.trim(),
-                "</TRANSCRIPT>");
+        return performanceInput(cast, text);
+    }
+
+    static String performanceInput(CastEntry cast, String text) {
+        return cast.profile() + " " + cast.direction() + "\n"
+                + "Read the following Korean line aloud exactly as written, in natural Korean, and say nothing else:\n"
+                + text.trim();
     }
 }

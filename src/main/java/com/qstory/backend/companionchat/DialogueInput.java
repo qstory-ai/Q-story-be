@@ -18,13 +18,27 @@ import java.util.Set;
  * @param executedActions 이번 이야기에서 이미 실행한 행동의 뜻(예: "잠깐 멈춰서 하얀 새를 지켜봤다").
  * @param anchorId      질문 초대 중이면 그 질문 지점 id, 상시 대화면 null.
  * @param wrapUp        긴 대화 정리 신호 - NONE / SUGGEST_RETURN(이야기로 돌아가자고 제안) / CLOSE(마무리 인사).
+ * @param help          아이가 "도와줘"를 눌렀을 때만 - 지금 도움 단계와 그 단계의 미리 쓴 도움 대사(방향).
+ *                      그레텔은 이 방향을 따르되 앞 대화에서 이미 한 말은 되풀이하지 않고 대화에 맞춰 말한다.
  */
 public record DialogueInput(
         List<Turn> history,
         Scene scene,
         List<String> executedActions,
         String anchorId,
-        String wrapUp) {
+        String wrapUp,
+        Help help) {
+
+    /**
+     * @param step  이번에 주는 도움 단계(1부터)
+     * @param total 이 질문 지점의 도움 단계 수
+     * @param hint  이 단계의 미리 쓴 도움 대사 - 정답을 알려 주지 않는 범위가 이미 지켜진 문장이다
+     */
+    public record Help(int step, int total, String hint) {}
+
+    public DialogueInput(List<Turn> history, Scene scene, List<String> executedActions, String anchorId, String wrapUp) {
+        this(history, scene, executedActions, anchorId, wrapUp, null);
+    }
 
     public static final int MAX_HISTORY_TURNS = 12;
     public static final int MAX_TEXT = 240;
@@ -41,11 +55,15 @@ public record DialogueInput(
     public record Scene(String title, List<String> storySoFar, List<String> recentLines, String visual) {}
 
     public static DialogueInput empty() {
-        return new DialogueInput(List.of(), null, List.of(), null, "NONE");
+        return new DialogueInput(List.of(), null, List.of(), null, "NONE", null);
     }
 
     public boolean isInvite() {
         return anchorId != null;
+    }
+
+    public boolean isHelp() {
+        return help != null;
     }
 
     /** 요청 본문에서 읽는다. 형식이 어긋난 항목은 버리고, 길이는 자른다 - 이 맥락 때문에 대화가 실패하면 안 된다. */
@@ -78,7 +96,17 @@ public record DialogueInput(
         String wrapUp = body.path("wrapUp").asText("NONE");
         return new DialogueInput(
                 List.copyOf(history), scene, texts(body.path("executedActions"), 6), anchorId,
-                WRAP_UPS.contains(wrapUp) ? wrapUp : "NONE");
+                WRAP_UPS.contains(wrapUp) ? wrapUp : "NONE", help(body.path("help")));
+    }
+
+    /** 도움 요청은 질문 초대 안에서만 의미가 있다 - 단계·대사가 어긋나면 도움 요청이 아닌 것으로 본다. */
+    private static Help help(JsonNode node) {
+        if (!node.isObject()) return null;
+        int step = node.path("step").asInt(0);
+        int total = node.path("total").asInt(0);
+        String hint = clip(node.path("hint").asText(""));
+        if (step < 1 || total < step || total > 10 || hint.isBlank()) return null;
+        return new Help(step, total, hint);
     }
 
     private static List<String> texts(JsonNode array, int max) {

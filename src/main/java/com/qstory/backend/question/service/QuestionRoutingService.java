@@ -1,6 +1,7 @@
 package com.qstory.backend.question.service;
 
 import com.qstory.backend.common.enums.CoverageStatus;
+import com.qstory.backend.story.ChildFacingTerms;
 import com.qstory.backend.common.enums.RouteKind;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
@@ -76,7 +77,8 @@ public class QuestionRoutingService {
 
         RouteDecision agencyAware = routeResultValidator.guaranteeBetaAgencyChoice(
                 decision, storyContext, transcript, guaranteeAgencyChoice, questionRound);
-        return routeResultValidator.sanitizeGeneratedOptionCopy(agencyAware, storyContext, transcript, questionRound);
+        return routeResultValidator.sanitizeGeneratedOptionCopy(agencyAware, storyContext, transcript, questionRound)
+                .withChildFacingTerms(ChildFacingTerms.forScene(storyContext.storyId(), storyContext.sceneId()));
     }
 
     /**

@@ -24,6 +24,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
+import com.qstory.backend.story.ChildFacingTerms;
 import com.qstory.backend.story.CompanionPersona;
 import java.util.ArrayList;
 import java.util.List;
@@ -309,10 +310,26 @@ public class OpenRouterClient {
             /** 대화 기록·장면·실행한 행동·정리 신호(Q-31). */
             com.qstory.backend.companionchat.DialogueInput dialogue,
             /** 질문 초대 중이면 그 앵커 - 실행 가능한 행동 제안을 고를 수 있는 범위. 상시 대화면 null. */
-            com.qstory.backend.story.Anchor inviteAnchor) {
+            com.qstory.backend.story.Anchor inviteAnchor,
+            /** 장면에 맞는 호칭(노파 → 할머니/마녀). AI에게 보내는 글과 AI가 만든 글에 모두 적용한다. */
+            ChildFacingTerms terms) {
 
         public CompanionRequest {
             dialogue = dialogue == null ? com.qstory.backend.companionchat.DialogueInput.empty() : dialogue;
+            terms = terms == null ? ChildFacingTerms.none() : terms;
+        }
+
+        public CompanionRequest(
+                String transcript, String promptVersion, String storyTitle, String primarySpeakerId,
+                List<String> allowedSpeakerIds, List<String> forbiddenKnowledge, CompanionPersona persona,
+                com.qstory.backend.companionchat.DialogueInput dialogue, com.qstory.backend.story.Anchor inviteAnchor) {
+            this(transcript, promptVersion, storyTitle, primarySpeakerId, allowedSpeakerIds, forbiddenKnowledge,
+                    persona, dialogue, inviteAnchor, null);
+        }
+
+        /** 도움 요청은 질문 초대 안에서만 받는다. */
+        boolean helpRequested() {
+            return inviteAnchor != null && dialogue.isHelp();
         }
 
         List<String> inviteFamilyIds() {
@@ -335,6 +352,12 @@ public class OpenRouterClient {
             String proposedActionFamilyId) {}
 
     static final List<String> REPLY_KINDS = List.of("ANSWER", "EMPATHY", "WAIT", "CLOSE", "REDIRECT");
+
+    /**
+     * 그레텔 대화 시스템 프롬프트(companionSystemPrompt) 버전 - 지시 문장을 바꾸면 올린다. 대화 원장에는 라우팅
+     * 프롬프트 버전과 함께 남는다(ConversationRecordService.recordCompanionTurn).
+     */
+    public static final String COMPANION_PROMPT_VERSION = "GRETEL_DIALOGUE_V2";
 
     /**
      * 앵커에 독립적인 companion-chat 표면을 위한 형제 메서드: LLM 호출은 한 번뿐이며,
@@ -416,11 +439,14 @@ public class OpenRouterClient {
         if (proposed != null && !request.inviteFamilyIds().contains(proposed)) {
             proposed = null;
         }
+        // 도움 버튼으로 온 요청은 그 자체가 도움이다 - 다시 "도와줄까?"를 띄우지 않는다.
+        boolean asksForHelp = !request.helpRequested() && value.path("asksForHelp").asBoolean(false);
+        ChildFacingTerms terms = request.terms();
         return new CompanionReply(
-                interactionMode, routeResultValidator.normalizeKoreanResponseText(responseText), speakerId,
+                interactionMode, terms.apply(routeResultValidator.normalizeKoreanResponseText(responseText)), speakerId,
                 topicTag, toneTag, valueTag,
-                replyKind, value.path("childWantsToEnd").asBoolean(false), childMeaning,
-                value.path("asksForHelp").asBoolean(false), proposed);
+                replyKind, value.path("childWantsToEnd").asBoolean(false), terms.apply(childMeaning),
+                asksForHelp, proposed);
     }
 
     /** JSON null/누락 노드면 null을, 인식된 enum 값이면 그 라벨을, 그 외에는 NOT_FOUND를 반환한다(아래에서 거부됨). */
@@ -445,7 +471,8 @@ public class OpenRouterClient {
 
         ObjectNode userMessage = messages.addObject();
         userMessage.put("role", "user");
-        userMessage.put("content", companionUserPayload(request).toString());
+        // 장면 대사(캐스트 이름)·금지 지식 문구에 남은 "노파"가 AI에 닿지 않게 보내는 글도 거른다.
+        userMessage.put("content", request.terms().apply(companionUserPayload(request).toString()));
 
         ObjectNode responseFormat = root.putObject("response_format");
         responseFormat.put("type", "json_schema");
@@ -459,7 +486,8 @@ public class OpenRouterClient {
         reasoning.put("effort", "minimal");
         reasoning.put("exclude", true);
         root.put("temperature", 0);
-        root.put("max_tokens", 600);
+        // 답(160자)과 태그만 담은 JSON이라 400이면 넉넉하다 - 상한이 낮을수록 잘못 길어지는 답이 빨리 끊긴다.
+        root.put("max_tokens", 400);
         return root.toString();
     }
 
@@ -504,6 +532,12 @@ public class OpenRouterClient {
             }
         }
         payload.put("wrapUp", dialogue.wrapUp());
+        if (request.helpRequested()) {
+            ObjectNode help = payload.putObject("helpRequest");
+            help.put("step", dialogue.help().step());
+            help.put("totalSteps", dialogue.help().total());
+            help.put("hint", dialogue.help().hint());
+        }
         return payload;
     }
 
@@ -580,25 +614,45 @@ public class OpenRouterClient {
         lines.add("storySoFar에 없는 사건은 아직 일어나지 않은 일이다. 미리 말하거나 암시하지 않는다. visibleInPicture에 없는 물건이나 인물을 그림에 있다고 말하지 않는다.");
         lines.add("이 인물이 아직 모르는 것은 아는 척하거나 반대로 단정하지 않고, 아직 잘 모르겠다고 솔직하게 말한다. 확인되지 않은 사실(누가 사는지, 창문이 잠겼는지 등)을 지어내지 않는다.");
         lines.add("이미 답한 것을 다시 묻지 않는다. 아이가 정정하면 정정한 내용을 그대로 받아들인다. actionsAlreadyTaken에 있는 일은 이미 한 일로 기억한다.");
-        // 답의 방향: 물은 것에 먼저 답한다, 감정·경험·관심을 받아준다, 질문은 흐름에 맞을 때만.
+        // 답의 방향: 물은 것에 먼저 답한다, 감정·경험·관심을 받아준다.
         lines.add("아이가 물었으면 먼저 그 질문에 답한다. 답하기 전에 다른 질문으로 넘어가지 않는다.");
-        lines.add("아이가 감정이나 자기 경험을 말하면 그 말을 받아준다(예: 엄마에게 보여주고 싶었는데 부러져서 속상했구나). 해결책이나 교훈을 바로 주지 않고, 공감한 뒤 기다리는 답도 괜찮다.");
+        // V2(PM 피드백 - "정직하게 대답만 한다"): 사실은 짧게, 생각은 아이에게 돌려준다. 막다른 답으로 끝내지 않는다.
+        lines.add("사실은 1~2문장으로 짧게 말한다. 그다음 대개는 아이가 자기 생각을 더 말할 수 있게 열린 질문이나 상상해 보자는 말 하나로 생각을 아이에게 돌려준다(예: 너는 어떤 방법이 있을 것 같아? / 너라면 어떻게 했을 것 같아? / 왜 그랬을 것 같아?).");
+        lines.add("돌려주는 질문은 응·아니로 끝나는 질문보다 아이 생각을 묻는 질문으로 하고, 6~9세가 바로 답할 수 있게 쉽고 짧게 한다. 한 답에 질문은 하나만 한다.");
+        lines.add("막다른 답으로 끝내지 않는다. '방법이 없어', '모르겠어'처럼 닫고 끝내지 말고, 모르면 모른다고 짧게 말한 뒤 '우리 같이 생각해 볼까? 너는 어떤 방법이 떠올라?'처럼 아이 생각을 묻는다.");
+        lines.add("아이가 같은 것을 다시 묻거나 말을 바꿔 다시 물으면(예: 다른 좋은 방법은 없을까? 를 또 물음) 앞에서 한 답을 되풀이하지 않는다. 앞 답은 한마디로만 짚고, 지금 장면에 보이는 단서 하나를 짚거나 아이에게 어떤 생각이 드는지 묻는다.");
+        lines.add("매번 질문하지는 않는다. 아이가 감정이나 자기 경험을 말하면 그 말을 받아준다(예: 엄마에게 보여주고 싶었는데 부러져서 속상했구나). 해결책이나 교훈을 바로 주지 않고, 공감한 뒤 기다리는 답도 괜찮다.");
+        lines.add("바로 앞에서 네가 물은 것에 아이가 답했으면 그 답을 먼저 받아 준다. 이때는 새 질문을 꼭 붙이지 않아도 된다 - 질문을 연달아 몰아붙이지 않는다.");
+        lines.add("아이가 인사하거나, 그만하고 싶어 하거나, 이야기를 계속 듣고 싶다고 하면 질문하지 않고 짧게 답한다.");
         lines.add("아이가 관심을 보인 소재를 따라간다. 아이가 자기 이야기를 꺼내면 동화로 억지로 돌리지 않는다.");
-        lines.add("아이가 더 궁금해지도록 하는 질문은 흐름에 맞을 때만 한 개 덧붙인다. 모든 답을 질문으로 끝내지 않는다.");
         lines.add("무조건 칭찬하거나 교훈으로 마무리하지 않는다. 아이가 말하지 않은 의도나 감정(예: 속상한 일이 있었는지)을 지어내지 않는다.");
-        lines.add("1~3문장, 반말로 답한다. 이야기 세계 안의 인물로서 실제로 겪은 것처럼 말한다.");
+        lines.add("모두 합쳐 1~3문장, 반말로 답한다. 이야기 세계 안의 인물로서 실제로 겪은 것처럼 말한다. 아이를 어머니·아저씨처럼 다른 호칭으로 부르지 않는다.");
         // 끝내기
-        lines.add("아이가 그만하고 싶다고 분명히 말하면 childWantsToEnd를 true, replyKind를 CLOSE로 하고 질문 없이 짧게 인사한다.");
-        lines.add("wrapUp이 SUGGEST_RETURN이면 아이 말에 답한 뒤 이제 이야기로 돌아가 볼지 부드럽게 물어본다. wrapUp이 CLOSE이면 질문 없이 짧게 마무리 인사를 하고 replyKind를 CLOSE로 한다.");
-        lines.add("아이가 모르겠어, 도와줘처럼 무엇을 말할지 모르겠다며 도움을 바랄 때만 asksForHelp를 true로 한다(이야기에 대한 질문은 도움 요청이 아니다). 이때 정답이나 다음 사건을 알려주지 말고 짧게 받아주기만 한다.");
+        lines.add("아이가 그만하고 싶다고 분명히 말하거나 인사하며 떠나거나 이야기를 계속 듣겠다고 하면 childWantsToEnd를 true, replyKind를 CLOSE로 하고 질문 없이 짧게 인사한다.");
+        lines.add("wrapUp이 SUGGEST_RETURN이면 아이 말에 짧게 답한 뒤, 생각을 돌려주는 질문 대신 이제 이야기로 돌아가 볼지 부드럽게 물어본다(다른 질문은 붙이지 않는다). wrapUp이 CLOSE이면 어떤 질문도 하지 않고(돌아갈지도 묻지 않는다) 짧게 마무리 인사를 하고 replyKind를 CLOSE로 한다.");
+        if (request.helpRequested()) {
+            // 도움 버튼 - 미리 쓴 도움 대사(hint)는 방향일 뿐, 앞 대화에 이어지게 말한다(PM 피드백: 대화 중에 기본 멘트가 나옴).
+            lines.add("아이가 도와줘 버튼을 눌렀다(helpRequest). helpRequest.hint는 이번 도움 단계에서 줄 도움의 방향이다. hint가 짚는 단서나 생각할 거리를 따르되, conversationSoFar에서 이미 나온 내용은 되풀이하지 않고 지금 대화에 이어지게 말한다.");
+            lines.add("hint보다 더 많이 알려 주지 않는다. 정답·다음 사건·hint에 없는 방법을 말하지 않는다. 1~2문장으로 단서를 짚고, 아이 생각을 묻는 열린 질문 하나로 끝낸다. replyKind는 ANSWER, asksForHelp는 false, proposedActionFamilyId는 null이다.");
+        } else {
+            lines.add("아이가 모르겠어, 도와줘처럼 무엇을 말할지 모르겠다며 도움을 바랄 때만 asksForHelp를 true로 한다(이야기에 대한 질문은 도움 요청이 아니다). 이때 정답이나 다음 사건을 알려주지 말고, 괜찮다고 받아 준 뒤 지금 장면에서 무엇이 궁금한지 쉽게 묻는다.");
+        }
         // 질문 초대
         if (request.inviteAnchor() != null) {
             lines.add("지금은 questionInvite 상황에서 아이에게 말을 건 직후다. 아이의 질문·감정·경험에는 대화로 반응한다.");
             lines.add("아이가 preparedActions 중 하나와 뜻이 같은 행동을 분명히 제안하면 proposedActionFamilyId에 그 id를 넣고, responseText로 뜻을 한 번 확인한다(예: 헨젤이 부르는 동안 내가 열쇠를 가져오자는 거지?). 아직 실행했다고 말하지 않는다.");
             lines.add("질문(예: 열쇠는 어디 있어?)은 행동 제안이 아니다. 아는 범위에서 답하고 proposedActionFamilyId는 null이다.");
-            lines.add("preparedActions에 없는 행동을 제안하면 그 생각을 받아주되, 이야기 속에서 실행했다고 꾸미지 않는다. proposedActionFamilyId는 null이다.");
+            // V2(PM 피드백 - "그럼 살펴보자"에 동의했는데 이야기에서 그 행동이 나오지 않음).
+            lines.add("앞에서 네가 preparedActions 중 하나와 뜻이 같은 행동을 말했고 아이가 그것에 동의하면(예: 네가 '새가 어디로 가는지 지켜볼까?'라고 한 뒤 아이가 '그래', '그럼 살펴보자', '좋아 그렇게 하자'), 아이가 그 행동을 제안한 것으로 보고 proposedActionFamilyId에 그 id를 넣고 뜻을 한 번 확인한다.");
+            lines.add("preparedActions에 없는 행동을 제안하면 그 생각을 받아주되, 이야기 속에서 실행했다고 꾸미거나 하겠다고 약속하지 않는다. proposedActionFamilyId는 null이다.");
+            lines.add("네가 먼저 '~해 볼까?'처럼 할 일을 제안할 때는 preparedActions에 있는 행동만 제안한다. preparedActions에 없는 행동(예: 집 주변을 살펴보자, 창문을 들여다보자)은 이야기가 보여 줄 수 없으니 할 일로 제안하지 않고, 대신 아이 생각을 묻는다.");
+            if (request.inviteAnchor().actionFamilies().isEmpty()) {
+                lines.add("이 질문 지점에는 preparedActions가 없다 - 대화만 하는 곳이다. '집 주변을 살펴보면 어떨까?', '창문을 보자' 같은 할 일을 절대 제안하지 않는다. 아이가 뭘 해야 하냐고 물으면 할 일 대신 무엇이 궁금한지, 이 장면의 인물에게 무엇을 물어보고 싶은지 아이 생각을 묻는다.");
+                lines.add("아이가 무언가를 하자고 하거나 동의하면 좋은 생각이라고 받아 주되 '남매가 어떻게 하는지 이야기에서 같이 보자'처럼 이야기에서 보게 된다고 말한다.");
+            }
         } else {
             lines.add("새로운 분기나 선택지를 만들지 않는다. 대화일 뿐, 이야기 진행에는 영향을 주지 않는다. proposedActionFamilyId는 항상 null이다.");
+            lines.add("이야기 속에서 할 일을 '~해 보자'고 제안하거나 약속하지 않는다 - 상시 대화로는 이야기가 바뀌지 않는다. 아이가 하고 싶은 일을 말하면 그 생각을 받아 주고, 남매가 어떻게 하는지는 이야기에서 같이 보자고 한다.");
         }
         lines.add("forbiddenKnowledge에 있는 내용은 사실·추측·가능성 형태로도 절대 언급하지 않는다.");
         if (safetyFragment != null && !safetyFragment.isBlank()) {
@@ -609,7 +663,10 @@ public class OpenRouterClient {
         lines.add("childMeaning에는 아이 말의 뜻을 30자 안팎으로 적는다. 확대 해석하지 않는다.");
         lines.add("topicTag/toneTag/valueTag는 아이의 말에서 뚜렷하게 드러날 때만 고르고, 확신이 없으면 null로 둔다.");
         lines.add("응답을 반환하기 전에 한국어 맞춤법·띄어쓰기와 캐릭터 말투 일치를 한 번 확인한다.");
-        return String.join(" ", lines);
+        // 페르소나·금지 지식 문구에 남은 "노파"를 장면에 맞는 호칭으로 바꾼 뒤, 호칭 규칙은 바꾸지 않고 붙인다.
+        String prompt = request.terms().apply(String.join(" ", lines));
+        String namingRule = request.terms().promptRule();
+        return namingRule == null ? prompt : prompt + " " + namingRule;
     }
 
     /**
