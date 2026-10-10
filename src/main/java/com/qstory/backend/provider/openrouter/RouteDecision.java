@@ -31,6 +31,19 @@ public record RouteDecision(
                 liveBranchJobId, liveBranchCapped);
     }
 
+    /** 아이에게 보이는 글(답·선택지 이름·뜻·분기 대사)의 호칭을 장면에 맞게 바꾼다(노파 → 할머니/마녀). */
+    public RouteDecision withChildFacingTerms(com.qstory.backend.story.ChildFacingTerms terms) {
+        List<RouteOption> renamed = options == null ? null : options.stream()
+                .map(option -> new RouteOption(
+                        option.id(), terms.apply(option.label()), terms.apply(option.meaning()),
+                        option.actionFamilyId(), terms.apply(option.branchLine())))
+                .toList();
+        return new RouteDecision(
+                route, terms.apply(childRelevantMeaning), coverageStatus, coverageReason, terms.apply(responseText),
+                speakerId, actionFamilyId, rejoinAnchorId, fallbackFamilyId, renamed, modelId, storyVersions,
+                liveBranchJobId, liveBranchCapped);
+    }
+
     public RouteDecision withLiveBranchJob(String jobId) {
         return new RouteDecision(
                 route, childRelevantMeaning, coverageStatus, coverageReason, responseText, speakerId,

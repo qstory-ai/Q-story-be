@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
+import com.qstory.backend.story.ChildFacingTerms;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -30,7 +31,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class ReportAnalysisService {
 
-    public static final String PROMPT_VERSION = "q39-report-v1";
+    public static final String PROMPT_VERSION = "q39-report-v2";
 
     static final Pattern TRAIT_WORDS = Pattern.compile(
             "성향|성격|기질|발달|능력|잘하는|뛰어난|타고난|좋아하는 아이|점수|향상|천재|똑똑|적극성|적극적|지혜로운|창의적|공감 능력|사고력|큰 호기심|친근감을 느끼|보여줘요|모습이 드러나");
@@ -49,7 +50,8 @@ public class ReportAnalysisService {
             - observation은 아이가 실제로 한 말의 범위만 쓴다. 캐릭터가 바꿔 말한 내용(예: "~하는 동안 내가 열쇠를 가져오자는 거지?")을 아이 생각에 덧붙이지 않는다.
             - 아이 제안 뒤 ACTION_CONFIRMED가 있으면 signals에 PROPOSED_ACTION을 넣는다.
             - 도움 예시를 보고 고른 행동(viaSuggestion=true)은 아이 스스로의 생각이 아니다 - 관찰로 만들지 않는다.
-            - observation은 부모에게 보여 줄 한 문장, 해요체.""";
+            - observation은 부모에게 보여 줄 한 문장, 해요체.
+            - '노파'라는 말은 쓰지 않는다. 과자집 주인은 정체가 드러나기 전 장면이면 '할머니', 드러난 뒤 장면이면 '마녀'라고 쓴다.""";
 
     private static final String VERIFY_SYSTEM = """
             너는 부모 리포트 검수자다. 각 관찰이 인용된 아이 발화만으로 뒷받침되는지 본다.
@@ -70,12 +72,14 @@ public class ReportAnalysisService {
             - followUps: 아이 반응에 따라 골라 쓸 질문 2~3개. type은 REASON(이유 살펴보기)|POSSIBILITY(다른 가능성)|EXPERIENCE(자기 경험)|LOOK_TOGETHER(함께 살펴보기) 중.
             - 성향·능력 판정, 교훈 강요, 정답 유도는 쓰지 않는다.
             - 인물 이름은 입력에 적힌 화자 그대로 쓴다(직전 말을 한 사람은 precedingCharacterSpeaker). 모르는 사실을 지어내지 않는다.
+            - '노파'라는 말은 쓰지 않는다. 과자집 주인은 정체가 드러나기 전 장면이면 '할머니', 드러난 뒤 장면이면 '마녀'라고 쓴다.
             - 한국어로만 쓴다. avoid 목록이 있으면 그 문제를 고친다.""";
 
     private static final String COMMON_SYSTEM = """
             너는 부모·교사용 동화 대화 거리를 만든다. 아이 개인 발화는 없다 - 아이의 관심을 추측하지 말고 "이 장면으로 나눌 수 있는 이야기"만 만든다.
             주어진 장면마다: openingLine(처음 꺼낼 말, 아이에게 반말) 1개와 followUps 4개(type: RECALL 이야기 돌아보기, REASON 이유 살펴보기, POSSIBILITY 다른 가능성, EXPERIENCE 자기 경험 각 1개).
             읽지 않은 장면 내용은 쓰지 않는다. 교훈 강요·정답 유도 없이.
+            '노파'라는 말은 쓰지 않는다. 과자집 주인은 정체가 드러나기 전 장면이면 '할머니', 드러난 뒤 장면이면 '마녀'라고 쓴다.
             actualPaths에 그 장면에서 실제로 진행된 행동이 있으면 그 길을 기준으로 쓴다(기본 줄거리가 아니라). 한국어로만.""";
 
     private final OpenRouterClient openRouterClient;
@@ -159,13 +163,40 @@ public class ReportAnalysisService {
             }
         }
 
+        // 프롬프트를 어겨도 부모·아이에게 보이는 글에 "노파"가 남지 않게 장면마다 호칭을 한 번 더 바꾼다.
+        Map<String, String> sceneByKey = new LinkedHashMap<>();
+        for (Map<String, Object> o : observations) sceneByKey.put(String.valueOf(o.get("key")), String.valueOf(o.get("sceneId")));
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("observations", observations);
-        result.put("cards", cards);
-        result.put("commonScenes", commonScenes);
+        result.put("observations", renamedByScene(observations, o -> String.valueOf(o.get("sceneId"))));
+        result.put("cards", renamedByScene(cards, card -> sceneByKey.get(String.valueOf(card.get("key")))));
+        result.put("commonScenes", renamedByScene(commonScenes, scene -> String.valueOf(scene.get("sceneId"))));
         result.put("notAnalyzed", notAnalyzed);
         result.put("rejected", rejected);
         return result;
+    }
+
+    static List<Map<String, Object>> renamedByScene(
+            List<Map<String, Object>> items, java.util.function.Function<Map<String, Object>, String> sceneOf) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> item : items) {
+            ChildFacingTerms terms = ChildFacingTerms.forSceneId(sceneOf.apply(item));
+            @SuppressWarnings("unchecked")
+            Map<String, Object> renamed = (Map<String, Object>) renamed(item, terms);
+            out.add(renamed);
+        }
+        return out;
+    }
+
+    /** 문자열 값만 바꾼다 - 키·id(sceneId 등)는 "노파"를 담지 않으므로 그대로 둬도 같다. */
+    private static Object renamed(Object value, ChildFacingTerms terms) {
+        if (value instanceof String text) return terms.apply(text);
+        if (value instanceof Map<?, ?> map) {
+            Map<Object, Object> out = new LinkedHashMap<>();
+            map.forEach((key, child) -> out.put(key, renamed(child, terms)));
+            return out;
+        }
+        if (value instanceof List<?> list) return list.stream().map(child -> renamed(child, terms)).toList();
+        return value;
     }
 
     // ── 단계 ───────────────────────────────────────────────────────────────

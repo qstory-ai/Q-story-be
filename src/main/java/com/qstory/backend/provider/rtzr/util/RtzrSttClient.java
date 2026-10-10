@@ -34,7 +34,17 @@ public class RtzrSttClient {
     /** 400이어도 오디오 문제가 아니라 업체 계정·결제 문제인 RTZR 오류 코드(H0001: 카드 등록 필요). */
     private static final java.util.Set<String> BILLING_ACCOUNT_CODES = java.util.Set.of("H0001");
     private static final String BASE_URL = "https://openapi.vito.ai";
+    /**
+     * 결과를 확인하기 전 기다리는 시간 - 처음에는 짧게, 그다음 1.5초. 아이의 짧은 말은 1~2초 안에 끝나는데
+     * 1.5초 고정 간격이면 끝나고도 최대 1.5초를 더 기다렸다(PM 피드백 - 로딩이 길다).
+     */
+    static final List<Duration> POLL_DELAYS = List.of(
+            Duration.ofMillis(500), Duration.ofMillis(500), Duration.ofMillis(700), Duration.ofMillis(1_000));
     private static final Duration POLL_INTERVAL = Duration.ofMillis(1_500);
+
+    static Duration pollDelay(int attempt) {
+        return attempt < POLL_DELAYS.size() ? POLL_DELAYS.get(attempt) : POLL_INTERVAL;
+    }
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -57,7 +67,11 @@ public class RtzrSttClient {
         try {
             String accessToken = authenticate(deadline);
             String submissionId = submit(accessToken, audio, extension, mimeType, keywords, deadline);
-            return poll(accessToken, submissionId, deadline);
+            long started = System.nanoTime();
+            RtzrTranscriptionResult result = poll(accessToken, submissionId, deadline);
+            // 단계별 지연을 Grafana에서 나눠 보려고 남긴다(문장은 남기지 않는다).
+            log.info("rtzr-stt.ok poll_ms={} audio_bytes={}", (System.nanoTime() - started) / 1_000_000, audio.length);
+            return result;
         } catch (ProviderException | AbortException | ApiException known) {
             throw known;
         } catch (InterruptedException interrupted) {
@@ -134,9 +148,9 @@ public class RtzrSttClient {
     }
 
     private RtzrTranscriptionResult poll(String accessToken, String submissionId, RequestDeadline deadline) throws Exception {
-        while (true) {
+        for (int attempt = 0; ; attempt++) {
             deadline.requireTimeRemaining();
-            Thread.sleep(POLL_INTERVAL.toMillis());
+            Thread.sleep(pollDelay(attempt).toMillis());
             HttpRequest request = deadline.applyTo(HttpRequest.newBuilder(
                                 URI.create(BASE_URL + "/v1/transcribe/" + java.net.URLEncoder.encode(submissionId, StandardCharsets.UTF_8)))
                             .header("accept", "application/json")

@@ -2,6 +2,7 @@ package com.qstory.backend.companionchat.service;
 
 import com.qstory.backend.companionchat.DialogueInput;
 import com.qstory.backend.story.Anchor;
+import com.qstory.backend.story.ChildFacingTerms;
 import com.qstory.backend.common.enums.CompanionInteractionMode;
 import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ApiException;
@@ -27,8 +28,11 @@ import com.qstory.backend.story.service.StoryRegistryService.ResolvedCompanionCo
 import com.qstory.backend.voicecast.service.VoiceCastService;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -38,6 +42,8 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class CompanionChatPipelineService {
+
+    private static final Logger log = LoggerFactory.getLogger(CompanionChatPipelineService.class);
 
     private final AppProperties config;
     private final AudioNormalizer normalizer;
@@ -116,16 +122,19 @@ public class CompanionChatPipelineService {
     public Map<String, Object> respond(
             ResolvedCompanionContext context, UUID conversationId, String transcript, RequestDeadline deadline,
             ConversationAttribution attribution) {
-        return respond(context, conversationId, transcript, DialogueInput.empty(), null, deadline, attribution);
+        return respond(context, conversationId, transcript, DialogueInput.empty(), null, false, deadline, attribution);
     }
 
     /**
      * @param dialogue     대화 기록·장면·실행한 행동·정리 신호(Q-31)
      * @param inviteAnchor 질문 초대 중이면 그 앵커(행동 제안을 고를 범위), 상시 대화면 null
+     * @param deferAudio   true면 음성을 만들지 않고 글 답만 바로 돌려준다 - 클라이언트가 말풍선을 먼저 띄우고
+     *                     같은 목소리 설정의 POST /v1/narrations/stream으로 음성을 따로 받는다. 답 음성(TTS)이
+     *                     대화 한 턴 기다림의 대부분이라서다(PM 피드백 - 로딩이 길다).
      */
     public Map<String, Object> respond(
             ResolvedCompanionContext context, UUID conversationId, String transcript, DialogueInput dialogue,
-            Anchor inviteAnchor, RequestDeadline deadline, ConversationAttribution attribution) {
+            Anchor inviteAnchor, boolean deferAudio, RequestDeadline deadline, ConversationAttribution attribution) {
         ProviderReadiness readiness = ProviderReadiness.of(config);
         if (!readiness.llm() || !readiness.tts()) {
             return failureEnvelope(
@@ -133,7 +142,7 @@ public class CompanionChatPipelineService {
                     "대화 공급자가 아직 연결되지 않았어요.");
         }
         try {
-            return respondToTranscript(context, conversationId, transcript, dialogue, inviteAnchor, deadline, attribution);
+            return respondToTranscript(context, conversationId, transcript, dialogue, inviteAnchor, deferAudio, deadline, attribution);
         } catch (Exception error) {
             return failedResult(error);
         }
@@ -141,11 +150,17 @@ public class CompanionChatPipelineService {
 
     private Map<String, Object> respondToTranscript(
             ResolvedCompanionContext context, UUID conversationId, String transcript, DialogueInput dialogue,
-            Anchor inviteAnchor, RequestDeadline deadline, ConversationAttribution attribution) {
+            Anchor inviteAnchor, boolean deferAudio, RequestDeadline deadline, ConversationAttribution attribution) {
+        long startedAt = System.nanoTime();
+        ChildFacingTerms terms = ChildFacingTerms.forScene(
+                context.story().storyId(), context.sceneId(),
+                dialogue.scene() == null ? List.of() : dialogue.scene().recentLines());
         OpenRouterClient.CompanionRequest request = new OpenRouterClient.CompanionRequest(
                 transcript, context.versions().promptVersion(), context.story().title(), context.primarySpeakerId(),
-                context.allowedSpeakerIds(), context.forbiddenKnowledge(), context.persona(), dialogue, inviteAnchor);
+                context.allowedSpeakerIds(), context.forbiddenKnowledge(), context.persona(), dialogue, inviteAnchor,
+                terms);
         OpenRouterClient.CompanionReply reply = openRouterClient.generateCompanionReply(request, deadline);
+        long llmMs = (System.nanoTime() - startedAt) / 1_000_000;
 
         turnRepository.save(CompanionChatTurn.builder()
                 .id(UUID.randomUUID())
@@ -159,24 +174,31 @@ public class CompanionChatPipelineService {
                 .valueTag(reply.valueTag())
                 .build());
         // 태그만 남기는 위 행과 별개로, 아이의 말과 캐릭터의 답 원문을 대화 원장에 남긴다(db/schema/052).
+        // 그레텔 대화 지시는 라우팅 프롬프트와 따로 바뀌므로 두 버전을 함께 남긴다(예: QSTORY_ROUTE_PROMPT_V7_COVERAGE+GRETEL_DIALOGUE_V2).
         conversationRecordService.recordCompanionTurn(
                 context.story().storyId(), context.sceneId(), conversationId, transcript, reply,
-                context.versions().promptVersion(), attribution);
+                context.versions().promptVersion() + "+" + OpenRouterClient.COMPANION_PROMPT_VERSION, attribution);
 
         SynthesizedAudio generatedAudio = null;
         String ttsFailureCode = null;
-        try {
-            var cast = voiceCastService.voiceCastForSpeaker(context.story().storyId(), reply.speakerId());
-            String ttsInput = voiceCastService.buildGeminiTtsPerformanceInput(
-                    context.story().storyId(), reply.speakerId(), reply.responseText());
-            generatedAudio = geminiTtsClient.synthesize(ttsInput, cast.voice(), 1.0, deadline);
-        } catch (ProviderException error) {
-            ttsFailureCode = error.code().name();
-        } catch (AbortException abort) {
-            ttsFailureCode = "SPEECH_PIPELINE_TTS_TIMEOUT";
-        } catch (Exception other) {
-            ttsFailureCode = "SPEECH_PIPELINE_TTS_FAILED";
+        long ttsStartedAt = System.nanoTime();
+        if (!deferAudio) {
+            try {
+                var cast = voiceCastService.voiceCastForSpeaker(context.story().storyId(), reply.speakerId());
+                String ttsInput = voiceCastService.buildGeminiTtsPerformanceInput(
+                        context.story().storyId(), reply.speakerId(), reply.responseText());
+                generatedAudio = geminiTtsClient.synthesize(ttsInput, cast.voice(), 1.0, deadline);
+            } catch (ProviderException error) {
+                ttsFailureCode = error.code().name();
+            } catch (AbortException abort) {
+                ttsFailureCode = "SPEECH_PIPELINE_TTS_TIMEOUT";
+            } catch (Exception other) {
+                ttsFailureCode = "SPEECH_PIPELINE_TTS_FAILED";
+            }
         }
+        // 대화 한 턴이 어디서 오래 걸리는지 나눠 본다(Grafana: |= "companion-chat.timing").
+        log.info("companion-chat.timing llm_ms={} tts_ms={} deferred_audio={} help={}",
+                llmMs, deferAudio ? 0 : (System.nanoTime() - ttsStartedAt) / 1_000_000, deferAudio, dialogue.isHelp());
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("ok", true);
@@ -195,6 +217,9 @@ public class CompanionChatPipelineService {
         }
         if (ttsFailureCode != null) {
             result.put("ttsFailureCode", ttsFailureCode);
+        }
+        if (deferAudio) {
+            result.put("audioDeferred", true);
         }
         return result;
     }

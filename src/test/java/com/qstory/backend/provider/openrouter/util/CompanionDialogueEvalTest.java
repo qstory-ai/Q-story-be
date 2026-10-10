@@ -12,6 +12,7 @@ import com.qstory.backend.companionchat.DialogueInput;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.story.ActionFamily;
 import com.qstory.backend.story.Anchor;
+import com.qstory.backend.story.ChildFacingTerms;
 import com.qstory.backend.story.CompanionPersona;
 import com.qstory.backend.story.service.RoutePromptService;
 import java.net.http.HttpClient;
@@ -32,7 +33,21 @@ class CompanionDialogueEvalTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    private record Scenario(String name, String expect, String sceneJson, Anchor invite, String history, String child, String wrapUp) {}
+    private record Scenario(
+            String name, String expect, String sceneJson, Anchor invite, String history, String child, String wrapUp,
+            String helpJson) {
+        Scenario(String name, String expect, String sceneJson, Anchor invite, String history, String child, String wrapUp) {
+            this(name, expect, sceneJson, invite, history, child, wrapUp, null);
+        }
+
+        /** 호칭 규칙(노파 → 할머니/마녀)이 장면에 따라 갈려서 장면 번호를 알아야 한다. */
+        String sceneId() {
+            if (sceneJson.equals(F07)) return "HG-F07";
+            if (sceneJson.equals(F05) || sceneJson.equals(F05_OLD_WOMAN)) return "HG-F05";
+            if (sceneJson.equals(F04)) return "HG-F04";
+            return "HG-F03";
+        }
+    }
 
     private static CompanionPersona gretel() {
         return new CompanionPersona(
@@ -77,6 +92,15 @@ class CompanionDialogueEvalTest {
     private static final String F07 = "{\"title\":\"들키지 않고 열쇠를 가져오려면\",\"storySoFar\":[\"과자집에 들어가 잠들었다.\",\"할머니가 부엌 문을 검은 열쇠로 잠그고 헨젤을 쇠창살에 가둔 뒤 은색 열쇠로 잠갔다. 할머니는 일을 시키는 마녀였다.\"],"
             + "\"recentLines\":[\"내레이터: 마녀는 냄비를 옮기려고 열쇠고리를 풀어 작업대 끝에 놓았어요.\",\"그레텔: 열쇠가 저기 있어. 하지만 마녀가 자꾸 이쪽을 보고 있어.\",\"그레텔: 마녀에게 들키지 않고 열쇠를 가져오려면 어떻게 하면 좋을까?\"],\"visual\":\"요리하며 뒤돌아보는 마녀, 작업대 끝의 열쇠고리, 쇠창살 안의 헨젤\"}";
 
+    // 실제 플레이어가 보내는 모양 - 화자 이름이 캐스트 표시 이름(노파)으로 들어온다.
+    private static final String F05_OLD_WOMAN = F05.replace("할머니: ", "노파: ");
+    private static final String F03_EARLY = "{\"title\":\"사라진 빵 부스러기\",\"storySoFar\":[\"먹을 것이 부족해진 집. 새어머니의 제안에 아버지가 동의하고, 남매는 대화를 엿듣는다.\",\"헨젤이 놓은 돌을 따라 집으로 돌아온다. 며칠 뒤 다시 숲에 두고 올 계획을 듣는다.\"],"
+            + "\"recentLines\":[\"내레이터: 돌을 주우려고 집 밖으로 나가려 했지만, 이번에는 문이 잠겨 있었어요.\",\"헨젤: 문이 안 열려.\",\"헨젤: 돌을 주울 수가 없겠어.\",\"내레이터: 다음 날 아침, 헨젤은 받은 빵을 조금씩 떼어 주머니에 넣었어요.\",\"그레텔: 이번에는 빵으로 길을 표시하려고?\",\"헨젤: 응. 돌 대신 써보려고.\"],\"visual\":\"아침 집 안, 헨젤이 빵을 떼어 주머니에 넣는다\"}";
+
+    private static String help(int step, int total, String hint) {
+        return "{\"step\":" + step + ",\"total\":" + total + ",\"hint\":\"" + hint + "\"}";
+    }
+
     private static List<Scenario> scenarios() {
         List<Scenario> list = new ArrayList<>();
         list.add(new Scenario("이유 질문에 먼저 답", "빵을 떨어뜨린 이유(돌아갈 길 표시)에 먼저 답한다", F03, null, "[]", "왜 빵을 떨어뜨렸어?", "NONE"));
@@ -104,6 +128,22 @@ class CompanionDialogueEvalTest {
         list.add(new Scenario("C 열쇠 질문", "검은 열쇠 용도에 답, 제안 null", F07, C, "[]", "검은 열쇠는 어디에 써?", "NONE"));
         list.add(new Scenario("C 기다리기", "C_WAIT_FOR_WITCH_TURN, 뜻 확인", F07, C, "[]", "마녀가 돌아설 때까지 기다리자", "NONE"));
         list.add(new Scenario("C 준비 안 된 행동", "생각을 받아주되 실행했다고 꾸미지 않음, 제안 null", F07, C, "[]", "창문으로 도망가자", "NONE"));
+        // ── 대화 품질 v2: 짧게 답하고 생각을 아이에게 돌려준다, 막다른 답 금지 ──
+        list.add(new Scenario("방법 질문", "사실 1~2문장(문이 잠겨 돌을 못 주움) + 아이 생각을 묻는 열린 질문", F03_EARLY, null, "[]", "돌을 주울 수가 없는데 어떡해?", "NONE"));
+        list.add(new Scenario("막다른 답 (PM 사례)", "같은 답을 되풀이하지 않는다. 아는 것을 짧게 짚고 아이에게 어떤 방법이 있을지 묻는다", F03_EARLY, null, "[{\"role\":\"CHILD\",\"text\":\"다른 좋은 방법은 없을까?\"},{\"role\":\"CHARACTER\",\"text\":\"헨젤이 빵을 떨어뜨릴 계획인 것 같아.\"}]", "다른 좋은 방법이 더 없을까?", "NONE"));
+        list.add(new Scenario("막다른 답 뒤 다시 물음", "앞 답(방법이 생각 안 남)을 되풀이하지 않고 함께 생각하자고 아이에게 돌려준다", F03_EARLY, null, "[{\"role\":\"CHILD\",\"text\":\"다른 좋은 방법은 없을까?\"},{\"role\":\"CHARACTER\",\"text\":\"헨젤이 빵을 떨어뜨릴 계획인 것 같아.\"},{\"role\":\"CHILD\",\"text\":\"다른 좋은 방법이 더 없을까?\"},{\"role\":\"CHARACTER\",\"text\":\"빵 조각 말고는 마땅한 방법이 생각이 안 나. 문이 잠겨 있어서 나갈 수가 없었거든.\"}]", "그럼 어떡해?", "NONE"));
+        list.add(new Scenario("말 바꿔 다시 묻기", "이미 한 답(배고파서)을 되풀이하지 않고 아이 생각을 묻는다", F03, null, "[{\"role\":\"CHILD\",\"text\":\"새들은 왜 빵을 먹었어?\"},{\"role\":\"CHARACTER\",\"text\":\"배가 고팠나 봐.\"}]", "근데 새들은 왜 하필 우리 빵을 먹은 거야?", "NONE"));
+        list.add(new Scenario("작별 인사", "질문 없이 짧게 인사, CLOSE", F03, null, "[{\"role\":\"CHILD\",\"text\":\"새들은 왜 빵을 먹었어?\"},{\"role\":\"CHARACTER\",\"text\":\"배가 고팠나 봐. 너는 왜 그랬을 것 같아?\"}]", "알겠어 고마워 그레텔 안녕", "NONE"));
+        list.add(new Scenario("이야기 계속 원함", "질문 없이 이야기로 돌아가자고 한다, CLOSE", F04, null, "[]", "이제 이야기 계속 들을래", "NONE"));
+        list.add(new Scenario("A 그레텔 제안에 동의", "앞에서 그레텔이 제안한 지켜보기에 동의 - A_OBSERVE_BIRD, 뜻 확인", F04, A, "[{\"role\":\"CHILD\",\"text\":\"새를 어떻게 하면 좋을까?\"},{\"role\":\"CHARACTER\",\"text\":\"새가 어디로 가는지 잠깐 멈춰서 지켜볼까?\"}]", "그럼 살펴보자", "NONE"));
+        list.add(new Scenario("C 그레텔 제안에 동의", "앞에서 말한 다른 곳 볼 때 가져오기에 동의 - C_WAIT_FOR_WITCH_TURN", F07, C, "[{\"role\":\"CHILD\",\"text\":\"너가 생각할 땐 어떤 방법이 있을 거 같아?\"},{\"role\":\"CHARACTER\",\"text\":\"마녀가 다른 곳을 볼 때까지 기다렸다가 가져오면 어떨까?\"}]", "좋아 그렇게 하자", "NONE"));
+        list.add(new Scenario("B 할 일 제안하지 않기", "준비된 행동이 없는 지점 - 집 주변 살펴보기 같은 할 일을 제안하지 않고 아이 생각·물어볼 말을 묻는다", F05, B, "[{\"role\":\"CHILD\",\"text\":\"나는 이 집이 안전한 건지 좀 알아보고 싶어.\"},{\"role\":\"CHARACTER\",\"text\":\"응, 나도 궁금해. 처음 보는 곳이라 조금 무섭기도 해.\"}]", "그럼 어떻게 해봤으면 좋겠어? 우리가 뭘 해야 할까?", "NONE"));
+        list.add(new Scenario("B 동의해도 약속하지 않기", "실행한다고 약속하지 않고 남매가 어떻게 하는지 이야기에서 보자고 한다, 제안 null", F05, B, "[{\"role\":\"CHILD\",\"text\":\"우리가 뭘 해야 할까?\"},{\"role\":\"CHARACTER\",\"text\":\"오빠랑 같이 집 주변을 가만히 살펴볼까?\"}]", "그럼 살펴보자", "NONE"));
+        list.add(new Scenario("C 대화 뒤 도와줘", "앞 대화를 되풀이하지 않고 1단계 방향(열쇠 위치·필요성)을 대화에 맞게, 열린 질문", F07, C, "[{\"role\":\"CHILD\",\"text\":\"너가 생각할 땐 어떤 방법이 있을 거 같아.\"},{\"role\":\"CHARACTER\",\"text\":\"응, 마녀가 다른 곳을 볼 때 살금살금 가져오는 건 어떨까 생각 중이야. 또 좋은 생각이 있을까?\"}]", "도와줘", "NONE", help(1, 4, "마녀가 두 열쇠를 작업대 끝에 내려놨어. 저 열쇠가 있어야 문을 열 수 있어.")));
+        list.add(new Scenario("A 대화 뒤 도와줘 2단계", "앞 대화를 이어 2단계 방향(무엇이 궁금한지)으로 묻는다, 정답 없음", F04, A, "[{\"role\":\"CHILD\",\"text\":\"새가 왜 돌아봐?\"},{\"role\":\"CHARACTER\",\"text\":\"글쎄, 나도 잘 모르겠어. 우리를 기다리는 것처럼 보이기도 해.\"},{\"role\":\"CHILD\",\"text\":\"도와줘\"},{\"role\":\"CHARACTER\",\"text\":\"저 새가 앞으로 갔다가 우리를 다시 돌아봤어. 새를 같이 살펴볼까?\"}]", "도와줘", "NONE", help(2, 3, "새가 어디로 가는지, 왜 우리를 돌아보는지… 너는 어떤 게 더 궁금해?")));
+        // ── 호칭: 노파 → 할머니(정체 전) / 마녀(정체 후) ──
+        list.add(new Scenario("호칭 - 정체 전", "할머니로 부르고 노파를 쓰지 않는다, 정체 미공개", F05_OLD_WOMAN, B, "[]", "저 노파는 누구야?", "NONE"));
+        list.add(new Scenario("호칭 - 정체 후", "마녀로 부르고 노파를 쓰지 않는다", F07, C, "[]", "저 노파가 또 이쪽 봐?", "NONE"));
         return list;
     }
 
@@ -120,29 +160,41 @@ class CompanionDialogueEvalTest {
         OpenRouterClient client = new OpenRouterClient(
                 HttpClient.newHttpClient(), objectMapper, new RouteResultValidator(mock(ChoiceCopyService.class)), prompts, config);
 
-        StringBuilder out = new StringBuilder("# 그레텔 대화 평가 (" + model + ")\n\n| # | 상황 | 아이 | 그레텔 | 종류 | 끝내기 | 도움 | 제안 | 기대 |\n|---|---|---|---|---|---|---|---|---|\n");
+        StringBuilder out = new StringBuilder("# 그레텔 대화 평가 (" + model + ", " + OpenRouterClient.COMPANION_PROMPT_VERSION + ")\n\n| # | 상황 | 아이 | 그레텔 | 종류 | 끝내기 | 도움 | 제안 | ms | 기대 |\n|---|---|---|---|---|---|---|---|---|---|\n");
+        List<Long> latencies = new ArrayList<>();
         int index = 0;
         for (Scenario scenario : scenarios()) {
             index++;
             String body = "{\"history\":" + scenario.history() + ",\"scene\":" + scenario.sceneJson()
                     + (scenario.invite() == null ? "" : ",\"anchorId\":\"HG-Q-" + scenario.invite().slot() + "\"")
-                    + ",\"wrapUp\":\"" + scenario.wrapUp() + "\"}";
+                    + ",\"wrapUp\":\"" + scenario.wrapUp() + "\""
+                    + (scenario.helpJson() == null ? "" : ",\"help\":" + scenario.helpJson()) + "}";
             DialogueInput dialogue = DialogueInput.fromBody(objectMapper.readTree(body));
             var request = new OpenRouterClient.CompanionRequest(
                     scenario.child(), "v6", "헨젤과 그레텔", "HG-SPK-GRETEL", List.of("HG-SPK-GRETEL"),
-                    List.of("과자집 노파의 정체", "마녀의 계획", "탈출 방법과 결말"), gretel(), dialogue, scenario.invite());
+                    List.of("과자집 노파의 정체", "마녀의 계획", "탈출 방법과 결말"), gretel(), dialogue, scenario.invite(),
+                    ChildFacingTerms.forScene(
+                            "HG", scenario.sceneId(), dialogue.scene() == null ? List.of() : dialogue.scene().recentLines()));
             String row;
             try {
+                long started = System.nanoTime();
                 var reply = client.generateCompanionReply(request, RequestDeadline.startingNow(30_000));
-                row = String.format("| %d | %s | %s | %s | %s | %s | %s | %s | %s |", index, scenario.name(), scenario.child(),
+                long ms = (System.nanoTime() - started) / 1_000_000;
+                latencies.add(ms);
+                row = String.format("| %d | %s | %s | %s | %s | %s | %s | %s | %d | %s |", index, scenario.name(), scenario.child(),
                         reply.responseText(), reply.replyKind(), reply.childWantsToEnd(), reply.asksForHelp(),
-                        reply.proposedActionFamilyId(), scenario.expect());
+                        reply.proposedActionFamilyId(), ms, scenario.expect());
             } catch (Exception error) {
-                row = String.format("| %d | %s | %s | (실패: %s) | | | | | %s |", index, scenario.name(), scenario.child(), error.getMessage(), scenario.expect());
+                row = String.format("| %d | %s | %s | (실패: %s) | | | | | | %s |", index, scenario.name(), scenario.child(), error.getMessage(), scenario.expect());
             }
             out.append(row).append('\n');
         }
-        Path file = Path.of("build", "dialogue-eval.md");
+        List<Long> sorted = latencies.stream().sorted().toList();
+        if (!sorted.isEmpty()) {
+            out.append("\nLLM 응답 시간: 중앙값 ").append(sorted.get(sorted.size() / 2)).append("ms, 최대 ")
+                    .append(sorted.get(sorted.size() - 1)).append("ms (").append(sorted.size()).append("회)\n");
+        }
+        Path file = Path.of("build", System.getenv().getOrDefault("DIALOGUE_EVAL_OUT", "dialogue-eval.md"));
         Files.createDirectories(file.getParent());
         Files.writeString(file, out.toString());
     }

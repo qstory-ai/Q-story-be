@@ -93,7 +93,10 @@ public class CompanionChatController {
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             description = "{storyId, sceneId, conversationId, transcript, speakerId?, childId?, tutorStudentId?, lessonId?, inputMode?, "
                     + "history?: [{role: CHILD|CHARACTER, text}], scene?: {title, storySoFar[], recentLines[], visual}, "
-                    + "executedActions?: [], anchorId? (question invite), wrapUp?: NONE|SUGGEST_RETURN|CLOSE}", required = true)
+                    + "executedActions?: [], anchorId? (question invite), wrapUp?: NONE|SUGGEST_RETURN|CLOSE, "
+                    + "help?: {step, total, hint} (help button inside a question invite - reply follows the hint in context), "
+                    + "deferAudio?: boolean (true: no audio in the reply, audioDeferred=true - fetch it from POST /v1/narrations/stream)}",
+                    required = true)
     @PostMapping("/v1/companion-chat/messages")
     public void sendMessage(HttpServletRequest request, HttpServletResponse response) throws IOException {
         JsonNode body = HttpBodyReader.readJsonBody(request, objectMapper);
@@ -118,8 +121,9 @@ public class CompanionChatController {
         Anchor inviteAnchor = dialogue.isInvite()
                 ? storyRegistryService.inviteAnchor(context.story(), dialogue.anchorId(), sceneId)
                 : null;
+        boolean deferAudio = body.path("deferAudio").asBoolean(false);
         Map<String, Object> result = pipeline.respond(
-                context, conversationId, transcript, dialogue, inviteAnchor,
+                context, conversationId, transcript, dialogue, inviteAnchor, deferAudio,
                 RequestDeadline.startingNow(config.requestTimeoutMs()), attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
     }
