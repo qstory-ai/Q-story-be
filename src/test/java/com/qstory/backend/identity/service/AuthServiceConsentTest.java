@@ -37,7 +37,8 @@ class AuthServiceConsentTest {
     private final ConsentService consents = mock(ConsentService.class);
     private final AuthService service = new AuthService(
             users, null, null, mock(AuthValidator.class), mock(PasswordEncoder.class), mock(JwtService.class),
-            google, null, null, null, null, mock(UserSummaryFactory.class), null, null, consents);
+            google, null, null, null, null, mock(UserSummaryFactory.class), null, null, consents,
+            mock(com.qstory.backend.identity.security.TokenVersionCheck.class));
 
     private SignupOrganizationOwnerRequest signup(ConsentPayload consent) {
         return new SignupOrganizationOwnerRequest("loginid", "a@b.co", "password1", "이름", consent);
@@ -79,7 +80,7 @@ class AuthServiceConsentTest {
     void existingOAuthAccountLogsInWithoutConsents() {
         when(google.verify("tok")).thenReturn(new GoogleOAuthVerifier.GoogleIdentity("sub", "a@b.co", "이름"));
         AppUser existing = AppUser.builder().id(UUID.randomUUID()).role(Role.PARENT).build();
-        when(users.findByOauthProviderAndOauthSubject(OAuthProvider.GOOGLE, "sub")).thenReturn(Optional.of(existing));
+        when(users.findByOauthProviderAndOauthSubjectAndDeletedAtIsNull(OAuthProvider.GOOGLE, "sub")).thenReturn(Optional.of(existing));
         service.loginOrSignupWithOAuth(OAuthProvider.GOOGLE, new OAuthLoginRequest("tok", null, null));
         verify(consents, never()).requireSignupConsents(any());
     }
@@ -88,7 +89,7 @@ class AuthServiceConsentTest {
     void newOAuthAccountRequiresConsents() {
         consentsRejectMissing();
         when(google.verify("tok")).thenReturn(new GoogleOAuthVerifier.GoogleIdentity("sub", "a@b.co", "이름"));
-        when(users.findByOauthProviderAndOauthSubject(OAuthProvider.GOOGLE, "sub")).thenReturn(Optional.empty());
+        when(users.findByOauthProviderAndOauthSubjectAndDeletedAtIsNull(OAuthProvider.GOOGLE, "sub")).thenReturn(Optional.empty());
         ApiException e = assertThrows(ApiException.class, () -> service.loginOrSignupWithOAuth(
                 OAuthProvider.GOOGLE, new OAuthLoginRequest("tok", Role.PARENT, null)));
         assertEquals(ErrorCode.CONSENT_REQUIRED, e.code());
@@ -98,7 +99,7 @@ class AuthServiceConsentTest {
     @Test
     void newOAuthAccountRecordsConsents() {
         when(google.verify("tok")).thenReturn(new GoogleOAuthVerifier.GoogleIdentity("sub", "a@b.co", "이름"));
-        when(users.findByOauthProviderAndOauthSubject(OAuthProvider.GOOGLE, "sub")).thenReturn(Optional.empty());
+        when(users.findByOauthProviderAndOauthSubjectAndDeletedAtIsNull(OAuthProvider.GOOGLE, "sub")).thenReturn(Optional.empty());
         when(users.saveOrThrowDuplicate(any(), anyString())).thenAnswer(i -> i.getArgument(0));
         service.loginOrSignupWithOAuth(OAuthProvider.GOOGLE, new OAuthLoginRequest("tok", Role.PARENT, OK));
         verify(consents).recordSignup(any(AppUser.class), eq(OK), eq("OAUTH_SIGNUP"));

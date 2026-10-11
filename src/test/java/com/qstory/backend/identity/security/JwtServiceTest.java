@@ -73,10 +73,38 @@ class JwtServiceTest {
     void verifyRoundTripsModeAndIdentity() {
         UUID userId = UUID.randomUUID();
         UUID orgId = UUID.randomUUID();
-        CurrentUser session = new CurrentUser(userId, Role.DIRECTOR, orgId, false);
+        Instant loggedInAt = Instant.now().minus(Duration.ofDays(3)).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        CurrentUser session = new CurrentUser(userId, Role.DIRECTOR, orgId, false, 4, loggedInAt);
         assertEquals(Optional.of(session), jwt.verify(jwt.issue(session)));
-        CurrentUser remembered = new CurrentUser(userId, Role.DIRECTOR, orgId, true);
+        CurrentUser remembered = new CurrentUser(userId, Role.DIRECTOR, orgId, true, 0, loggedInAt);
         assertEquals(Optional.of(remembered), jwt.verify(jwt.issue(remembered)));
+    }
+
+    /** 보안 점검 M4: 토큰에 계정의 토큰 버전(tv)과 처음 로그인한 시각(at)이 실린다. 처음 발급이면 at은 지금이다. */
+    @Test
+    void tokenCarriesVersionAndAuthTime() {
+        Instant before = Instant.now().minusSeconds(1);
+        Claims claims = claims(jwt.issue(new CurrentUser(UUID.randomUUID(), Role.PARENT, null, true, 7, null)));
+        assertEquals(7, claims.get("tv", Integer.class));
+        long at = claims.get("at", Long.class);
+        assertTrue(at >= before.getEpochSecond() && at <= Instant.now().getEpochSecond());
+    }
+
+    /** tv·at이 없는 예전 토큰은 버전 0, 처음 로그인 시각은 발급 시각(iat)으로 본다 - 배포 직후에도 그대로 통한다. */
+    @Test
+    void legacyTokenWithoutVersionIsVersionZeroAndAuthTimeIsIssuedAt() {
+        Instant issued = Instant.now().minus(Duration.ofDays(2)).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        String legacy = Jwts.builder()
+                .subject(UUID.randomUUID().toString())
+                .claim("role", Role.TUTOR.name())
+                .claim("rm", true)
+                .issuedAt(Date.from(issued))
+                .expiration(Date.from(issued.plus(Duration.ofDays(30))))
+                .signWith(KEY)
+                .compact();
+        CurrentUser user = jwt.verify(legacy).orElseThrow();
+        assertEquals(0, user.tokenVersion());
+        assertEquals(issued, user.authTime());
     }
 
     /** rm claim 이전에 발급된 토큰(배포 직후 사용자들이 들고 있는 토큰)은 계속 통하고, 로그인 유지로 취급된다. */

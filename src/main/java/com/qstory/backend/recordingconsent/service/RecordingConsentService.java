@@ -3,6 +3,7 @@ package com.qstory.backend.recordingconsent.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.identity.Role;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.EnumSet;
@@ -74,15 +75,54 @@ public class RecordingConsentService {
         return new Decision(betaSessionId, granted.asBoolean(), source);
     }
 
+    /**
+     * 베타 세션 단위 결정을 남겨도 되는지(보안 점검 M5·L3). 안 되면 401/403/404를 던진다. 돌려주는 값은 결정한 계정(익명이면 null).
+     * <ul>
+     *   <li>LESSON(보호자 동의를 받은 수업)은 로그인한 선생님·원장만 남긴다. lessonId를 보냈으면 그 계정의 수업이어야 한다.</li>
+     *   <li>계정과 이어진 베타 세션(회차·통계 세션으로 이어짐)은 그 계정으로 로그인해야 바꾼다 - 베타 세션 id만 아는 사람이 남의
+     *   녹화를 지우거나 켜지 못하게 한다. 아직 계정과 이어지지 않은 익명 베타 세션은 그대로 로그인 없이 바꾼다.</li>
+     * </ul>
+     */
+    @Transactional(readOnly = true)
+    public UUID authorizeSessionDecision(Decision decision, UUID callerUserId, Role callerRole, UUID lessonId) {
+        if (decision.source() == Source.LESSON) {
+            if (callerUserId == null) {
+                throw ApiException.contractError(ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401);
+            }
+            if (callerRole != Role.TUTOR && callerRole != Role.DIRECTOR) {
+                throw ApiException.contractError(ErrorCode.FORBIDDEN, "수업 녹화 동의는 선생님만 남길 수 있어요.", 403);
+            }
+            if (lessonId != null && !exists("select count(*) from lesson where id = ? and tutor_id = ?", lessonId, callerUserId)) {
+                throw ApiException.contractError(ErrorCode.NOT_FOUND, "수업을 찾을 수 없어요.", 404);
+            }
+        }
+        List<UUID> linkedAccounts = jdbc.queryForList(
+                "select s.user_id from play_session s where s.beta_session_id = ? and s.user_id is not null"
+                        + " union select ss.user_id from story_sessions ss where ss.id = ? and ss.user_id is not null",
+                UUID.class, decision.betaSessionId(), decision.betaSessionId());
+        if (!linkedAccounts.isEmpty() && (callerUserId == null || !linkedAccounts.contains(callerUserId))) {
+            throw ApiException.contractError(
+                    ErrorCode.FORBIDDEN, "계정과 이어진 기록이에요. 그 계정으로 로그인한 뒤 바꿔 주세요.", 403);
+        }
+        return callerUserId;
+    }
+
     /** 베타 세션 단위 결정을 남긴다. 철회면 이 베타 세션의 녹화 조각을 지운다. */
     @Transactional
     public void decideForBetaSession(UUID betaSessionId, boolean granted, Source source) {
+        decideForBetaSession(betaSessionId, granted, source, null, null);
+    }
+
+    /** decidedBy·lessonId - 결정한 계정과 수업(079). 수업 동의(LESSON)를 누가 어느 수업에서 확인했는지 남는다. */
+    @Transactional
+    public void decideForBetaSession(UUID betaSessionId, boolean granted, Source source, UUID decidedBy, UUID lessonId) {
         jdbc.update(
-                "insert into screen_recording_consent (beta_session_id, user_id, granted, source, decided_at) "
-                        + "values (?, null, ?, ?, ?) "
+                "insert into screen_recording_consent (beta_session_id, user_id, granted, source, decided_at, decided_by, lesson_id) "
+                        + "values (?, null, ?, ?, ?, ?, ?) "
                         + "on conflict (beta_session_id) where user_id is null "
-                        + "do update set granted = excluded.granted, source = excluded.source, decided_at = excluded.decided_at",
-                betaSessionId, granted, source.name(), Timestamp.from(Instant.now()));
+                        + "do update set granted = excluded.granted, source = excluded.source, decided_at = excluded.decided_at, "
+                        + "decided_by = excluded.decided_by, lesson_id = excluded.lesson_id",
+                betaSessionId, granted, source.name(), Timestamp.from(Instant.now()), decidedBy, lessonId);
         if (!granted) {
             jdbc.update("delete from session_recording_chunk where beta_session_id = ?", betaSessionId);
         }
@@ -169,6 +209,16 @@ public class RecordingConsentService {
         jdbc.update(
                 "delete from session_recording_chunk where user_id = ? or beta_session_id in (" + LINKED_BETA_SESSIONS + ")",
                 userId, userId, userId);
+    }
+
+    private boolean exists(String sql, Object... args) {
+        Integer count = jdbc.queryForObject(sql, Integer.class, args);
+        return count != null && count > 0;
+    }
+
+    /** 본문의 선택 필드 lessonId. 없거나 형식이 틀리면 null. */
+    public static UUID lessonId(JsonNode body) {
+        return body == null ? null : uuid(body.path("lessonId"));
     }
 
     private static Source source(JsonNode node) {

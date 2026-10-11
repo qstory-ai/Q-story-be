@@ -6,3 +6,15 @@ logging:
   level:
     root: WARN
     com.qstory.backend: INFO
+
+# Railway 프록시가 붙여 주는 X-Forwarded-Proto/For를 따른다(보안 점검 L6) - https 요청으로 알아봐야 Spring Security가 HSTS
+# 헤더를 붙인다. request.getRemoteAddr()도 X-Forwarded-For의 첫 값이 된다(ClientErrorController의 주소별 상한).
+server:
+  forward-headers-strategy: framework
+
+# API 문서(Swagger UI, /v3/api-docs)는 운영에서 내보내지 않는다(보안 점검 L5) - 로컬·스테이징에서만 본다.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

@@ -57,7 +57,8 @@ public class OrganizationService {
         director.setOrganization(organization);
         director = userRepository.save(director);
         CurrentUser refreshed = new CurrentUser(
-                director.getId(), director.getRole(), organization.getId(), caller.rememberMe());
+                director.getId(), director.getRole(), organization.getId(), caller.rememberMe(),
+                director.getTokenVersion(), caller.authTime());
         return new AuthResponse(jwtService.issue(refreshed), userSummaryFactory.of(director));
     }
 

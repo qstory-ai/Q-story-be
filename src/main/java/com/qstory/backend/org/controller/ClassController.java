@@ -209,4 +209,14 @@ public class ClassController {
     public void leaveClass(@PathVariable UUID studentId) {
         service.leaveClass(currentUserResolver.requireRole(Role.PARENT), studentId);
     }
+
+    @Operation(summary = "Unlink a student's parent",
+            description = "The owning DIRECTOR or the class's homeroom TUTOR. Releases a wrong parent link (e.g. someone "
+                    + "who picked another child from the roster with the class code). The student stays on the roster as "
+                    + "PENDING_PARENT; the unlinked parent keeps no access to the student's reports and is notified.")
+    @DeleteMapping("/v1/classes/{classId}/students/{studentId}/parent-link")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unlinkParent(@PathVariable UUID classId, @PathVariable UUID studentId) {
+        service.unlinkParent(currentUserResolver.requireRole(Role.DIRECTOR, Role.TUTOR), classId, studentId);
+    }
 }

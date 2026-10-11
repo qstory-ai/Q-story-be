@@ -136,7 +136,11 @@ public class TutorStudentService {
         if (tutor != null) {
             addToScheduledClassLessons(tutor.getId(), student, classGroup);
         }
-        notifyClassEnrollment(parent, student, classGroup);
+        if (pending != null) {
+            notifyRosterLinkToVerify(parent, student, classGroup);
+        } else {
+            notifyClassEnrollment(parent, student, classGroup);
+        }
         return student;
     }
 
@@ -175,6 +179,31 @@ public class TutorStudentService {
                     return student;
                 })
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "반 명단에서 학생을 찾을 수 없어요.", 404));
+    }
+
+    /**
+     * 학부모가 선생님이 미리 올려 둔 명단 학생(아직 학부모 없음)에 이어졌다 - 반 코드만 알면 명단에서 남의 아이를 고르거나 이름을
+     * 적어 이을 수 있으므로(보안 점검 H3) 담임과 원장 모두에게 확인을 부탁한다. 맞지 않으면 반 학생 화면에서 연결을 해제한다
+     * (DELETE /v1/classes/{classId}/students/{studentId}/parent-link). 다른 학부모가 다시 이으면 다시 알린다(dedupKey에 학부모).
+     */
+    private void notifyRosterLinkToVerify(AppUser parent, TutorStudent student, ClassGroup classGroup) {
+        String title = student.getName() + " 보호자 연결을 확인해 주세요";
+        String body = parent.getDisplayName() + "님이 " + classGroup.getName() + " 반 명단의 " + student.getName()
+                + "와(과) 보호자로 연결했어요. 실제 보호자가 맞는지 확인해 주세요. 아니라면 반 학생 화면에서 연결을 해제할 수 있어요.";
+        String dedupKey = "class-roster-link-check:" + student.getId() + ":" + parent.getId();
+        if (classGroup.getTutor() != null) {
+            notificationPublisher.publish(
+                    classGroup.getTutor().getId(), "tutor-class-parent-joined", title, body,
+                    "/tutor/students/" + student.getId(), dedupKey);
+        }
+        if (classGroup.getOrganization() == null) {
+            return;
+        }
+        userRepository.findFirstByOrganization_IdAndRoleAndDeletedAtIsNull(classGroup.getOrganization().getId(), Role.DIRECTOR)
+                .filter(director -> classGroup.getTutor() == null || !director.getId().equals(classGroup.getTutor().getId()))
+                .ifPresent(director -> notificationPublisher.publish(
+                        director.getId(), "class-parent-joined", title, body,
+                        "/organization/classes/" + classGroup.getId(), dedupKey));
     }
 
     /** 담임에게, 담임이 아직 없으면 기관 원장에게 알린다. */
