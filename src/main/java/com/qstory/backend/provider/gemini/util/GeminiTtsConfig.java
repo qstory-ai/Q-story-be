@@ -3,6 +3,7 @@ package com.qstory.backend.provider.gemini.util;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.config.AppProperties;
 import java.net.http.HttpClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -11,7 +12,10 @@ import org.springframework.context.annotation.Configuration;
 public class GeminiTtsConfig {
 
     @Bean
-    public GeminiTtsClient prefetchGeminiTtsClient(HttpClient httpClient, ObjectMapper objectMapper, AppProperties config) {
-        return new GeminiTtsClient(httpClient, objectMapper, config, config.providers().gemini().prefetchApiKey());
+    public GeminiTtsClient prefetchGeminiTtsClient(
+            HttpClient httpClient, ObjectMapper objectMapper, AppProperties config,
+            @Value("${qstory.voice-streaming.tts:true}") boolean streaming) {
+        return new GeminiTtsClient(
+                httpClient, objectMapper, config, config.providers().gemini().prefetchApiKey(), streaming);
     }
 }

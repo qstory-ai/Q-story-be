@@ -32,8 +32,10 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -46,6 +48,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class CompanionChatController {
 
+    private static final int NEWLINE = 0x0A;
     private static final long RATE_LIMIT_MAX_TURNS = 40;
     private static final Duration RATE_LIMIT_WINDOW = Duration.ofMinutes(10);
 
@@ -57,12 +60,14 @@ public class CompanionChatController {
     private final CompanionChatTurnRepository turnRepository;
     private final CurrentUserResolver currentUserResolver;
     private final ConversationAttributionParser attributionParser;
+    private final boolean replyStreaming;
 
     public CompanionChatController(
             AppProperties config, ObjectMapper objectMapper, QuestionContractValidator contractValidator,
             StoryRegistryService storyRegistryService, CompanionChatPipelineService pipeline,
             CompanionChatTurnRepository turnRepository, CurrentUserResolver currentUserResolver,
-            ConversationAttributionParser attributionParser) {
+            ConversationAttributionParser attributionParser,
+            @Value("${qstory.voice-streaming.companion-reply:true}") boolean replyStreaming) {
         this.config = config;
         this.objectMapper = objectMapper;
         this.contractValidator = contractValidator;
@@ -71,6 +76,7 @@ public class CompanionChatController {
         this.turnRepository = turnRepository;
         this.currentUserResolver = currentUserResolver;
         this.attributionParser = attributionParser;
+        this.replyStreaming = replyStreaming;
     }
 
     @Operation(
@@ -80,7 +86,11 @@ public class CompanionChatController {
                     + "member the child is talking to (e.g. HG-SPK-GRETEL) - its persona sheet (story_persona, "
                     + "imported from personas.yaml) and voice are used; omitted, the scene's anchor speaker or the "
                     + "narrator is used. Besides the derived topic/tone/value tags (CompanionChatTurn), the transcript "
-                    + "and reply are appended to the write-only conversation_record log (db/schema/052).")
+                    + "and reply are appended to the write-only conversation_record log (db/schema/052). "
+                    + "With deferAudio=true and stream=true (and qstory.voice-streaming.companion-reply on) the 200 body is "
+                    + "NDJSON (application/x-ndjson): first {type:text, responseText} as soon as the reply sentence is "
+                    + "ready, then {type:result, ...the usual JSON body...} - a failure is that last line with ok=false. "
+                    + "Otherwise the body is the usual single JSON object.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "In-character reply plus its synthesized audio"),
             @ApiResponse(responseCode = "400", description = "Malformed body",
@@ -95,7 +105,8 @@ public class CompanionChatController {
                     + "history?: [{role: CHILD|CHARACTER, text}], scene?: {title, storySoFar[], recentLines[], visual}, "
                     + "executedActions?: [], anchorId? (question invite), wrapUp?: NONE|SUGGEST_RETURN|CLOSE, "
                     + "help?: {step, total, hint} (help button inside a question invite - reply follows the hint in context), "
-                    + "deferAudio?: boolean (true: no audio in the reply, audioDeferred=true - fetch it from POST /v1/narrations/stream)}",
+                    + "deferAudio?: boolean (true: no audio in the reply, audioDeferred=true - fetch it from POST /v1/narrations/stream), "
+                    + "stream?: boolean (with deferAudio: NDJSON body, reply sentence first)}",
                     required = true)
     @PostMapping("/v1/companion-chat/messages")
     public void sendMessage(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -122,10 +133,51 @@ public class CompanionChatController {
                 ? storyRegistryService.inviteAnchor(context.story(), dialogue.anchorId(), sceneId)
                 : null;
         boolean deferAudio = body.path("deferAudio").asBoolean(false);
+        RequestDeadline deadline = RequestDeadline.startingNow(config.requestTimeoutMs());
+        if (deferAudio && replyStreaming && body.path("stream").asBoolean(false)) {
+            streamReply(response, context, conversationId, transcript, dialogue, inviteAnchor, deadline, attribution);
+            return;
+        }
         Map<String, Object> result = pipeline.respond(
-                context, conversationId, transcript, dialogue, inviteAnchor, deferAudio,
-                RequestDeadline.startingNow(config.requestTimeoutMs()), attribution);
+                context, conversationId, transcript, dialogue, inviteAnchor, deferAudio, deadline, attribution);
         HttpJsonWriter.writeJson(response, objectMapper, 200, result);
+    }
+
+    /**
+     * 답 문장을 먼저 한 줄({type:text}), 끝나면 평소 응답 본문을 한 줄({type:result, ...}) 내려보낸다(NDJSON).
+     * 클라이언트는 첫 줄로 말풍선을 띄우고 같은 문장의 음성(POST /v1/narrations/stream)을 바로 요청한다 - 답의
+     * 나머지(태그·replyKind 등)를 기다리는 동안 음성이 만들어진다. 헤더를 먼저 보내므로 실패도 200 + 마지막 줄 ok=false다
+     * (이 엔드포인트의 기존 실패 봉투와 같은 모양). 아이가 창을 닫아 쓰기가 실패해도 답은 끝까지 받아 기록에 남긴다.
+     */
+    private void streamReply(
+            HttpServletResponse response, ResolvedCompanionContext context, UUID conversationId, String transcript,
+            DialogueInput dialogue, Anchor inviteAnchor, RequestDeadline deadline, ConversationAttribution attribution) {
+        response.setStatus(200);
+        response.setContentType("application/x-ndjson; charset=utf-8");
+        response.setHeader("Cache-Control", "no-store, no-transform");
+        response.setHeader("X-Accel-Buffering", "no");
+        boolean[] clientGone = {false};
+        Map<String, Object> result = pipeline.respond(
+                context, conversationId, transcript, dialogue, inviteAnchor, true, deadline, attribution,
+                text -> writeLine(response, Map.of("type", "text", "responseText", text), clientGone));
+        Map<String, Object> last = new LinkedHashMap<>();
+        last.put("type", "result");
+        last.putAll(result);
+        writeLine(response, last, clientGone);
+    }
+
+    private void writeLine(HttpServletResponse response, Map<String, Object> value, boolean[] clientGone) {
+        if (clientGone[0]) {
+            return;
+        }
+        try {
+            var out = response.getOutputStream();
+            out.write(objectMapper.writeValueAsBytes(value));
+            out.write(NEWLINE);
+            out.flush();
+        } catch (IOException gone) {
+            clientGone[0] = true;
+        }
     }
 
     @Operation(
