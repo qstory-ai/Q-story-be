@@ -31,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -135,6 +136,18 @@ public class CompanionChatPipelineService {
     public Map<String, Object> respond(
             ResolvedCompanionContext context, UUID conversationId, String transcript, DialogueInput dialogue,
             Anchor inviteAnchor, boolean deferAudio, RequestDeadline deadline, ConversationAttribution attribution) {
+        return respond(context, conversationId, transcript, dialogue, inviteAnchor, deferAudio, deadline, attribution, null);
+    }
+
+    /**
+     * @param onResponseText null이 아니면 답을 스트리밍으로 받아, 정리·검사를 마친 답 문장이 나오는 즉시 한 번 넘긴다
+     *                       (태그·replyKind 등 나머지는 반환값에). 컨트롤러가 이 문장을 먼저 내려보내 말풍선과 음성
+     *                       요청이 답 전체를 기다리지 않게 한다. 반환값은 null일 때와 같다.
+     */
+    public Map<String, Object> respond(
+            ResolvedCompanionContext context, UUID conversationId, String transcript, DialogueInput dialogue,
+            Anchor inviteAnchor, boolean deferAudio, RequestDeadline deadline, ConversationAttribution attribution,
+            Consumer<String> onResponseText) {
         ProviderReadiness readiness = ProviderReadiness.of(config);
         if (!readiness.llm() || !readiness.tts()) {
             return failureEnvelope(
@@ -142,7 +155,9 @@ public class CompanionChatPipelineService {
                     "대화 공급자가 아직 연결되지 않았어요.");
         }
         try {
-            return respondToTranscript(context, conversationId, transcript, dialogue, inviteAnchor, deferAudio, deadline, attribution);
+            return respondToTranscript(
+                    context, conversationId, transcript, dialogue, inviteAnchor, deferAudio, deadline, attribution,
+                    onResponseText);
         } catch (Exception error) {
             return failedResult(error);
         }
@@ -150,7 +165,8 @@ public class CompanionChatPipelineService {
 
     private Map<String, Object> respondToTranscript(
             ResolvedCompanionContext context, UUID conversationId, String transcript, DialogueInput dialogue,
-            Anchor inviteAnchor, boolean deferAudio, RequestDeadline deadline, ConversationAttribution attribution) {
+            Anchor inviteAnchor, boolean deferAudio, RequestDeadline deadline, ConversationAttribution attribution,
+            Consumer<String> onResponseText) {
         long startedAt = System.nanoTime();
         ChildFacingTerms terms = ChildFacingTerms.forScene(
                 context.story().storyId(), context.sceneId(),
@@ -159,7 +175,9 @@ public class CompanionChatPipelineService {
                 transcript, context.versions().promptVersion(), context.story().title(), context.primarySpeakerId(),
                 context.allowedSpeakerIds(), context.forbiddenKnowledge(), context.persona(), dialogue, inviteAnchor,
                 terms);
-        OpenRouterClient.CompanionReply reply = openRouterClient.generateCompanionReply(request, deadline);
+        OpenRouterClient.CompanionReply reply = onResponseText == null
+                ? openRouterClient.generateCompanionReply(request, deadline)
+                : openRouterClient.streamCompanionReply(request, deadline, onResponseText);
         long llmMs = (System.nanoTime() - startedAt) / 1_000_000;
 
         turnRepository.save(CompanionChatTurn.builder()
@@ -197,8 +215,9 @@ public class CompanionChatPipelineService {
             }
         }
         // 대화 한 턴이 어디서 오래 걸리는지 나눠 본다(Grafana: |= "companion-chat.timing").
-        log.info("companion-chat.timing llm_ms={} tts_ms={} deferred_audio={} help={}",
-                llmMs, deferAudio ? 0 : (System.nanoTime() - ttsStartedAt) / 1_000_000, deferAudio, dialogue.isHelp());
+        log.info("companion-chat.timing llm_ms={} tts_ms={} deferred_audio={} help={} streamed={}",
+                llmMs, deferAudio ? 0 : (System.nanoTime() - ttsStartedAt) / 1_000_000, deferAudio, dialogue.isHelp(),
+                onResponseText != null);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("ok", true);

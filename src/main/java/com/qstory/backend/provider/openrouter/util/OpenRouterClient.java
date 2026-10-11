@@ -370,7 +370,7 @@ public class OpenRouterClient {
             HttpRequest httpRequest = deadline.applyTo(HttpRequest.newBuilder(URI.create(BASE_URL + "/chat/completions"))
                             .headers(baseHeaders())
                             .POST(HttpRequest.BodyPublishers.ofByteArray(
-                                    buildCompanionChatBody(request).getBytes(StandardCharsets.UTF_8))))
+                                    buildCompanionChatBody(request, false).getBytes(StandardCharsets.UTF_8))))
                     .build();
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
@@ -386,12 +386,7 @@ public class OpenRouterClient {
             JsonNode parsed = contentNode.isTextual()
                     ? objectMapper.readTree(contentNode.asText())
                     : contentNode;
-            CompanionReply reply = validateCompanionReply(parsed, request);
-            if (reply == null) {
-                throw new ProviderException(
-                        ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.");
-            }
-            return reply;
+            return requireValidCompanionReply(parsed, request);
         } catch (ProviderException | AbortException known) {
             throw known;
         } catch (HttpTimeoutException timeout) {
@@ -400,6 +395,189 @@ public class OpenRouterClient {
             throw new ProviderException(
                     ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.", true, error);
         }
+    }
+
+    /**
+     * generateCompanionReply()와 같은 요청·같은 검증이지만 OpenRouter 스트리밍으로 받는다. 스키마 순서대로
+     * interactionMode 다음에 responseText가 오므로(2026-10 실측: 첫 토큰 약 2.6초, responseText 완성 약 3.0초,
+     * 전체 약 3.4초), responseText 문자열이 닫히는 순간 같은 정리(normalizeKoreanResponseText, 호칭 규칙)와
+     * 길이 검사를 거친 문장을 onResponseText로 먼저 넘긴다 - 말풍선과 음성 요청을 나머지 필드(태그·replyKind 등)를
+     * 기다리지 않고 시작하게 하려는 것이다. 반환값은 전체 JSON을 끝까지 받은 뒤의 검증 결과로 예전과 같다.
+     *
+     * <p>문장을 쪼개 TTS를 여러 번 부르지는 않는다 - responseText 전체가 첫 토큰 뒤 0.3~0.4초 안에 다 나와서
+     * 문장 단위로 나눠 얻는 시간이 거의 없고, 하루 요청 수 한도(Gemini TTS)만 두세 배로 빨리 닳는다.
+     */
+    public CompanionReply streamCompanionReply(
+            CompanionRequest request, RequestDeadline deadline, java.util.function.Consumer<String> onResponseText) {
+        long startedAt = System.nanoTime();
+        java.io.InputStream body = null;
+        try {
+            HttpRequest httpRequest = deadline.applyTo(HttpRequest.newBuilder(URI.create(BASE_URL + "/chat/completions"))
+                            .headers(baseHeaders())
+                            .POST(HttpRequest.BodyPublishers.ofByteArray(
+                                    buildCompanionChatBody(request, true).getBytes(StandardCharsets.UTF_8))))
+                    .build();
+            HttpResponse<java.io.InputStream> response =
+                    httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
+            body = response.body();
+            if (response.statusCode() / 100 != 2) {
+                byte[] failureBody = body.readNBytes(FAILURE_BODY_LOG_LIMIT * 4);
+                boolean detailPresent = readErrorDetail(failureBody) != null;
+                logProviderHttpFailure("streamCompanionReply", response.statusCode(), failureBody);
+                throw new ProviderException(
+                        ProviderErrorCode.OPENROUTER_RESPONSE_FAILED,
+                        detailPresent ? "아이의 말에 답을 준비하지 못했어요." : "AI 응답 서버에 연결하지 못했어요.",
+                        response.statusCode() == 400 || response.statusCode() >= 429);
+            }
+            // HttpClient의 timeout은 응답 헤더까지만 - 토큰이 멈춘 채 연결만 남으면 요청 시간 예산이 끝날 때 닫는다.
+            java.io.InputStream watched = body;
+            java.util.concurrent.CompletableFuture.delayedExecutor(
+                            Math.max(1, deadline.remaining().toMillis()), java.util.concurrent.TimeUnit.MILLISECONDS)
+                    .execute(() -> closeQuietly(watched));
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(body, StandardCharsets.UTF_8));
+            StringBuilder content = new StringBuilder();
+            boolean textSent = false;
+            long firstTokenMs = -1;
+            long responseTextMs = -1;
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith("data:")) {
+                    continue; // 빈 줄과 ": OPENROUTER PROCESSING" 같은 주석
+                }
+                String data = line.substring(5).trim();
+                if ("[DONE]".equals(data)) {
+                    break;
+                }
+                JsonNode event = objectMapper.readTree(data);
+                if (event.has("error")) {
+                    log.warn("openrouter-stream.failed context=streamCompanionReply error={}",
+                            truncate(event.path("error").toString()));
+                    throw new ProviderException(
+                            ProviderErrorCode.OPENROUTER_RESPONSE_FAILED, "아이의 말에 답을 준비하지 못했어요.", true);
+                }
+                JsonNode delta = event.path("choices").path(0).path("delta").path("content");
+                if (!delta.isTextual() || delta.asText().isEmpty()) {
+                    continue;
+                }
+                if (firstTokenMs < 0) {
+                    firstTokenMs = (System.nanoTime() - startedAt) / 1_000_000;
+                }
+                content.append(delta.asText());
+                if (!textSent) {
+                    String token = completedTopLevelStringToken(content, "responseText");
+                    if (token != null) {
+                        textSent = true;
+                        responseTextMs = (System.nanoTime() - startedAt) / 1_000_000;
+                        String early = earlyResponseText(objectMapper.readValue(token, String.class), request);
+                        if (early != null) {
+                            onResponseText.accept(early);
+                        }
+                    }
+                }
+            }
+            log.info("openrouter.companion-stream first_token_ms={} response_text_ms={} total_ms={}",
+                    firstTokenMs, responseTextMs, (System.nanoTime() - startedAt) / 1_000_000);
+            if (content.length() == 0) {
+                throw new ProviderException(
+                        ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.");
+            }
+            return requireValidCompanionReply(objectMapper.readTree(content.toString()), request);
+        } catch (ProviderException | AbortException known) {
+            throw known;
+        } catch (HttpTimeoutException timeout) {
+            throw new AbortException("request-timeout");
+        } catch (Exception error) {
+            throw new ProviderException(
+                    ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.", true, error);
+        } finally {
+            closeQuietly(body);
+        }
+    }
+
+    private CompanionReply requireValidCompanionReply(JsonNode parsed, CompanionRequest request) {
+        CompanionReply reply = validateCompanionReply(parsed, request);
+        if (reply == null) {
+            throw new ProviderException(
+                    ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.");
+        }
+        return reply;
+    }
+
+    /**
+     * 스트리밍 중 먼저 받은 responseText를 validateCompanionReply()가 할 정리·길이 검사 그대로 거친다 - 최종 답의
+     * responseText와 같은 문장이 된다. 길이가 맞지 않으면 null(먼저 보내지 않고 최종 검증에 맡긴다).
+     */
+    String earlyResponseText(String raw, CompanionRequest request) {
+        String text = raw == null ? "" : raw.trim();
+        if (text.isEmpty() || text.length() > 160) {
+            return null;
+        }
+        return request.terms().apply(routeResultValidator.normalizeKoreanResponseText(text));
+    }
+
+    /**
+     * 아직 다 오지 않은 JSON 앞부분에서, 최상위 객체의 key 값이 문자열이고 그 문자열이 닫혔으면 따옴표를 포함한
+     * 문자열 토큰을 돌려준다(아직이면 null). 중첩 객체·배열 안의 같은 이름은 보지 않는다.
+     */
+    static String completedTopLevelStringToken(CharSequence json, String key) {
+        int depth = 0;
+        boolean afterColon = false;
+        String lastKey = null;
+        int length = json.length();
+        int index = 0;
+        while (index < length) {
+            char c = json.charAt(index);
+            if (c == '"') {
+                int end = index + 1;
+                while (end < length && json.charAt(end) != '"') {
+                    end += json.charAt(end) == '\\' ? 2 : 1;
+                }
+                if (end >= length) {
+                    return null;
+                }
+                if (depth == 1) {
+                    String token = json.subSequence(index, end + 1).toString();
+                    if (afterColon) {
+                        if (key.equals(lastKey)) {
+                            return token;
+                        }
+                        afterColon = false;
+                    } else {
+                        lastKey = token.substring(1, token.length() - 1);
+                    }
+                }
+                index = end + 1;
+                continue;
+            }
+            if (c == '{' || c == '[') {
+                depth++;
+            } else if (c == '}' || c == ']') {
+                depth--;
+            } else if (depth == 1 && c == ':') {
+                afterColon = true;
+            } else if (depth == 1 && c == ',') {
+                afterColon = false;
+                lastKey = null;
+            }
+            index++;
+        }
+        return null;
+    }
+
+    private static void closeQuietly(java.io.InputStream stream) {
+        if (stream == null) {
+            return;
+        }
+        try {
+            stream.close();
+        } catch (Exception ignored) {
+            // 이미 닫혔거나 연결이 끊겼다.
+        }
+    }
+
+    private static String truncate(String value) {
+        return value.length() > FAILURE_BODY_LOG_LIMIT ? value.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)" : value;
     }
 
     CompanionReply validateCompanionReply(JsonNode value, CompanionRequest request) {
@@ -460,9 +638,12 @@ public class OpenRouterClient {
         return allowedLabels.contains(text) ? text : NOT_FOUND;
     }
 
-    private String buildCompanionChatBody(CompanionRequest request) {
+    private String buildCompanionChatBody(CompanionRequest request, boolean stream) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", llmModel);
+        if (stream) {
+            root.put("stream", true);
+        }
 
         ArrayNode messages = root.putArray("messages");
         ObjectNode systemMessage = messages.addObject();
