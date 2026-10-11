@@ -33,6 +33,11 @@ public class SessionRecordingService {
 
     public static final int MAX_DATA_CHARS = 1_000_000;
     public static final long MAX_SESSION_BYTES = 50L * 1024 * 1024;
+    /**
+     * 조각 하나를 풀었을 때의 상한(보안 점검 L1). 서버는 풀지 않지만 재생 화면(팀 내부 브라우저)이 푼다 - 작은 gzip이 수 GB로
+     * 풀리는 조각을 미리 거른다. gzip 꼬리의 원래 크기(ISIZE, 2^32로 나눈 나머지)만 보는 값싼 검사라 꾸며 낸 꼬리는 못 막는다.
+     */
+    static final long MAX_DECOMPRESSED_BYTES = 64L * 1024 * 1024;
     static final String GZIP_BASE64 = "gzip-base64";
     static final String JSON = "json";
     private static final Set<String> ENCODINGS = Set.of(GZIP_BASE64, JSON);
@@ -80,6 +85,9 @@ public class SessionRecordingService {
             } catch (IllegalArgumentException malformed) {
                 throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "data가 올바른 base64가 아니에요.");
             }
+            if (declaredGzipSize(bytes) > MAX_DECOMPRESSED_BYTES) {
+                throw ApiException.contractError(ErrorCode.PAYLOAD_TOO_LARGE, "녹화 조각이 너무 커요.", 413);
+            }
         } else {
             bytes = data.getBytes(StandardCharsets.UTF_8);
         }
@@ -114,10 +122,34 @@ public class SessionRecordingService {
                 "insert into session_recording_chunk (beta_session_id, seq, user_id, play_session_id, started_at, ended_at, "
                         + "event_count, encoding, data, byte_size, received_at) values (?,?,?,?,?,?,?,?,?,?,?) "
                         + "on conflict (beta_session_id, seq) do nothing",
-                chunk.betaSessionId(), chunk.seq(), userId, chunk.playSessionId(), Timestamp.from(chunk.startedAt()),
+                chunk.betaSessionId(), chunk.seq(), userId,
+                ownedPlaySession(chunk.playSessionId(), chunk.betaSessionId(), userId), Timestamp.from(chunk.startedAt()),
                 Timestamp.from(chunk.endedAt()), chunk.eventCount(), chunk.encoding(), chunk.data(), chunk.data().length,
                 Timestamp.from(Instant.now()));
         return inserted > 0;
+    }
+
+    /** gzip 꼬리에 적힌 원래 크기(ISIZE, little-endian 4바이트). gzip 머리(1f 8b)가 아니거나 너무 짧으면 -1. */
+    static long declaredGzipSize(byte[] bytes) {
+        if (bytes.length < 18 || (bytes[0] & 0xff) != 0x1f || (bytes[1] & 0xff) != 0x8b) return -1;
+        int n = bytes.length;
+        return (bytes[n - 4] & 0xffL) | (bytes[n - 3] & 0xffL) << 8 | (bytes[n - 2] & 0xffL) << 16 | (bytes[n - 1] & 0xffL) << 24;
+    }
+
+    /**
+     * 조각에 적힌 회차 id - 올린 사람의 회차일 때만 남긴다(보안 점검 L1). 같은 베타 세션의 회차이거나 로그인한 올린 사람의
+     * 회차여야 한다. 아니면(남의 회차 id, 아직 없는 회차) null - 녹화는 그대로 받고, 회차와는 play_session.beta_session_id로
+     * 이어진다(findSessions).
+     */
+    private UUID ownedPlaySession(UUID playSessionId, UUID betaSessionId, UUID userId) {
+        if (playSessionId == null) return null;
+        Integer count = userId == null
+                ? jdbc.queryForObject("select count(*) from play_session where id = ? and beta_session_id = ?",
+                        Integer.class, playSessionId, betaSessionId)
+                : jdbc.queryForObject(
+                        "select count(*) from play_session where id = ? and (beta_session_id = ? or user_id = ?)",
+                        Integer.class, playSessionId, betaSessionId, userId);
+        return count != null && count > 0 ? playSessionId : null;
     }
 
     static boolean exceedsSessionCap(long storedBytes, long incomingBytes) {

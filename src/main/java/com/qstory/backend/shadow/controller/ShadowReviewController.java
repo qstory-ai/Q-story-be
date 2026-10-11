@@ -43,13 +43,15 @@ public class ShadowReviewController {
 
     @Operation(
             summary = "List candidates ready for review",
-            description = "Candidates advance to READY_FOR_REVIEW automatically once distinctSessionCount "
-                    + "crosses the promotion threshold (see ShadowIntentCollectionService) - this endpoint never "
+            description = "Candidates advance to READY_FOR_REVIEW automatically once enough distinct signed-in accounts "
+                    + "asked it (see ShadowIntentCollectionService; anonymous sessions do not count) - this endpoint never "
                     + "returns candidates still COLLECTING, or already APPROVED/REJECTED. Sorted by "
-                    + "occurrenceCount desc, then lastSeenAt desc.")
+                    + "occurrenceCount desc, then lastSeenAt desc. STAFF only (as are approve/reject) - candidates "
+                    + "are built from children's question intents.")
     @ApiResponse(responseCode = "200", description = "Candidates, possibly empty, most-frequent first")
     @GetMapping("/ready-for-review")
     public List<ShadowIntentCandidate> readyForReview() {
+        currentUserResolver.requireRole(Role.STAFF);
         return service.readyForReview();
     }
 
@@ -68,6 +70,7 @@ public class ShadowReviewController {
             @Parameter(description = "shadow_intent_candidates.id") @PathVariable UUID candidateId,
             @Parameter(description = "Optional reviewer note, max 1000 chars")
             @org.springframework.web.bind.annotation.RequestBody(required = false) ReviewDecision decision) {
+        currentUserResolver.requireRole(Role.STAFF);
         return service.approve(candidateId, decision == null ? null : decision.reviewNote());
     }
 
@@ -81,6 +84,7 @@ public class ShadowReviewController {
             @Parameter(description = "shadow_intent_candidates.id") @PathVariable UUID candidateId,
             @Parameter(description = "Optional reviewer note, max 1000 chars")
             @org.springframework.web.bind.annotation.RequestBody(required = false) ReviewDecision decision) {
+        currentUserResolver.requireRole(Role.STAFF);
         return service.reject(candidateId, decision == null ? null : decision.reviewNote());
     }
 

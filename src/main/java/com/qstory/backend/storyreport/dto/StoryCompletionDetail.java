@@ -42,8 +42,13 @@ public record StoryCompletionDetail(
         TeacherNote teacherNote,
         Map<String, Object> analysis,
         List<LinkedChild> linkedChildren,
-        /** 회차 id(= 대화 기록 id). 리포트 맨 아래 UT 회차 코드(앞 6자)를 보여 주는 데 쓴다(Q-40). */
-        UUID sessionId) {
+        /**
+         * 회차 id(= 대화 기록 id). 기록을 남긴 본인에게만 준다 - 부모·원장에게는 null(보안 점검 H1: 회차 id 전체를 알면 그
+         * 회차에 기록을 덧붙이려 들 수 있다). 화면의 회차 코드는 sessionCode를 쓴다.
+         */
+        UUID sessionId,
+        /** 리포트 맨 아래 UT 회차 코드(회차 id 앞 6자, 대문자) - 보는 사람 모두에게 준다(Q-40). 회차가 없으면 null. */
+        String sessionCode) {
 
     public record TeacherNote(String internal, String forParents) {}
 
@@ -51,12 +56,14 @@ public record StoryCompletionDetail(
 
     /** 목록·최근 기록용 - 대화·분석·메모 없이 기본 정보만. */
     public static StoryCompletionDetail of(StoryCompletion completion) {
-        return of(completion, null, false, null, null, List.of());
+        return of(completion, null, false, null, null, List.of(), true);
     }
 
+    /** includeSessionId - 회차 id 전체를 실을지(기록을 남긴 본인만). 회차 코드는 늘 싣는다. */
     public static StoryCompletionDetail of(
             StoryCompletion completion, List<Map<String, Object>> turns, boolean turnsAvailable,
-            TeacherNote teacherNote, Map<String, Object> analysis, List<LinkedChild> linkedChildren) {
+            TeacherNote teacherNote, Map<String, Object> analysis, List<LinkedChild> linkedChildren,
+            boolean includeSessionId) {
         String kind = completion.sessionKind();
         return new StoryCompletionDetail(
                 completion.getId(),
@@ -82,6 +89,12 @@ public record StoryCompletionDetail(
                 teacherNote,
                 analysis,
                 linkedChildren,
-                completion.getSessionId());
+                includeSessionId ? completion.getSessionId() : null,
+                sessionCode(completion.getSessionId()));
+    }
+
+    /** fe entities/play-session sessionShortCode와 같은 규칙 - 하이픈을 뺀 앞 6자, 대문자. */
+    static String sessionCode(UUID sessionId) {
+        return sessionId == null ? null : sessionId.toString().replace("-", "").substring(0, 6).toUpperCase();
     }
 }

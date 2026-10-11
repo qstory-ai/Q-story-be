@@ -70,11 +70,15 @@ class AccountErasureServiceTest {
     private final RecordingConsentService recordingConsent = mock(RecordingConsentService.class);
     private final InteractionService interactions = mock(InteractionService.class);
     private final PushDeviceTokenRepository pushTokens = mock(PushDeviceTokenRepository.class);
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
+    private final com.qstory.backend.identity.security.TokenVersionCheck tokenVersions =
+            mock(com.qstory.backend.identity.security.TokenVersionCheck.class);
 
     private final AccountErasureService service = new AccountErasureService(
             users, resetTokens, bookmarks, notifications, notificationSettings, improvementFeedback,
             conversationRecords, completions, children, students, lessons, classGroups, homeroomHistory,
-            orgTutors, orgTutorService, storage, deletionRetry, config, recordingConsent, interactions, pushTokens);
+            orgTutors, orgTutorService, storage, deletionRetry, config, recordingConsent, interactions, pushTokens,
+            jdbc, tokenVersions);
 
     private AppUser user(Role role) {
         return AppUser.builder()
@@ -101,6 +105,43 @@ class AccountErasureServiceTest {
         // 073: 화면 녹화·녹화 동의·상호작용은 user_id만 비우지 않고 지운다.
         verify(recordingConsent).eraseForAccount(userId);
         verify(interactions).deleteAllByUserId(userId);
+        // 보안 점검 M3: 회차·대화 줄과 통계 세션의 계정 연결도 남기지 않는다.
+        verify(jdbc).update(AccountErasureService.DELETE_UNREFERENCED_PLAY_SESSIONS, userId);
+        verify(jdbc).update(AccountErasureService.DETACH_STORY_SESSIONS, userId);
+        // 보안 점검 M4: 발급한 토큰을 무효로 한다.
+        verify(tokenVersions).evict(userId);
+    }
+
+    @Test
+    void erasureBumpsTokenVersionAndDropsVoiceResearchPreferenceOfNonParents() {
+        AppUser tutor = user(Role.TUTOR);
+        when(orgTutors.findByTutor_IdOrderByJoinedAtAsc(tutor.getId())).thenReturn(List.of());
+
+        service.erase(tutor);
+
+        assertEquals(1, tutor.getTokenVersion());
+        verify(jdbc).update(AccountErasureService.DELETE_VOICE_RESEARCH_PREFERENCE, tutor.getId());
+    }
+
+    @Test
+    void parentVoiceResearchPreferenceStaysAsWithdrawalRecord() {
+        AppUser parent = user(Role.PARENT);
+
+        service.erase(parent);
+
+        verify(jdbc, never()).update(AccountErasureService.DELETE_VOICE_RESEARCH_PREFERENCE, parent.getId());
+    }
+
+    /** 회차는 기록을 지운 뒤에 지운다 - 지운 가정 기록이 가리키던 회차도 "남은 기록이 없는 회차"로 함께 지워지게. */
+    @Test
+    void playSessionsAreDeletedAfterCompletions() {
+        AppUser parent = user(Role.PARENT);
+
+        service.erase(parent);
+
+        var order = org.mockito.Mockito.inOrder(completions, jdbc);
+        order.verify(completions).deleteHomeSessionsOf(parent.getId());
+        order.verify(jdbc).update(AccountErasureService.DELETE_UNREFERENCED_PLAY_SESSIONS, parent.getId());
     }
 
     @Test

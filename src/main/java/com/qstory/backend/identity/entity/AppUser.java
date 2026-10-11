@@ -112,6 +112,14 @@ public class AppUser {
      */
     private Instant deletedAt;
 
+    /**
+     * 토큰 버전(078) - 발급한 토큰의 tv claim에 들어간다. 비밀번호 변경·재설정·탈퇴 때 올려 그 전에 발급한 토큰을 모두
+     * 무효로 만든다(JwtAuthFilter, TokenVersionCheck).
+     */
+    @Column(name = "token_version", nullable = false)
+    @Builder.Default
+    private int tokenVersion = 0;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 }

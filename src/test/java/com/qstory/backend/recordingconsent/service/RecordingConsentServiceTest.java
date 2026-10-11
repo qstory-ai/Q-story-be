@@ -58,17 +58,87 @@ class RecordingConsentServiceTest {
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.statusCode()).isEqualTo(400));
     }
 
+    // --- 보안 점검 M5·L3: 누가 베타 세션 결정을 남길 수 있는가 ---
+
+    private RecordingConsentService.Decision decision(Source source, boolean granted) {
+        return new RecordingConsentService.Decision(beta, granted, source);
+    }
+
+    private void linkedAccounts(UUID... accounts) {
+        when(jdbc.queryForList(contains("from play_session s where s.beta_session_id = ?"), eq(UUID.class), eq(beta), eq(beta)))
+                .thenReturn(List.of(accounts));
+    }
+
+    private void assertStatus(int status, Runnable call) {
+        assertThatThrownBy(call::run)
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.statusCode()).isEqualTo(status));
+    }
+
+    @Test
+    void lessonConsentNeedsSignedInTeacher() {
+        linkedAccounts();
+        assertStatus(401, () -> service.authorizeSessionDecision(decision(Source.LESSON, true), null, null, null));
+        assertStatus(403, () -> service.authorizeSessionDecision(
+                decision(Source.LESSON, true), user, com.qstory.backend.identity.Role.PARENT, null));
+        assertThat(service.authorizeSessionDecision(
+                decision(Source.LESSON, true), user, com.qstory.backend.identity.Role.TUTOR, null)).isEqualTo(user);
+        assertThat(service.authorizeSessionDecision(
+                decision(Source.LESSON, true), user, com.qstory.backend.identity.Role.DIRECTOR, null)).isEqualTo(user);
+    }
+
+    @Test
+    void lessonConsentLessonMustBeTheTeachers() {
+        linkedAccounts();
+        UUID lesson = UUID.randomUUID();
+        when(jdbc.queryForObject(startsWith("select count(*) from lesson"), eq(Integer.class), eq(lesson), eq(user)))
+                .thenReturn(0);
+        assertStatus(404, () -> service.authorizeSessionDecision(
+                decision(Source.LESSON, true), user, com.qstory.backend.identity.Role.TUTOR, lesson));
+
+        when(jdbc.queryForObject(startsWith("select count(*) from lesson"), eq(Integer.class), eq(lesson), eq(user)))
+                .thenReturn(1);
+        assertThat(service.authorizeSessionDecision(
+                decision(Source.LESSON, true), user, com.qstory.backend.identity.Role.TUTOR, lesson)).isEqualTo(user);
+    }
+
+    @Test
+    void anonymousCannotChangeBetaSessionLinkedToAnAccount() {
+        linkedAccounts(user);
+        assertStatus(403, () -> service.authorizeSessionDecision(decision(Source.PROMPT, false), null, null, null));
+        assertStatus(403, () -> service.authorizeSessionDecision(
+                decision(Source.PROMPT, false), UUID.randomUUID(), com.qstory.backend.identity.Role.PARENT, null));
+        assertThat(service.authorizeSessionDecision(
+                decision(Source.PROMPT, false), user, com.qstory.backend.identity.Role.PARENT, null)).isEqualTo(user);
+    }
+
+    @Test
+    void anonymousBetaSessionStaysAnonymous() {
+        linkedAccounts();
+        assertThat(service.authorizeSessionDecision(decision(Source.PROMPT, false), null, null, null)).isNull();
+        assertThat(service.authorizeSessionDecision(decision(Source.UT_LINK, true), null, null, null)).isNull();
+    }
+
+    @Test
+    void lessonDecisionRecordsDeciderAndLesson() {
+        UUID lesson = UUID.randomUUID();
+        service.decideForBetaSession(beta, true, Source.LESSON, user, lesson);
+        verify(jdbc).update(contains("decided_by = excluded.decided_by"), eq(beta), eq(true), eq("LESSON"), any(),
+                eq(user), eq(lesson));
+    }
+
     @Test
     void sessionGrantUpsertsWithoutDeleting() {
         service.decideForBetaSession(beta, true, Source.PROMPT);
-        verify(jdbc).update(contains("on conflict (beta_session_id) where user_id is null"), eq(beta), eq(true), eq("PROMPT"), any());
+        verify(jdbc).update(contains("on conflict (beta_session_id) where user_id is null"), eq(beta), eq(true), eq("PROMPT"), any(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull());
         assertNoChunkDelete();
     }
 
     @Test
     void sessionWithdrawalDeletesItsChunks() {
         service.decideForBetaSession(beta, false, Source.PROMPT);
-        verify(jdbc).update(contains("on conflict (beta_session_id) where user_id is null"), eq(beta), eq(false), eq("PROMPT"), any());
+        verify(jdbc).update(contains("on conflict (beta_session_id) where user_id is null"), eq(beta), eq(false), eq("PROMPT"), any(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull());
         verify(jdbc).update("delete from session_recording_chunk where beta_session_id = ?", beta);
     }
 

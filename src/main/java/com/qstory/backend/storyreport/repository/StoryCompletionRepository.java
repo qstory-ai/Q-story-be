@@ -51,12 +51,22 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
     List<StoryCompletion> findByParticipant(@Param("studentId") UUID studentId);
 
     /**
-     * 부모가 받는 "수업 리포트"의 (기록 id, 우리 아이 이름) - 참여 학생의 지금 연결된 부모이거나, 연결을 풀 때
-     * 남겨 둔 부모(060 parent_user_id)면 보인다. 가정 완주 기록(참여 학생 없음)은 절대 섞이지 않는다.
+     * 지금 연결된 부모가 참여 학생 경로로 이 기록을 볼 수 있는가(보안 점검 H3) - 개별 수업 기록은 연결한 날(linked_at) 이후 것만.
+     * 반 명단에서 남의 아이를 골라 잇기만 하면 그 아이의 지난 개별 수업 리포트를 모두 읽던 문제를 막는다(연결을 풀 때 남기는
+     * keepParentAccess와 같은 기준). 반 수업 기록(group_session)은 Q-39대로 연결 전 것도 보인다 - 아이 말 원문은 빼고 보인다.
+     * linked_at이 없는 예전 연결(058 백필 전)은 기간을 알 수 없어 그대로 둔다.
+     */
+    String LINKED_PARENT_SEES_RECORD = "(s.linked_parent_user_id = :parentId and (c.group_session = true "
+            + "or s.linked_at is null or c.completed_at >= s.linked_at))";
+
+    /**
+     * 부모가 받는 "수업 리포트"의 (기록 id, 우리 아이 이름) - 참여 학생의 지금 연결된 부모이거나(개별 수업은 연결한 뒤 것만),
+     * 연결을 풀 때 남겨 둔 부모(060 parent_user_id)면 보인다. 가정 완주 기록(참여 학생 없음)은 절대 섞이지 않는다.
      */
     @Query(value = "select cast(p.completion_id as varchar), s.name from story_completion_participant p "
             + "join tutor_student s on s.id = p.tutor_student_id "
-            + "where s.linked_parent_user_id = :parentId or p.parent_user_id = :parentId", nativeQuery = true)
+            + "join story_completion c on c.id = p.completion_id "
+            + "where " + LINKED_PARENT_SEES_RECORD + " or p.parent_user_id = :parentId", nativeQuery = true)
     List<Object[]> findVisibleParticipantNames(@Param("parentId") UUID parentId);
 
     /**
@@ -99,11 +109,15 @@ public interface StoryCompletionRepository extends JpaRepository<StoryCompletion
     @EntityGraph(attributePaths = {"user", "classGroup", "classGroup.organization"})
     List<StoryCompletion> findByIdInOrderByCompletedAtDesc(java.util.Collection<UUID> ids);
 
-    /** 상세 열람 권한 - 호출자가 이 세션 참여 학생의 연결된(또는 연결을 풀기 전 연결됐던) 부모인가. */
+    /**
+     * 상세 열람 권한 - 호출자가 이 세션 참여 학생의 연결된(개별 수업은 연결한 뒤 기록만, LINKED_PARENT_SEES_RECORD) 또는
+     * 연결을 풀기 전 연결됐던 부모인가.
+     */
     @Query(value = "select exists (select 1 from story_completion_participant p "
             + "join tutor_student s on s.id = p.tutor_student_id "
+            + "join story_completion c on c.id = p.completion_id "
             + "where p.completion_id = :completionId "
-            + "and (s.linked_parent_user_id = :parentId or p.parent_user_id = :parentId))", nativeQuery = true)
+            + "and (" + LINKED_PARENT_SEES_RECORD + " or p.parent_user_id = :parentId))", nativeQuery = true)
     boolean isVisibleToLinkedParent(@Param("completionId") UUID completionId, @Param("parentId") UUID parentId);
 
     /**

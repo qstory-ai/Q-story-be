@@ -104,11 +104,14 @@ public class StoryCompletionService {
                 ? null
                 : lessonRepository.findByIdAndTutor_Id(request.lessonId(), caller.userId())
                         .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "수업을 찾을 수 없어요.", 404));
+        // 기록에 이을 회차 - 남의 회차 id면 잇지 않는다(보안 점검 H1). 기록 자체는 그대로 남긴다.
+        UUID sessionId = playSessionService.linkForCompletion(
+                request.companionConversationId(), caller.userId(), request.betaSessionId());
         // 멱등 저장(053) - 같은 세션(conversationId)의 기록이 이미 있으면 새로 만들지 않고 그것을 돌려준다.
         // 클라이언트 재시도로 기록과 부모 알림이 중복되지 않게 한다.
-        if (request.companionConversationId() != null) {
+        if (sessionId != null) {
             List<StoryCompletion> existing = repository.findBySessionIdAndUser_IdOrderByCreatedAtAsc(
-                    request.companionConversationId(), caller.userId());
+                    sessionId, caller.userId());
             if (!existing.isEmpty()) {
                 // 같은 회차를 다시 저장 - 중간에 나갔다가 이어 읽어 끝냈거나 클라이언트가 재시도한 경우. 새로 만들지 않고
                 // 최신 값으로 갱신한다(종료 상태는 EXITED → COMPLETED로만). 알림은 처음 저장 때만 갔다.
@@ -120,7 +123,7 @@ public class StoryCompletionService {
                 if (request.durationSeconds() != null) {
                     completion.setDurationSeconds(request.durationSeconds());
                 }
-                Map<String, Object> summary = summarizeCompanionChat(request.companionConversationId());
+                Map<String, Object> summary = summarizeCompanionChat(sessionId);
                 if (summary != null) {
                     completion.setCompanionChatSummary(summary);
                 }
@@ -130,7 +133,7 @@ public class StoryCompletionService {
                 return StoryCompletionSummary.of(saved);
             }
         }
-        Map<String, Object> companionChatSummary = summarizeCompanionChat(request.companionConversationId());
+        Map<String, Object> companionChatSummary = summarizeCompanionChat(sessionId);
         Instant now = Instant.now();
         List<TutorStudent> participants = new ArrayList<>();
         if (lesson != null && !lesson.getStudents().isEmpty()) {
@@ -159,15 +162,15 @@ public class StoryCompletionService {
         }
         if (participants.isEmpty() && (lesson == null || lesson.getClassGroup() == null)) {
             // 가정 세션 - 기록 하나.
-            return StoryCompletionSummary.of(
-                    saveCompletion(user, lesson, null, child, List.of(), false, request, companionChatSummary, now, endStatus));
+            return StoryCompletionSummary.of(saveCompletion(
+                    user, lesson, null, child, List.of(), false, request, sessionId, companionChatSummary, now, endStatus));
         }
         // 반 수업(반을 고른 수업이거나 학생이 여럿)은 한 화면으로 함께 읽은 세션 하나 - 누가 말했는지 모르는
         // 단체 발화를 아이마다 복제하지 않고 한 건으로 남긴다. 개별 수업은 그 학생·아이의 기록이다.
         boolean groupSession = participants.size() > 1 || (lesson != null && lesson.getClassGroup() != null);
         if (groupSession) {
             StoryCompletion completion = saveCompletion(
-                    user, lesson, null, null, participants, true, request, companionChatSummary, now, endStatus);
+                    user, lesson, null, null, participants, true, request, sessionId, companionChatSummary, now, endStatus);
             notifyParentsOfClassSession(participants, completion);
             notifyDirectorOfClassSession(user, completion);
             return StoryCompletionSummary.of(completion);
@@ -177,16 +180,16 @@ public class StoryCompletionService {
         // 붙어 있으면 그 아이의 기록으로 남긴다.
         Child participantChild = participant.getChild() != null ? participant.getChild() : child;
         StoryCompletion completion = saveCompletion(
-                user, lesson, participant, participantChild, participants, false, request, companionChatSummary, now,
-                endStatus);
+                user, lesson, participant, participantChild, participants, false, request, sessionId, companionChatSummary,
+                now, endStatus);
         notifyLinkedParent(participant, completion);
         return StoryCompletionSummary.of(completion);
     }
 
     private StoryCompletion saveCompletion(
             AppUser user, Lesson lesson, TutorStudent tutorStudent, Child child, List<TutorStudent> participants,
-            boolean groupSession, RecordStoryCompletionRequest request, Map<String, Object> companionChatSummary,
-            Instant now, String endStatus) {
+            boolean groupSession, RecordStoryCompletionRequest request, UUID sessionId,
+            Map<String, Object> companionChatSummary, Instant now, String endStatus) {
         // 기관·반 스냅샷: 수업의 반 → 학생의 반 순으로 정한다. 부모의 가정 세션에는 반이 없다.
         ClassGroup classGroup = lesson != null && lesson.getClassGroup() != null
                 ? lesson.getClassGroup()
@@ -199,7 +202,7 @@ public class StoryCompletionService {
                 .organization(organization)
                 .classGroup(classGroup)
                 .className(classGroup == null ? null : classGroup.getName())
-                .sessionId(request.companionConversationId())
+                .sessionId(sessionId)
                 .tutorStudent(tutorStudent)
                 .child(child)
                 .participants(new LinkedHashSet<>(participants))
@@ -333,8 +336,10 @@ public class StoryCompletionService {
             throw ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404);
         }
         boolean staffView = isDirector || (isSessionOwner && !"HOME".equals(completion.sessionKind()));
-        List<Map<String, Object>> turns = playSessionService.listTurns(completion.getSessionId());
-        boolean turnsAvailable = playSessionService.sessionExists(completion.getSessionId());
+        // 대화는 기록을 남긴 계정의 회차일 때만 붙인다(보안 점검 H1) - 기록에 남의 회차 id가 적혀 있어도 읽히지 않는다.
+        UUID recordOwnerId = completion.getUser().getId();
+        List<Map<String, Object>> turns = playSessionService.listTurns(completion.getSessionId(), recordOwnerId);
+        boolean turnsAvailable = playSessionService.isOwnedBy(completion.getSessionId(), recordOwnerId);
         if ("CLASS".equals(completion.sessionKind()) && !staffView) {
             // 반 수업 대화는 어느 아이 말인지 모르고, 다른 아이 말 원문은 부모에게 공개하지 않는다.
             turns = turns.stream().map(StoryCompletionService::withoutChildText).toList();
@@ -344,8 +349,10 @@ public class StoryCompletionService {
                 : new StoryCompletionDetail.TeacherNote(
                         staffView ? completion.getTeacherNoteInternal() : null, completion.getTeacherNoteForParents());
         List<StoryCompletionDetail.LinkedChild> linkedChildren = linkedChildren(caller, completion);
+        // 회차 id 전체는 기록을 남긴 본인에게만 - 부모·원장에게는 화면에 보일 6자 회차 코드만 준다.
         return StoryCompletionDetail.of(
-                completion, turns, turnsAvailable, note, reportAnalysisStore.find(completion.getId()), linkedChildren);
+                completion, turns, turnsAvailable, note, reportAnalysisStore.find(completion.getId()), linkedChildren,
+                isSessionOwner);
     }
 
     /** 부모 열람 - 참여 학생에 연결됐거나(기존), 그 반에 연결된 부모(Q-39, 연결 전 반 수업 포함). */

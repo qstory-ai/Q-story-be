@@ -185,12 +185,18 @@ public class PlaySessionService {
                 shortText(turn.path("errorCode"), 60));
     }
 
-    /** 리포트용 - 회차의 대화 전부를 seq 순으로. 프런트 계약(API-CONTRACT)의 turn 모양 그대로, 빈 값은 뺀다. */
+    /**
+     * 리포트용 - 회차의 대화 전부를 seq 순으로. 프런트 계약(API-CONTRACT)의 turn 모양 그대로, 빈 값은 뺀다.
+     *
+     * <p>회차 주인이 ownerUserId일 때만 돌려준다(보안 점검 H1) - 기록에 적힌 회차 id가 남의 회차를 가리켜도(기록을 남긴 사람이
+     * 회차 id만 알아낸 경우) 그 대화를 읽지 못한다. 리포트는 기록을 남긴 계정(story_completion.user_id)을 넘긴다.
+     */
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listTurns(UUID sessionId) {
-        if (sessionId == null) return List.of();
+    public List<Map<String, Object>> listTurns(UUID sessionId, UUID ownerUserId) {
+        if (sessionId == null || ownerUserId == null) return List.of();
         return jdbc.query(
-                "select * from play_turn where session_id = ? order by seq",
+                "select t.* from play_turn t join play_session s on s.id = t.session_id "
+                        + "where t.session_id = ? and s.user_id = ? order by t.seq",
                 (rs, rowNum) -> {
                     Map<String, Object> turn = new LinkedHashMap<>();
                     turn.put("seq", rs.getInt("seq"));
@@ -219,15 +225,44 @@ public class PlaySessionService {
                     put(turn, "errorCode", rs.getString("error_code"));
                     return turn;
                 },
-                sessionId);
+                sessionId, ownerUserId);
     }
 
-    /** 이 회차에 저장된 대화가 한 번이라도 있었는지(지워졌는지 구분용) - 회차 행은 남고 줄만 지워진다. */
+    /**
+     * 이 회차가 있고 주인이 ownerUserId인지 - 리포트의 turnsAvailable. 보관 기간이 지나 지워졌거나(회차 행째 지운다) 남의 회차면
+     * false라 리포트는 요약으로만 보인다.
+     */
     @Transactional(readOnly = true)
-    public boolean sessionExists(UUID sessionId) {
-        if (sessionId == null) return false;
-        Integer count = jdbc.queryForObject("select count(*) from play_session where id = ?", Integer.class, sessionId);
-        return count != null && count > 0;
+    public boolean isOwnedBy(UUID sessionId, UUID ownerUserId) {
+        if (sessionId == null || ownerUserId == null) return false;
+        return exists("select count(*) from play_session where id = ? and user_id = ?", sessionId, ownerUserId);
+    }
+
+    /**
+     * 완주 기록에 이을 회차 id(보안 점검 H1). 남의 회차면 null - 기록은 그대로 남기고 회차만 잇지 않는다.
+     * <ul>
+     *   <li>회차가 아직 없으면(대화 줄이 기록보다 늦게 오는 경우) 그대로 잇는다 - 나중에 처음 보낸 사람이 주인이 되고, 읽을 때
+     *   (listTurns·isOwnedBy) 기록 주인과 같은지 다시 본다.</li>
+     *   <li>호출자 회차면 잇는다.</li>
+     *   <li>아직 계정에 붙지 않은 익명 회차(데모로 읽고 로그인한 뒤 저장)는 같은 베타 세션이면 이 계정으로 가져온다(appendTurns의
+     *   CLAIM과 같은 규칙). 베타 세션을 모르면 잇기만 하고 가져오지 않는다 - 주인이 정해지기 전에는 대화가 보이지 않는다.</li>
+     * </ul>
+     */
+    @Transactional
+    public UUID linkForCompletion(UUID sessionId, UUID callerUserId, UUID callerBetaSessionId) {
+        if (sessionId == null || callerUserId == null) return null;
+        List<Owner> owners = owners(sessionId);
+        if (owners.isEmpty()) return sessionId;
+        Owner owner = owners.get(0);
+        Access access = access(owner.userId(), owner.betaSessionId(), callerUserId, callerBetaSessionId);
+        if (access == Access.OWNER) return sessionId;
+        if (access == Access.CLAIM) {
+            int claimed = jdbc.update(
+                    "update play_session set user_id = ? where id = ? and user_id is null and beta_session_id = ?",
+                    callerUserId, sessionId, callerBetaSessionId);
+            return claimed > 0 ? sessionId : null;
+        }
+        return owner.userId() == null ? sessionId : null;
     }
 
     /**

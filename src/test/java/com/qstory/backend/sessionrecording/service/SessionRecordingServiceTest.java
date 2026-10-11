@@ -116,6 +116,45 @@ class SessionRecordingServiceTest {
         assertThat(service.store(SessionRecordingService.parse(body("json", "[]"), now), UUID.randomUUID())).isTrue();
     }
 
+    /** 보안 점검 L1: 꼬리에 적힌 원래 크기가 상한을 넘는 gzip 조각은 받지 않는다. 진짜 gzip은 그대로 받는다. */
+    @Test
+    void gzipChunkDeclaringHugeSizeIs413() throws Exception {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.GZIPOutputStream gzip = new java.util.zip.GZIPOutputStream(out)) {
+            gzip.write("[{\"type\":2}]".getBytes(StandardCharsets.UTF_8));
+        }
+        byte[] real = out.toByteArray();
+        assertThat(SessionRecordingService.declaredGzipSize(real)).isEqualTo(12);
+        assertThat(SessionRecordingService.parse(body("gzip-base64", Base64.getEncoder().encodeToString(real)), now).data())
+                .isEqualTo(real);
+
+        byte[] bomb = real.clone();
+        bomb[bomb.length - 1] = (byte) 0x7f; // ISIZE ≈ 2GB
+        assertThatThrownBy(() -> SessionRecordingService.parse(
+                body("gzip-base64", Base64.getEncoder().encodeToString(bomb)), now))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.statusCode()).isEqualTo(413));
+    }
+
+    /** 보안 점검 L1: 조각의 회차 id는 올린 사람(같은 베타 세션·같은 계정)의 회차일 때만 남긴다. */
+    @Test
+    void chunkIsBoundOnlyToTheUploadersPlaySession() {
+        UUID foreign = UUID.randomUUID();
+        when(jdbc.queryForObject(startsWith("select count(*) from session_recording_chunk"), eq(Integer.class),
+                any(Object[].class))).thenReturn(0);
+        when(jdbc.queryForObject(startsWith("select coalesce(sum(byte_size)"), eq(Long.class), any(Object[].class))).thenReturn(0L);
+        when(jdbc.queryForObject(startsWith("select count(*) from play_session"), eq(Integer.class), any(Object[].class)))
+                .thenReturn(0);
+        when(jdbc.update(startsWith("insert into session_recording_chunk"), any(Object[].class))).thenReturn(1);
+        ObjectNode body = body("json", "[]");
+        body.put("playSessionId", foreign.toString());
+
+        service.store(SessionRecordingService.parse(body, now), null);
+
+        org.mockito.ArgumentCaptor<Object[]> args = org.mockito.ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).update(startsWith("insert into session_recording_chunk"), args.capture());
+        assertThat(args.getValue()[3]).as("play_session_id").isNull();
+    }
+
     @Test
     void findRejectsMalformedCode() {
         assertThatThrownBy(() -> service.findSessions("ZZZ"))

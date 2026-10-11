@@ -44,7 +44,8 @@ class AuthServiceRememberMeTest {
     private final JwtService jwt = jwtService();
     private final AuthService service = new AuthService(
             users, null, null, mock(AuthValidator.class), passwords, jwt,
-            google, null, null, null, null, mock(UserSummaryFactory.class), null, null, mock(ConsentService.class));
+            google, null, null, null, null, mock(UserSummaryFactory.class), null, null, mock(ConsentService.class),
+            mock(com.qstory.backend.identity.security.TokenVersionCheck.class));
 
     private static JwtService jwtService() {
         AppProperties config = mock(AppProperties.class);
@@ -54,7 +55,7 @@ class AuthServiceRememberMeTest {
 
     private AppUser passwordUser() {
         AppUser user = AppUser.builder().id(UUID.randomUUID()).role(Role.TUTOR).loginId("teacher").passwordHash("hash").build();
-        when(users.findByLoginId("teacher")).thenReturn(Optional.of(user));
+        when(users.findByLoginIdAndDeletedAtIsNull("teacher")).thenReturn(Optional.of(user));
         when(passwords.matches("pw", "hash")).thenReturn(true);
         return user;
     }
@@ -81,7 +82,7 @@ class AuthServiceRememberMeTest {
     void existingOAuthAccountRespectsRememberMeFlag() {
         when(google.verify("tok")).thenReturn(new GoogleOAuthVerifier.GoogleIdentity("sub", "a@b.co", "이름"));
         AppUser user = AppUser.builder().id(UUID.randomUUID()).role(Role.PARENT).loginId("a@b.co").build();
-        when(users.findByOauthProviderAndOauthSubject(OAuthProvider.GOOGLE, "sub")).thenReturn(Optional.of(user));
+        when(users.findByOauthProviderAndOauthSubjectAndDeletedAtIsNull(OAuthProvider.GOOGLE, "sub")).thenReturn(Optional.of(user));
 
         assertFalse(rememberMeOf(service.loginOrSignupWithOAuth(
                 OAuthProvider.GOOGLE, new OAuthLoginRequest("tok", null, null, false))));

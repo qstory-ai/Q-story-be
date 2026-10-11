@@ -13,7 +13,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
 
-    Optional<AppUser> findByLoginId(String loginId);
+    /** 로그인·비밀번호 재설정 요청 - 탈퇴한 계정은 없는 계정과 같다. */
+    Optional<AppUser> findByLoginIdAndDeletedAtIsNull(String loginId);
 
     boolean existsByLoginId(String loginId);
 
@@ -25,7 +26,9 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     @org.springframework.data.jpa.repository.Query("select u from AppUser u where u.id = :id and u.deletedAt is null")
     Optional<AppUser> lockActiveById(@org.springframework.data.repository.query.Param("id") UUID id);
 
-    Optional<AppUser> findByOauthProviderAndOauthSubject(OAuthProvider oauthProvider, String oauthSubject);
+    /** 소셜 로그인 - 탈퇴한 계정은 없는 계정과 같다. */
+    Optional<AppUser> findByOauthProviderAndOauthSubjectAndDeletedAtIsNull(
+            OAuthProvider oauthProvider, String oauthSubject);
 
     /**
      * 실제 삭제·익명화(AccountErasureService)가 생기기 전에 탈퇴한 계정 - 탈퇴했지만 이메일이 아직 익명화 주소가
