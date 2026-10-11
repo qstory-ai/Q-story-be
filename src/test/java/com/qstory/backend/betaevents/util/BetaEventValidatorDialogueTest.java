@@ -35,6 +35,15 @@ class BetaEventValidatorDialogueTest {
     }
 
     @Test
+    void dialogueStepAcceptsTranscriptionLatency() throws Exception {
+        var parsed = validator.parse(event("""
+                {"entry_mode":"SPONTANEOUS","turn_kind":"TRANSCRIBED","stt_mode":"STREAM","stt_ms":120,
+                 "stream_tried":true,"elapsed_ms":4100}
+                """));
+        assertThat(parsed.metadata()).containsEntry("stt_mode", "STREAM").containsEntry("stt_ms", 120L);
+    }
+
+    @Test
     void dialogueStepRejectsChildUtteranceText() {
         assertThatThrownBy(() -> validator.parse(event("{\"question_text\":\"마녀는 왜 나빠?\"}")))
                 .isInstanceOf(ApiException.class);
