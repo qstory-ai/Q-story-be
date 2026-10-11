@@ -2,6 +2,7 @@ package com.qstory.backend.identity.config;
 
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.security.JwtAuthFilter;
+import com.qstory.backend.sttstream.SttStreamWebSocketConfig;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -49,7 +50,7 @@ public class SecurityConfig {
         return http.build();
     }
 
-    private CorsConfigurationSource corsConfigurationSource() {
+    CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(effectiveAllowedOrigins());
         // 웹 배포는 같은 출처의 Vercel 프록시(/api/qstory)를 거치므로 CORS가 적용되지 않는다. 이 설정은
@@ -68,6 +69,12 @@ public class SecurityConfig {
                 "x-qstory-audio-bit-depth", "x-qstory-generation-id"));
         configuration.setMaxAge(600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        // 실시간 받아 적기 WebSocket은 웹도 프록시 없이 직접 붙는다 - 업그레이드 GET이 이 CORS 필터를 지나므로 웹 배포 출처를
+        // 함께 허용한다(먼저 등록한 패턴이 이긴다). 실제 인증은 1회용 표다(SttStreamHandshakeInterceptor).
+        CorsConfiguration sttStream = new CorsConfiguration();
+        sttStream.setAllowedOrigins(SttStreamWebSocketConfig.streamOrigins(config));
+        sttStream.setAllowedMethods(List.of("GET"));
+        source.registerCorsConfiguration(SttStreamWebSocketConfig.STREAM_PATH, sttStream);
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }

@@ -85,6 +85,24 @@ public class RtzrSttClient {
         }
     }
 
+    /**
+     * 실시간 받아 적기(RtzrStreamingClient)가 같은 토큰 캐시를 쓰도록 연다 - 인증 요청을 따로 두면 토큰을 두 번 받는다.
+     * 실패는 transcribe()와 같은 예외(ProviderException/ApiException)로 올린다.
+     */
+    public String accessToken(RequestDeadline deadline) {
+        try {
+            return authenticate(deadline);
+        } catch (ProviderException | AbortException | ApiException known) {
+            throw known;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AbortException("request-timeout");
+        } catch (Exception error) {
+            throw new ProviderException(
+                    ProviderErrorCode.RTZR_NETWORK_FAILED, "한국어 음성 인식 서버에 연결하지 못했어요.", true, error);
+        }
+    }
+
     private synchronized String authenticate(RequestDeadline deadline) throws Exception {
         long now = System.currentTimeMillis();
         CachedToken current = cachedToken;

@@ -61,6 +61,18 @@ qstory:
   beta:
     # 베타 기간 선생님·관리자 전체 개방(보호자 제외). 정식 출시 때 false.
     open-access-tutor-org: ${BETA_OPEN_ACCESS_TUTOR_ORG:true}
+  # 실시간 받아 적기(sttstream, POST /v1/stt/stream-tickets + wss /v1/stt/stream). 끄면(STT_STREAM_ENABLED=false)
+  # 표 발급이 503 STT_STREAM_UNAVAILABLE로 거절되고, 앱은 지금처럼 녹음을 다 올려 받아 적는다(배치).
+  stt-stream:
+    enabled: ${STT_STREAM_ENABLED:true}
+    # RTZR 스트리밍 동시 채널 상한(유료 20) 안에서 우리가 쓸 몫. 넘치면 표를 주지 않아 배치로 간다.
+    max-concurrent: ${STT_STREAM_MAX_CONCURRENT:10}
+    # 한 번 말하기 상한 - 앱의 30초 녹음 상한 + 여유. 넘으면 그때까지 들은 문장으로 끝낸다.
+    max-duration-ms: ${STT_STREAM_MAX_DURATION_MS:35000}
+    ticket-ttl-ms: 30000
+    # 대화(sessionId) 하나가 10분 동안 받을 수 있는 표, 서버 전체가 1분 동안 줄 수 있는 표.
+    session-ticket-limit: 40
+    global-tickets-per-minute: 120
   providers:
     rtzr:
       client-id: ${RTZR_CLIENT_ID:}

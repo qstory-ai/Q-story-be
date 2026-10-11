@@ -185,7 +185,9 @@ public class BetaEventValidator {
         // Q-31 그레텔 대화 한 단계. 아이 말 원문은 남기지 않는다(대화 원문은 conversation_record 보존 정책을 따른다).
         keys.put(EventName.DIALOGUE_STEP, Set.of(
                 "anchor_id", "scene_id", "entry_mode", "turn_kind", "help_step", "family_id", "via_suggestion",
-                "reply_kind", "elapsed_ms", "turn_number", "latency_ms", "error_code"));
+                "reply_kind", "elapsed_ms", "turn_number", "latency_ms", "error_code",
+                // turn_kind=TRANSCRIBED - 말이 끝난 뒤 받아 적은 문장이 나오기까지(실시간 STREAM과 배치 BATCH 비교).
+                "stt_mode", "stt_ms", "stream_tried"));
         // Q-40 UT 데이터 수집. 질문 원문 같은 자유 문장은 받지 않는다.
         keys.put(EventName.APP_ENTRY, Set.of("entry", "path", "has_class_code"));
         keys.put(EventName.SIGNUP_STARTED, Set.of("role", "entry"));
