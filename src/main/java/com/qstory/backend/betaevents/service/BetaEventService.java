@@ -38,7 +38,10 @@ public class BetaEventService {
         record(event, null);
     }
 
-    /** userId: 로그인한 채 보낸 이벤트면 그 계정 - 세션에 남겨 참여자의 흐름을 잇는다(Q-40). 없으면 익명 그대로. */
+    /**
+     * userId: 로그인한 채 보낸 이벤트면 그 계정 - 세션에 남겨 참여자의 흐름을 잇는다(Q-40). 없으면 익명 그대로. 이미 다른
+     * 계정이 이어진 세션은 바꾸지 않는다.
+     */
     @Transactional
     public void record(BetaEventValidator.ParsedEvent event, UUID userId) {
         if (repository.eventExists(event.eventId())) {
@@ -55,7 +58,9 @@ public class BetaEventService {
         repository.insertSessionIfAbsent(event.sessionId(), STORY_ID, entrySource.name(), TrafficType.UNKNOWN, now);
         StorySession session = repository.findSession(event.sessionId());
         applyEventToSession(session, event, now);
-        if (userId != null) {
+        // 처음 이어진 계정만 남긴다(보안 점검 L2) - 남의 베타 세션 id로 이벤트를 보내 그 세션(과 이어진 녹화 동의·탈퇴 정리)을
+        // 자기 계정으로 바꿔 달지 못하게 한다.
+        if (userId != null && session.getUserId() == null) {
             session.setUserId(userId);
         }
         repository.saveSession(session);

@@ -34,13 +34,26 @@ public record RecordStoryCompletionRequest(
         String contentVersion,
         /** 이 회차에서 처음·마지막으로 읽은 장면 id. */
         String readFromSceneId,
-        String readThroughSceneId) {
+        String readThroughSceneId,
+        /**
+         * 이 기기의 베타 세션 id(선택). 로그인 전에 읽은 데모 회차를 로그인한 뒤 저장할 때, 회차가 같은 베타 세션의 익명 회차면
+         * 이 계정으로 가져온다 - 없으면 회차는 잇되 대화는 보이지 않는다(PlaySessionService.linkForCompletion).
+         */
+        UUID betaSessionId) {
 
     /** 예전 클라이언트(새 필드 없음)용 - 테스트와 기존 호출부가 그대로 쓴다. */
     public RecordStoryCompletionRequest(
             String storyId, Integer durationSeconds, List<Map<String, Object>> outcomes, UUID tutorStudentId,
             UUID childId, UUID companionConversationId, UUID lessonId) {
         this(storyId, durationSeconds, outcomes, tutorStudentId, childId, companionConversationId, lessonId,
-                null, null, null, null);
+                null, null, null, null, null);
+    }
+
+    public RecordStoryCompletionRequest(
+            String storyId, Integer durationSeconds, List<Map<String, Object>> outcomes, UUID tutorStudentId,
+            UUID childId, UUID companionConversationId, UUID lessonId, String endStatus, String contentVersion,
+            String readFromSceneId, String readThroughSceneId) {
+        this(storyId, durationSeconds, outcomes, tutorStudentId, childId, companionConversationId, lessonId,
+                endStatus, contentVersion, readFromSceneId, readThroughSceneId, null);
     }
 }

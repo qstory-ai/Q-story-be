@@ -3,6 +3,7 @@ package com.qstory.backend.identity.config;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.security.JwtAuthFilter;
 import com.qstory.backend.sttstream.SttStreamWebSocketConfig;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -46,8 +47,21 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                // HSTS(보안 점검 L6) - https로 받은 요청에만 붙인다. 운영은 Railway 프록시 뒤라 forward-headers-strategy=framework
+                // (application-prod.yml)로 X-Forwarded-Proto를 따른다. 그 설정이 빠져도 붙도록 헤더도 함께 본다 - http로 받은
+                // 응답의 HSTS는 브라우저가 무시하므로 헤더를 꾸며도 해가 없다.
+                .headers(headers -> headers.httpStrictTransportSecurity(hsts -> hsts
+                        .requestMatcher(SecurityConfig::isHttps)
+                        .includeSubDomains(true)
+                        .maxAgeInSeconds(HSTS_MAX_AGE_SECONDS)))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
+    }
+
+    static final long HSTS_MAX_AGE_SECONDS = 365L * 24 * 60 * 60;
+
+    static boolean isHttps(HttpServletRequest request) {
+        return request.isSecure() || "https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto"));
     }
 
     CorsConfigurationSource corsConfigurationSource() {

@@ -32,4 +32,19 @@ class SecurityConfigTest {
         SecurityConfig noNative = new SecurityConfig(properties(List.of("https://qstory.ai.kr"), null), null);
         assertEquals(List.of("https://qstory.ai.kr"), noNative.effectiveAllowedOrigins());
     }
+
+    /** 보안 점검 L6: HSTS는 https로 받은 요청(프록시가 알려 준 경우 포함)에만 붙인다. */
+    @Test
+    void httpsIsDetectedDirectlyOrFromTheProxyHeader() {
+        org.springframework.mock.web.MockHttpServletRequest plain = new org.springframework.mock.web.MockHttpServletRequest();
+        org.junit.jupiter.api.Assertions.assertFalse(SecurityConfig.isHttps(plain));
+
+        org.springframework.mock.web.MockHttpServletRequest proxied = new org.springframework.mock.web.MockHttpServletRequest();
+        proxied.addHeader("X-Forwarded-Proto", "https");
+        org.junit.jupiter.api.Assertions.assertTrue(SecurityConfig.isHttps(proxied));
+
+        org.springframework.mock.web.MockHttpServletRequest secure = new org.springframework.mock.web.MockHttpServletRequest();
+        secure.setSecure(true);
+        org.junit.jupiter.api.Assertions.assertTrue(SecurityConfig.isHttps(secure));
+    }
 }
