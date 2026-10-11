@@ -274,7 +274,7 @@ locals {
     turns = {
       title = "회차 대화 ($session_code)"
       type  = "table"
-      sql   = "select seq as \"순서\", occurred_at as \"시각\", scene_id as \"장면\", anchor_id as \"질문 지점\", entry_mode as \"진입\", role as \"누가\", speaker as \"입력 주체\", text as \"말\", input_mode as \"음성/글\", transcript_edited as \"고쳐 씀\", help_step as \"도움 단계\", reply_kind as \"답 종류\", latency_ms as \"답 ms\", event as \"이벤트\", family_id as \"행동\", via_suggestion as \"예시\", error_code as \"오류\" from grafana.ut_turns where session_code = upper('$session_code') order by seq"
+      sql   = "select seq as \"순서\", occurred_at as \"시각\", scene_id as \"장면\", anchor_id as \"질문 지점\", entry_mode as \"진입\", role as \"누가\", speaker as \"입력 주체\", text_length as \"글자 수\", input_mode as \"음성/글\", transcript_edited as \"고쳐 씀\", help_step as \"도움 단계\", reply_kind as \"답 종류\", latency_ms as \"답 ms\", event as \"이벤트\", family_id as \"행동\", via_suggestion as \"예시\", error_code as \"오류\" from grafana.ut_turns where session_code = upper('$session_code') order by seq"
       pos   = { x = 0, y = 9, w = 24, h = 12 }
     }
     journey = {

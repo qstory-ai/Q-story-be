@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -50,6 +51,13 @@ class StoryCompletionReportTest {
     private final AppUser parent = AppUser.builder().id(UUID.randomUUID()).role(Role.PARENT).displayName("보호자").build();
     private final CurrentUser parentCaller = new CurrentUser(parent.getId(), Role.PARENT, null);
     private final AppUser tutor = AppUser.builder().id(UUID.randomUUID()).role(Role.TUTOR).displayName("김선생").build();
+
+    @org.junit.jupiter.api.BeforeEach
+    void ownSessionsAreLinked() {
+        // 기본은 호출자 자신의 회차 - linkForCompletion은 받은 회차 id를 그대로 돌려준다.
+        when(playSessionService.linkForCompletion(any(), any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+    }
 
     @Test
     void savingTheSameSessionAgainUpdatesInsteadOfDuplicating() {
@@ -111,8 +119,8 @@ class StoryCompletionReportTest {
         when(repository.findById(lesson.getId())).thenReturn(Optional.of(lesson));
         when(repository.isVisibleToLinkedParent(lesson.getId(), parent.getId())).thenReturn(false);
         when(repository.isVisibleToClassParent(lesson.getId(), parent.getId())).thenReturn(true);
-        when(playSessionService.sessionExists(lesson.getSessionId())).thenReturn(true);
-        when(playSessionService.listTurns(lesson.getSessionId())).thenReturn(List.of(
+        when(playSessionService.isOwnedBy(lesson.getSessionId(), tutor.getId())).thenReturn(true);
+        when(playSessionService.listTurns(lesson.getSessionId(), tutor.getId())).thenReturn(List.of(
                 Map.of("seq", 1, "role", "CHARACTER", "text", "저 새를 보니 궁금한 게 있어?"),
                 Map.of("seq", 2, "role", "CHILD", "speaker", "TEACHER_RELAY", "text", "새한테 말 걸어보자")));
         when(repository.findLinkedChildren(lesson.getId(), parent.getId()))
@@ -126,19 +134,64 @@ class StoryCompletionReportTest {
         assertNull(detail.teacherNote().internal());
         assertEquals("오늘은 낯선 곳에 대해 이야기했어요.", detail.teacherNote().forParents());
         assertEquals("서아", detail.linkedChildren().get(0).name());
+        // 보안 점검 H1: 부모에게는 회차 id 전체 대신 화면용 6자 코드만.
+        assertNull(detail.sessionId());
+        assertEquals(lesson.getSessionId().toString().replace("-", "").substring(0, 6).toUpperCase(), detail.sessionCode());
     }
 
     @Test
     void teacherSeesEverythingOnTheirOwnLesson() {
         StoryCompletion lesson = classRecord();
         when(repository.findById(lesson.getId())).thenReturn(Optional.of(lesson));
-        when(playSessionService.listTurns(lesson.getSessionId())).thenReturn(List.of(
+        when(playSessionService.listTurns(lesson.getSessionId(), tutor.getId())).thenReturn(List.of(
                 Map.of("seq", 2, "role", "CHILD", "speaker", "TEACHER_RELAY", "text", "새한테 말 걸어보자")));
 
         StoryCompletionDetail detail = service.get(new CurrentUser(tutor.getId(), Role.TUTOR, null), lesson.getId());
 
         assertEquals("새한테 말 걸어보자", detail.turns().get(0).get("text"));
         assertEquals("B에서 시간이 걸림", detail.teacherNote().internal());
+        assertEquals(lesson.getSessionId(), detail.sessionId());
+    }
+
+    /**
+     * 보안 점검 H1: 다른 계정의 회차 id로 기록을 남겨도 그 회차는 기록에 이어지지 않는다 - 회차 id만 알아낸 사람이 자기 기록
+     * 상세로 남의 대화 원문을 읽던 문제.
+     */
+    @Test
+    void foreignSessionIdIsNotLinkedToTheRecord() {
+        UUID victimSession = UUID.randomUUID();
+        when(userRepository.findById(parent.getId())).thenReturn(Optional.of(parent));
+        when(playSessionService.linkForCompletion(victimSession, parent.getId(), null)).thenReturn(null);
+        org.mockito.ArgumentCaptor<StoryCompletion> saved = org.mockito.ArgumentCaptor.forClass(StoryCompletion.class);
+        when(repository.save(saved.capture())).thenAnswer(invocation -> {
+            StoryCompletion completion = invocation.getArgument(0);
+            completion.setId(UUID.randomUUID());
+            return completion;
+        });
+
+        service.record(parentCaller, new RecordStoryCompletionRequest("HG", 60, List.of(), null, null, victimSession, null));
+
+        assertNull(saved.getValue().getSessionId(), "남의 회차는 잇지 않는다");
+        verify(repository, never()).findBySessionIdAndUser_IdOrderByCreatedAtAsc(any(), any());
+    }
+
+    /** 보안 점검 H1: 기록에 적힌 회차라도 기록 주인의 회차가 아니면 대화를 붙이지 않는다(예전에 저장된 기록 포함). */
+    @Test
+    void turnsAreReadOnlyFromTheRecordOwnersSession() {
+        UUID foreignSession = UUID.randomUUID();
+        StoryCompletion home = StoryCompletion.builder().id(UUID.randomUUID()).user(parent).sessionId(foreignSession)
+                .storyId("HG").completedAt(Instant.now()).outcomes(List.of()).build();
+        when(repository.findById(home.getId())).thenReturn(Optional.of(home));
+        // 서비스는 늘 기록 주인(parent)으로 묻는다 - 남의 회차면 PlaySessionService가 빈 목록·false를 준다.
+        when(playSessionService.listTurns(foreignSession, parent.getId())).thenReturn(List.of());
+        when(playSessionService.isOwnedBy(foreignSession, parent.getId())).thenReturn(false);
+
+        StoryCompletionDetail detail = service.get(parentCaller, home.getId());
+
+        assertTrue(detail.turns().isEmpty());
+        assertFalse(detail.turnsAvailable());
+        verify(playSessionService, never()).listTurns(eq(foreignSession), org.mockito.ArgumentMatchers.argThat(
+                id -> !parent.getId().equals(id)));
     }
 
     @Test

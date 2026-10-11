@@ -50,10 +50,40 @@ class RecordingConsentControllerTest {
     void anonymousSessionDecisionIs202() throws Exception {
         UUID beta = UUID.randomUUID();
         mvc.perform(post("/v1/recording-consents").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"betaSessionId\":\"" + beta + "\",\"granted\":false,\"source\":\"LESSON\"}"))
+                        .content("{\"betaSessionId\":\"" + beta + "\",\"granted\":false,\"source\":\"PROMPT\"}"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.ok").value(true));
-        verify(service).decideForBetaSession(beta, false, Source.LESSON);
+        verify(service).authorizeSessionDecision(any(), org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull());
+        verify(service).decideForBetaSession(beta, false, Source.PROMPT, null, null);
+    }
+
+    /** 보안 점검 M5: 수업 동의는 로그인한 선생님과 그 수업으로 남는다 - 결정한 계정·수업이 함께 저장된다. */
+    @Test
+    void lessonDecisionPassesTheTeacherAndLesson() throws Exception {
+        UUID beta = UUID.randomUUID();
+        UUID lesson = UUID.randomUUID();
+        UUID tutor = login(Role.TUTOR);
+        when(service.authorizeSessionDecision(any(), org.mockito.ArgumentMatchers.eq(tutor),
+                org.mockito.ArgumentMatchers.eq(Role.TUTOR), org.mockito.ArgumentMatchers.eq(lesson))).thenReturn(tutor);
+        mvc.perform(post("/v1/recording-consents").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"betaSessionId\":\"" + beta + "\",\"granted\":true,\"source\":\"LESSON\",\"lessonId\":\""
+                                + lesson + "\"}"))
+                .andExpect(status().isAccepted());
+        verify(service).decideForBetaSession(beta, true, Source.LESSON, tutor, lesson);
+    }
+
+    @Test
+    void refusedSessionDecisionIsNotRecorded() throws Exception {
+        UUID beta = UUID.randomUUID();
+        when(service.authorizeSessionDecision(any(), any(), any(), any())).thenThrow(
+                com.qstory.backend.common.error.ApiException.contractError(
+                        com.qstory.backend.common.error.ErrorCode.UNAUTHENTICATED, "로그인이 필요해요.", 401));
+        mvc.perform(post("/v1/recording-consents").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"betaSessionId\":\"" + beta + "\",\"granted\":true,\"source\":\"LESSON\"}"))
+                .andExpect(status().isUnauthorized());
+        verify(service, org.mockito.Mockito.never()).decideForBetaSession(any(), org.mockito.ArgumentMatchers.anyBoolean(),
+                any(), any(), any());
     }
 
     @Test

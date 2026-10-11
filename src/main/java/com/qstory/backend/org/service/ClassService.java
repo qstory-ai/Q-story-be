@@ -388,7 +388,7 @@ public class ClassService {
         tutorStudentService.enrollParentInClass(
                 parent, classGroup, request.childName(), request.childBirthYear(), request.childId(),
                 request.rosterStudentId());
-        return authResponse(parent, caller.rememberMe());
+        return authResponse(parent, caller.rememberMe(), caller.authTime());
     }
 
     /** 반 초대 링크 미리보기 - 로그인 없이 반 코드만으로 기관·반·담임 이름을 보여 준다. */
@@ -439,14 +439,47 @@ public class ClassService {
         tutorStudentRepository.save(student);
     }
 
+    /**
+     * 담임·원장이 반 학생의 보호자 연결을 끊는다(보안 점검 H3). 반 코드만 알면 명단에서 남의 아이를 골라 이을 수 있어서, 확인
+     * 알림(TutorStudentService.notifyRosterLinkToVerify)을 받은 선생님이 잘못된 연결을 되돌리는 경로다. 학생은 명단에 그대로
+     * 남고(PENDING_PARENT) 실제 보호자가 다시 이을 수 있다. 학부모가 스스로 빠질 때(leaveClass)와 달리 지난 리포트 열람권은
+     * 남기지 않는다 - 애초에 잘못된 연결이다. 지난 담임은 끊을 수 없다.
+     */
+    @Transactional
+    public void unlinkParent(CurrentUser caller, UUID classId, UUID studentId) {
+        Access access = requireAccess(caller, classId);
+        if (access.level() == AccessLevel.FORMER_HOMEROOM) {
+            throw forbidden();
+        }
+        ClassGroup classGroup = access.classGroup();
+        TutorStudent student = tutorStudentRepository.lockById(studentId)
+                .filter(found -> found.getDeletedAt() == null
+                        && isInClass(found, classGroup)
+                        && found.getLinkedParentUser() != null)
+                .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "보호자가 연결된 학생을 찾을 수 없어요.", 404));
+        AppUser parent = student.getLinkedParentUser();
+        student.setLinkedParentUser(null);
+        student.setLinkedAt(null);
+        student.setChild(null);
+        student.setStatus(TutorStudentStatus.PENDING_PARENT);
+        tutorStudentRepository.save(student);
+        notificationPublisher.publish(
+                parent.getId(), "class-parent-unlinked",
+                classGroup.getName() + " 반 연결이 해제됐어요",
+                "선생님이 반 명단의 " + student.getName() + "와(과) 연결을 해제했어요. 우리 아이가 맞다면 선생님께 문의해 주세요.",
+                "/mypage", "class-parent-unlinked:" + student.getId() + ":" + Instant.now().toEpochMilli());
+    }
+
     private AuthResponse authResponse(AppUser parent) {
-        return authResponse(parent, true);
+        return authResponse(parent, true, null);
     }
 
     /** 이미 로그인한 학부모에게 다시 발급할 때는 지금 토큰의 로그인 유지 모드를 그대로 쓴다. */
-    private AuthResponse authResponse(AppUser parent, boolean rememberMe) {
+    private AuthResponse authResponse(AppUser parent, boolean rememberMe, java.time.Instant authTime) {
         return new AuthResponse(
-                jwtService.issue(new CurrentUser(parent.getId(), Role.PARENT, null, rememberMe)), userSummaryFactory.of(parent));
+                jwtService.issue(new CurrentUser(
+                        parent.getId(), Role.PARENT, null, rememberMe, parent.getTokenVersion(), authTime)),
+                userSummaryFactory.of(parent));
     }
 
     private ClassGroup resolveClassGroup(String classCode) {

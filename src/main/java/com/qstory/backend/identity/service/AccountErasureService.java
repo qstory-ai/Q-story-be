@@ -10,6 +10,7 @@ import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.repository.PasswordResetTokenRepository;
+import com.qstory.backend.identity.security.TokenVersionCheck;
 import com.qstory.backend.interaction.service.InteractionService;
 import com.qstory.backend.notification.repository.NotificationRepository;
 import com.qstory.backend.org.repository.ClassGroupRepository;
@@ -29,6 +30,7 @@ import java.time.Instant;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -41,13 +43,18 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *
  * <ul>
  *   <li>공통: 비밀번호 재설정 토큰, 북마크, 알림, 알림 설정, 앱 푸시 기기 토큰, 개선 의견, 이 계정의 대화 원장, 프로필 사진, 화면 녹화(이어진
- *   베타 세션 포함)·화면 녹화 동의, 화면 상호작용.</li>
+ *   베타 세션 포함)·화면 녹화 동의, 화면 상호작용, 남은 기록이 가리키지 않는 회차와 대화 줄(play_session·play_turn), 통계 세션의
+ *   계정 연결(story_sessions.user_id), 발급한 토큰(token_version을 올려 무효화).</li>
+ *   <li>보호자가 아닌 계정: 음성 연구 계정 설정 행(보호자는 철회 기록으로 남는다).</li>
  *   <li>보호자: 가정 세션 기록 삭제, 지난 반 수업 열람 권한 해제(참여 명단은 유지), 반 명단 연결 해제, 아이 프로필 마스킹(가입 기록만 남김).</li>
  *   <li>선생님: 기관 반은 담임만 비우고(반·수업·학생·기록 유지), 기관 밖 자기 반·수업·학생·기록은 지운다.</li>
  *   <li>관리자: 기관과 기관 데이터는 그대로, 계정만 익명화.</li>
  * </ul>
  *
- * <p>보존: payment_order(5년), account_deletion_feedback, user_consent, 기관 반 수업 기록.
+ * <p>보존: payment_order(5년), account_deletion_feedback, user_consent, 기관 반 수업 기록(과 그 회차 대화).
+ *
+ * <p>app_user를 가리키는 컬럼이 새로 생기면 AccountErasureCoverageTest가 실패한다 - 여기서 지우거나, 남기는 이유를 그
+ * 테스트에 적는다.
  */
 @Service
 public class AccountErasureService {
@@ -58,6 +65,14 @@ public class AccountErasureService {
     static final String MASKED_CHILD_NAME = "삭제됨";
     /** fe entities/child/model/avatars.ts CHILD_AVATARS[0].key - TutorStudentService의 기본값과 같다. */
     static final String DEFAULT_CHILD_AVATAR_KEY = "fox";
+
+    /** 남은 기록이 가리키지 않는 이 계정의 회차(play_turn은 cascade로 함께 지워진다). */
+    static final String DELETE_UNREFERENCED_PLAY_SESSIONS =
+            "delete from play_session s where s.user_id = ? "
+                    + "and not exists (select 1 from story_completion c where c.session_id = s.id)";
+    /** 통계 세션(story_sessions)은 익명 통계로 남기고 계정 연결만 끊는다. */
+    static final String DETACH_STORY_SESSIONS = "update story_sessions set user_id = null where user_id = ?";
+    static final String DELETE_VOICE_RESEARCH_PREFERENCE = "delete from voice_research_preferences where user_id = ?";
 
     private final AppUserRepository userRepository;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
@@ -80,6 +95,8 @@ public class AccountErasureService {
     private final RecordingConsentService recordingConsentService;
     private final InteractionService interactionService;
     private final PushDeviceTokenRepository pushDeviceTokenRepository;
+    private final JdbcTemplate jdbc;
+    private final TokenVersionCheck tokenVersionCheck;
 
     public AccountErasureService(
             AppUserRepository userRepository, PasswordResetTokenRepository passwordResetTokenRepository,
@@ -94,7 +111,10 @@ public class AccountErasureService {
             OrganizationTutorService organizationTutorService, SupabaseStorageClient storageClient,
             StorageDeletionRetry storageDeletionRetry, AppProperties config,
             RecordingConsentService recordingConsentService, InteractionService interactionService,
-            PushDeviceTokenRepository pushDeviceTokenRepository) {
+            PushDeviceTokenRepository pushDeviceTokenRepository, JdbcTemplate jdbc,
+            TokenVersionCheck tokenVersionCheck) {
+        this.jdbc = jdbc;
+        this.tokenVersionCheck = tokenVersionCheck;
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.bookmarkRepository = bookmarkRepository;
@@ -133,6 +153,13 @@ public class AccountErasureService {
         } else if (user.getRole() == Role.TUTOR) {
             eraseTutorData(userId);
         }
+        if (user.getRole() != Role.PARENT) {
+            // 보호자는 AuthService가 먼저 철회 기록으로 남긴다(VoiceResearchService.withdrawForDeletedAccount).
+            jdbc.update(DELETE_VOICE_RESEARCH_PREFERENCE, userId);
+        }
+        // 회차와 대화 줄 - 위에서 기록을 지운 뒤에 한다. 남은 기록(기관 반 수업)이 가리키는 회차는 그 기록의 대화라 남긴다.
+        jdbc.update(DELETE_UNREFERENCED_PLAY_SESSIONS, userId);
+        jdbc.update(DETACH_STORY_SESSIONS, userId);
 
         passwordResetTokenRepository.deleteAllByUserId(userId);
         bookmarkRepository.deleteAllByUserId(userId);
@@ -147,6 +174,9 @@ public class AccountErasureService {
         user.setProfileImageObjectName(null);
         user.setProfileImageUrl(null);
         anonymize(user, now);
+        // 이 계정에 발급한 토큰을 모두 무효로 한다(078) - deleted_at만으로도 막히지만 버전도 함께 올린다.
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        tokenVersionCheck.evict(userId);
         userRepository.save(user);
         deleteProfileImageAfterCommit(userId, profileObject);
     }

@@ -27,6 +27,7 @@ import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.repository.PasswordResetTokenRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
+import com.qstory.backend.identity.security.TokenVersionCheck;
 import com.qstory.backend.identity.service.oauth.GoogleOAuthVerifier;
 import com.qstory.backend.identity.service.oauth.KakaoOAuthVerifier;
 import com.qstory.backend.identity.util.AuthValidator;
@@ -61,6 +62,12 @@ public class AuthService {
 
     private static final int MAX_REASON_DETAIL_LENGTH = 2000;
 
+    /**
+     * 처음 로그인한 뒤 refresh로 이어 쓸 수 있는 기간. 지나면 refresh를 거절해 다시 로그인하게 한다 - 토큰이 한 번 새어 나가도
+     * refresh만으로 영원히 살아 있지 않게 한다(보안 점검 M4).
+     */
+    static final Duration MAX_LOGIN_AGE = Duration.ofDays(180);
+
     /** 소셜 로그인으로 새로 만들 수 있는 역할 - Role.STAFF는 여기서 절대 만들어지지 않는다(signupStaff와 동일한 경계). */
     private static final Set<Role> OAUTH_SIGNUP_ROLES = Set.of(Role.DIRECTOR, Role.PARENT, Role.TUTOR);
 
@@ -79,6 +86,7 @@ public class AuthService {
     private final AccountErasureService accountErasureService;
     private final UserSummaryFactory userSummaryFactory;
     private final ConsentService consentService;
+    private final TokenVersionCheck tokenVersionCheck;
 
     public AuthService(
             AppUserRepository userRepository, PasswordResetTokenRepository passwordResetTokenRepository,
@@ -87,8 +95,10 @@ public class AuthService {
             GoogleOAuthVerifier googleOAuthVerifier, KakaoOAuthVerifier kakaoOAuthVerifier,
             SecureTokenGenerator tokenGenerator, SupabaseStorageClient storageClient, AppProperties config,
             UserSummaryFactory userSummaryFactory, VoiceResearchService voiceResearchService,
-            AccountErasureService accountErasureService, ConsentService consentService) {
+            AccountErasureService accountErasureService, ConsentService consentService,
+            TokenVersionCheck tokenVersionCheck) {
         this.consentService = consentService;
+        this.tokenVersionCheck = tokenVersionCheck;
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.accountDeletionFeedbackRepository = accountDeletionFeedbackRepository;
@@ -160,7 +170,7 @@ public class AuthService {
 
     public AuthResponse login(LoginRequest request) {
         validator.validateLogin(request);
-        AppUser user = userRepository.findByLoginId(request.loginId().trim().toLowerCase())
+        AppUser user = userRepository.findByLoginIdAndDeletedAtIsNull(request.loginId().trim().toLowerCase())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.INVALID_CREDENTIALS, "아이디 또는 비밀번호가 올바르지 않아요."));
         if (user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw ApiException.contractError(ErrorCode.INVALID_CREDENTIALS, "아이디 또는 비밀번호가 올바르지 않아요.");
@@ -184,7 +194,8 @@ public class AuthService {
         }
         OAuthIdentity identity = resolveIdentity(provider, request.token());
 
-        Optional<AppUser> existing = userRepository.findByOauthProviderAndOauthSubject(provider, identity.subject());
+        Optional<AppUser> existing =
+                userRepository.findByOauthProviderAndOauthSubjectAndDeletedAtIsNull(provider, identity.subject());
         if (existing.isPresent()) {
             return issueResponse(existing.get(), rememberMeOrDefault(request.rememberMe()));
         }
@@ -244,11 +255,16 @@ public class AuthService {
 
     /**
      * 지금 토큰과 같은 모드(로그인 유지 여부)로 새 토큰을 발급한다. role/orgId는 토큰이 아니라 DB에서 다시 읽는다 -
-     * 탈퇴한 계정은 me()와 똑같이 401이다.
+     * 탈퇴한 계정은 me()와 똑같이 401이다. 처음 로그인한 시각(authTime)은 새 토큰에 그대로 이어지고, MAX_LOGIN_AGE가
+     * 지났으면 401로 다시 로그인하게 한다.
      */
     @Transactional(readOnly = true)
     public AuthResponse refresh(CurrentUser caller) {
-        return issueResponse(requireActiveUser(caller.userId()), caller.rememberMe());
+        Instant authTime = caller.authTime();
+        if (authTime != null && authTime.plus(MAX_LOGIN_AGE).isBefore(Instant.now())) {
+            throw ApiException.contractError(ErrorCode.UNAUTHENTICATED, "다시 로그인해 주세요.", 401);
+        }
+        return issueResponse(requireActiveUser(caller.userId()), caller.rememberMe(), authTime);
     }
 
     public UserSummary me(CurrentUser caller) {
@@ -324,8 +340,9 @@ public class AuthService {
         return userSummaryFactory.of(user);
     }
 
+    /** 비밀번호를 바꾸면 이 계정에 발급된 토큰(다른 기기)은 모두 무효가 된다 - 지금 기기는 돌려주는 새 토큰으로 이어 쓴다. */
     @Transactional
-    public void changePassword(CurrentUser caller, ChangePasswordRequest request) {
+    public AuthResponse changePassword(CurrentUser caller, ChangePasswordRequest request) {
         AppUser user = requireActiveUser(caller.userId());
         if (user.getPasswordHash() == null
                 || request.currentPassword() == null
@@ -334,7 +351,9 @@ public class AuthService {
         }
         validator.validatePassword(request.newPassword());
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        revokeIssuedTokens(user);
         userRepository.save(user);
+        return issueResponse(user, caller.rememberMe());
     }
 
     /**
@@ -383,18 +402,17 @@ public class AuthService {
      * 여기서 "그런 계정 없음" 응답을 준다면 누구든 어떤 이메일이 등록되어 있는지 조사할 수
      * 있게 된다.
      *
-     * <p>이메일 발송 provider가 아직 연결되지 않아 발급된 토큰은 서버 로그로만 확인 가능하다.
-     * INFO 레벨엔 userId와 "이메일 미연결" 경고만 남기고, 원본 토큰은 DEBUG 로그로만 노출한다 -
-     * 프로덕션 기본 로그 레벨(INFO)에서 raw credential이 저장/전송되지 않도록. 개발·스테이징에서는
-     * 이 클래스만 DEBUG로 올려 확인. 이메일 provider가 연결되면 이 두 log 라인을 실제 발송으로
-     * 교체하면 되고, 토큰 생명주기 나머지 부분은 그대로다.
+     * <p>이메일 발송 provider가 아직 연결되지 않아 발급된 토큰을 보낼 곳이 없다. 로그에는 userId와 "이메일 미연결"
+     * 경고만 남기고 원본 토큰은 어떤 레벨로도 남기지 않는다(보안 점검 L11 - 로그가 Loki로 나가므로 DEBUG로 올린 환경에서
+     * 재설정 토큰이 새어 나갔다). 이메일 provider가 연결되면 이 log 라인을 실제 발송으로 교체하면 되고, 토큰 생명주기
+     * 나머지 부분은 그대로다.
      */
     @Transactional
     public void requestPasswordReset(RequestPasswordResetRequest request) {
         if (request.loginId() == null || request.loginId().isBlank()) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "아이디를 입력해 주세요.");
         }
-        userRepository.findByLoginId(request.loginId().trim().toLowerCase()).ifPresent(user -> {
+        userRepository.findByLoginIdAndDeletedAtIsNull(request.loginId().trim().toLowerCase()).ifPresent(user -> {
             String rawToken = tokenGenerator.generate();
             passwordResetTokenRepository.save(PasswordResetToken.builder()
                     .user(user)
@@ -402,9 +420,9 @@ public class AuthService {
                     .expiresAt(Instant.now().plus(PASSWORD_RESET_TTL))
                     .createdAt(Instant.now())
                     .build());
-            log.warn("password-reset.token-issued userId={} — 이메일 provider 미연결. 토큰은 DEBUG 로그로만 노출됨.",
+            // 원본 토큰은 어떤 로그 레벨로도 남기지 않는다(보안 점검 L11) - 이메일 발송이 연결되면 여기서 보낸다.
+            log.warn("password-reset.token-issued userId={} - 이메일 provider 미연결. 토큰을 보낼 경로가 없어요.",
                     user.getId());
-            log.debug("password-reset.token-value userId={} token={}", user.getId(), rawToken);
         });
     }
 
@@ -424,7 +442,12 @@ public class AuthService {
         passwordResetTokenRepository.save(token);
 
         AppUser user = token.getUser();
+        if (user.getDeletedAt() != null) {
+            throw ApiException.contractError(
+                    ErrorCode.INVALID_PASSWORD_RESET_TOKEN, "재설정 링크가 올바르지 않거나 만료됐어요.", 410);
+        }
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        revokeIssuedTokens(user);
         userRepository.save(user);
         return issueResponse(user);
     }
@@ -440,9 +463,20 @@ public class AuthService {
     }
 
     private AuthResponse issueResponse(AppUser user, boolean rememberMe) {
+        return issueResponse(user, rememberMe, null);
+    }
+
+    /** authTime이 null이면 지금이 처음 로그인한 시각이다. */
+    private AuthResponse issueResponse(AppUser user, boolean rememberMe, Instant authTime) {
         CurrentUser currentUser = new CurrentUser(
                 user.getId(), user.getRole(), user.getOrganization() == null ? null : user.getOrganization().getId(),
-                rememberMe);
+                rememberMe, user.getTokenVersion(), authTime);
         return new AuthResponse(jwtService.issue(currentUser), userSummaryFactory.of(user));
+    }
+
+    /** 이 계정에 지금까지 발급한 토큰을 모두 무효로 한다 - 엔티티 값으로 올려야 같은 트랜잭션의 save가 옛 값으로 덮지 않는다. */
+    private void revokeIssuedTokens(AppUser user) {
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        tokenVersionCheck.evict(user.getId());
     }
 }

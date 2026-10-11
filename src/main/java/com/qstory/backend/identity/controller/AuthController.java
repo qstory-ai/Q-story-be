@@ -124,11 +124,11 @@ public class AuthController {
 
     @Operation(summary = "Change the current user's password",
             description = "Requires the current password, unlike password-reset/confirm which is for a forgotten "
-                    + "password via email token.")
+                    + "password via email token. Every token issued before (other devices included) stops working; "
+                    + "the response carries a fresh token for this device.")
     @PostMapping("/v1/auth/me/password")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void changePassword(@RequestBody ChangePasswordRequest request) {
-        authService.changePassword(currentUserResolver.require(), request);
+    public AuthResponse changePassword(@RequestBody ChangePasswordRequest request) {
+        return authService.changePassword(currentUserResolver.require(), request);
     }
 
     @Operation(summary = "Delete (soft-delete) the current user's account",

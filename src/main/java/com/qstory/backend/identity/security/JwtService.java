@@ -35,6 +35,10 @@ public class JwtService {
     private static final String CLAIM_ORG_ID = "orgId";
     /** "로그인 유지" 여부. 없으면(이 claim 이전에 발급된 토큰) true로 본다. */
     static final String CLAIM_REMEMBER_ME = "rm";
+    /** 발급 당시 app_user.token_version(078). 없으면(이 claim 이전 토큰) 0으로 본다. */
+    static final String CLAIM_TOKEN_VERSION = "tv";
+    /** 처음 로그인한 시각(epoch 초). refresh로 새로 발급해도 이어진다. 없으면 iat로 본다. */
+    static final String CLAIM_AUTH_TIME = "at";
 
     private final AppProperties config;
 
@@ -69,6 +73,8 @@ public class JwtService {
                 .subject(user.userId().toString())
                 .claim(CLAIM_ROLE, user.role().name())
                 .claim(CLAIM_REMEMBER_ME, user.rememberMe())
+                .claim(CLAIM_TOKEN_VERSION, user.tokenVersion())
+                .claim(CLAIM_AUTH_TIME, (user.authTime() == null ? now : user.authTime()).getEpochSecond())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(ttl(user.rememberMe()))));
         if (user.orgId() != null) {
@@ -88,7 +94,14 @@ public class JwtService {
             Role role = Role.valueOf(claims.get(CLAIM_ROLE, String.class));
             UUID orgId = uuidOrNull(claims.get(CLAIM_ORG_ID, String.class));
             Boolean rememberMe = claims.get(CLAIM_REMEMBER_ME, Boolean.class);
-            return Optional.of(new CurrentUser(userId, role, orgId, rememberMe == null || rememberMe));
+            Number tokenVersion = claims.get(CLAIM_TOKEN_VERSION, Number.class);
+            Number authTime = claims.get(CLAIM_AUTH_TIME, Number.class);
+            Instant authenticatedAt = authTime != null
+                    ? Instant.ofEpochSecond(authTime.longValue())
+                    : claims.getIssuedAt() == null ? null : claims.getIssuedAt().toInstant();
+            return Optional.of(new CurrentUser(
+                    userId, role, orgId, rememberMe == null || rememberMe,
+                    tokenVersion == null ? 0 : tokenVersion.intValue(), authenticatedAt));
         } catch (JwtException | IllegalArgumentException malformed) {
             return Optional.empty();
         }

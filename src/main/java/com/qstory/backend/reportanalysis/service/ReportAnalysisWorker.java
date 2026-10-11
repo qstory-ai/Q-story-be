@@ -84,7 +84,8 @@ public class ReportAnalysisWorker {
         if (content == null) return Optional.empty();
         return Optional.of(new ReportAnalysisService.Input(
                 completion.sessionKind(),
-                playSessionService.listTurns(completion.getSessionId()),
+                // 기록 주인의 회차일 때만 대화를 읽는다(보안 점검 H1).
+                playSessionService.listTurns(completion.getSessionId(), completion.getUser().getId()),
                 content,
                 completion.getReadFromSceneId(),
                 completion.getReadThroughSceneId()));

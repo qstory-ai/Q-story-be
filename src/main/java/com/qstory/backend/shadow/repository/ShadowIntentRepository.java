@@ -48,4 +48,8 @@ public class ShadowIntentRepository {
     public long countDistinctSessions(UUID candidateId) {
         return observationRepository.countDistinctSessionsByCandidateId(candidateId);
     }
+
+    public long countDistinctUsers(UUID candidateId) {
+        return observationRepository.countDistinctUsersByCandidateId(candidateId);
+    }
 }

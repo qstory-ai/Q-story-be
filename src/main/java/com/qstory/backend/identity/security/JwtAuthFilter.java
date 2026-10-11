@@ -25,9 +25,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
+    private final TokenVersionCheck tokenVersionCheck;
 
-    public JwtAuthFilter(JwtService jwtService) {
+    public JwtAuthFilter(JwtService jwtService, TokenVersionCheck tokenVersionCheck) {
         this.jwtService = jwtService;
+        this.tokenVersionCheck = tokenVersionCheck;
     }
 
     @Override
@@ -37,7 +39,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         if (header != null && header.regionMatches(true, 0, "Bearer ", 0, 7)) {
             String token = header.substring(7).trim();
-            Optional<CurrentUser> user = jwtService.verify(token);
+            // 서명·만료가 맞아도 비밀번호를 바꿨거나 탈퇴한 계정의 토큰(078 token_version)은 익명으로 둔다.
+            Optional<CurrentUser> user = jwtService.verify(token).filter(tokenVersionCheck::isCurrent);
             user.ifPresent(this::authenticate);
         }
         chain.doFilter(request, response);

@@ -98,7 +98,8 @@ public class ShadowIntentCollectionService {
         candidate.setDistinctSessionCount((int) distinctSessionCount);
         candidate.setUpdatedAt(Instant.now());
 
-        boolean readyForReview = distinctSessionCount >= PROMOTE_THRESHOLD;
+        // 세션 수가 아니라 서로 다른 로그인 계정 수로 올린다(보안 점검 H2) - 익명 세션은 세지 않는다.
+        boolean readyForReview = repository.countDistinctUsers(candidateId) >= PROMOTE_THRESHOLD;
         if (readyForReview
                 && (candidate.getReviewStatus() == ReviewStatus.COLLECTING
                         || candidate.getReviewStatus() == ReviewStatus.READY_FOR_REVIEW)) {

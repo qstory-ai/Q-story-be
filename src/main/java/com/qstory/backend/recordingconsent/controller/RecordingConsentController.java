@@ -2,6 +2,7 @@ package com.qstory.backend.recordingconsent.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.qstory.backend.common.error.FailureBody;
+import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.recordingconsent.service.RecordingConsentService;
 import com.qstory.backend.recordingconsent.service.RecordingConsentService.Decision;
@@ -37,18 +38,32 @@ public class RecordingConsentController {
     }
 
     @Operation(summary = "Record a per-beta-session screen recording decision",
-            description = "Anonymous allowed. Body {betaSessionId, granted, source} - source is PROMPT, UT_LINK or LESSON. "
-                    + "Replaces the previous decision for this beta session; granted=false also deletes the recording "
-                    + "chunks already stored for it. Responds 202 {ok:true}.")
+            description = "Body {betaSessionId, granted, source, lessonId?} - source is PROMPT, UT_LINK or LESSON. "
+                    + "Anonymous allowed for PROMPT/UT_LINK while the beta session is not linked to an account; once it is "
+                    + "(a play session or analytics session of a signed-in user), only that account may change it. LESSON "
+                    + "needs a signed-in TUTOR or DIRECTOR, and lessonId (optional) must be one of their lessons; the "
+                    + "deciding account and lesson are recorded. Replaces the previous decision for this beta session; "
+                    + "granted=false also deletes the recording chunks already stored for it. Responds 202 {ok:true}.")
     @ApiResponses({
             @ApiResponse(responseCode = "202", description = "Recorded"),
             @ApiResponse(responseCode = "400", description = "Missing betaSessionId, non-boolean granted or unknown source",
+                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
+            @ApiResponse(responseCode = "401", description = "LESSON without signing in",
+                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
+            @ApiResponse(responseCode = "403", description = "LESSON by a non-teacher, or a beta session linked to another account",
+                    content = @Content(schema = @Schema(implementation = FailureBody.class))),
+            @ApiResponse(responseCode = "404", description = "lessonId is not the caller's lesson",
                     content = @Content(schema = @Schema(implementation = FailureBody.class)))
     })
     @PostMapping("/v1/recording-consents")
     public ResponseEntity<Map<String, Object>> decideForBetaSession(@RequestBody(required = false) JsonNode body) {
         Decision decision = RecordingConsentService.parse(body, RecordingConsentService.SESSION_SOURCES, true);
-        service.decideForBetaSession(decision.betaSessionId(), decision.granted(), decision.source());
+        CurrentUser caller = currentUserResolver.currentOrNull();
+        UUID lessonId = RecordingConsentService.lessonId(body);
+        UUID decidedBy = service.authorizeSessionDecision(
+                decision, caller == null ? null : caller.userId(), caller == null ? null : caller.role(), lessonId);
+        service.decideForBetaSession(decision.betaSessionId(), decision.granted(), decision.source(), decidedBy,
+                decision.source() == RecordingConsentService.Source.LESSON ? lessonId : null);
         return ResponseEntity.status(202).body(Map.of("ok", true));
     }
 

@@ -104,6 +104,38 @@ class PlaySessionServiceAnonymousTest {
         verify(jdbc, never()).update(startsWith("update play_session set beta_session_id"), any(Object[].class));
     }
 
+    /** 보안 점검 H1: 완주 기록에는 호출자 회차만 잇는다 - 남의 회차 id는 null, 같은 베타 세션의 익명 회차는 가져온다. */
+    @Test
+    void completionLinksOnlyTheCallersSession() {
+        UUID other = UUID.randomUUID();
+        ownersReturn(List.of(new Owner(other, null)));
+        assertThat(service.linkForCompletion(sessionId, userId, null)).isNull();
+
+        ownersReturn(List.of(new Owner(userId, beta)));
+        assertThat(service.linkForCompletion(sessionId, userId, null)).isEqualTo(sessionId);
+
+        ownersReturn(List.of());
+        assertThat(service.linkForCompletion(sessionId, userId, null))
+                .as("아직 줄이 오지 않은 회차는 잇고, 읽을 때 주인을 다시 본다").isEqualTo(sessionId);
+    }
+
+    @Test
+    void completionClaimsAnonymousDemoSessionOfTheSameBetaSession() {
+        ownersReturn(List.of(new Owner(null, beta)));
+        when(jdbc.update(startsWith("update play_session set user_id"), any(Object[].class))).thenReturn(1);
+
+        assertThat(service.linkForCompletion(sessionId, userId, beta)).isEqualTo(sessionId);
+        verify(jdbc).update(startsWith("update play_session set user_id"), eq(userId), eq(sessionId), eq(beta));
+    }
+
+    @Test
+    void completionLinksButDoesNotClaimAnonymousSessionOfAnotherBetaSession() {
+        ownersReturn(List.of(new Owner(null, beta)));
+
+        assertThat(service.linkForCompletion(sessionId, userId, UUID.randomUUID())).isEqualTo(sessionId);
+        verify(jdbc, never()).update(startsWith("update play_session set user_id"), any(Object[].class));
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void ownersReturn(List<Owner> first, List<Owner>... next) {
         var stub = when(jdbc.query(startsWith(OWNER_SQL), any(RowMapper.class), eq(sessionId))).thenReturn((List) first);
