@@ -44,6 +44,15 @@ class BetaEventValidatorDialogueTest {
     }
 
     @Test
+    void dialogueStepAcceptsThinkingFiller() throws Exception {
+        var parsed = validator.parse(event("""
+                {"entry_mode":"SPONTANEOUS","turn_kind":"FILLER","filler_clip":"gretel-thinking-2","filler_late_ms":28,
+                 "elapsed_ms":1050}
+                """));
+        assertThat(parsed.metadata()).containsEntry("filler_clip", "gretel-thinking-2").containsEntry("filler_late_ms", 28L);
+    }
+
+    @Test
     void dialogueStepRejectsChildUtteranceText() {
         assertThatThrownBy(() -> validator.parse(event("{\"question_text\":\"마녀는 왜 나빠?\"}")))
                 .isInstanceOf(ApiException.class);
