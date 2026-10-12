@@ -1,6 +1,10 @@
 # Set SPRING_PROFILES_ACTIVE=prod on the deployed instance (e.g. Railway) to activate this.
 qstory:
   allowed-origins: ${ALLOWED_ORIGINS:https://qstory.ai.kr,https://www.qstory.ai.kr,https://start.qstory.ai.kr,https://play.qstory.ai.kr,https://demo.qstory.ai.kr}
+  # 프록시 서명이 없는 요청(네이티브 앱·WebSocket)의 주소 - Railway 에지가 매 요청마다 덮어쓰는 X-Real-IP를 쓴다.
+  # X-Forwarded-For의 첫 값(getRemoteAddr)은 클라이언트가 꾸밀 수 있다.
+  rate-limit:
+    client-ip-header: ${QSTORY_CLIENT_IP_HEADER:X-Real-IP}
 
 logging:
   level:

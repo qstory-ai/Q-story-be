@@ -11,6 +11,7 @@ import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.provider.openrouter.SynthesizedAudioStream;
+import com.qstory.backend.ratelimit.RateLimitService;
 import com.qstory.backend.story.service.StoryRegistryService;
 import com.qstory.backend.story.service.StoryRegistryService.ResolvedNarrationContext;
 import io.swagger.v3.oas.annotations.Operation;
@@ -42,17 +43,19 @@ public class NarrationController {
     private final StoryRegistryService storyRegistryService;
     private final NarrationPipelineService pipeline;
     private final CurrentUserResolver currentUserResolver;
+    private final RateLimitService rateLimitService;
 
     public NarrationController(
             AppProperties config, ObjectMapper objectMapper, NarrationContractValidator contractValidator,
             StoryRegistryService storyRegistryService, NarrationPipelineService pipeline,
-            CurrentUserResolver currentUserResolver) {
+            CurrentUserResolver currentUserResolver, RateLimitService rateLimitService) {
         this.config = config;
         this.objectMapper = objectMapper;
         this.contractValidator = contractValidator;
         this.storyRegistryService = storyRegistryService;
         this.pipeline = pipeline;
         this.currentUserResolver = currentUserResolver;
+        this.rateLimitService = rateLimitService;
     }
 
     @Operation(
@@ -78,6 +81,8 @@ public class NarrationController {
         NarrationContractValidator.NarrationRequest parsed = contractValidator.parse(body);
         ResolvedNarrationContext context = storyRegistryService.resolveNarrationContext(
                 parsed.storyId(), parsed.anchorId(), parsed.speakerId(), currentUserResolver.currentOrNull());
+        // 기본 Gemini 키(하루 100회)를 쓰는 실시간 TTS - 익명 호출의 서버 전체 상한(보안 점검 M1). 주소별 상한은 RateLimitFilter.
+        rateLimitService.enforceAnonymousLiveTts(request);
         Map<String, Object> result = pipeline.process(
                 context, parsed.storyId(), parsed.speakerId(), parsed.text(),
                 RequestDeadline.startingNow(config.requestTimeoutMs()));
@@ -110,9 +115,12 @@ public class NarrationController {
         NarrationContractValidator.NarrationRequest parsed = contractValidator.parse(body);
         ResolvedNarrationContext context = storyRegistryService.resolveNarrationContext(
                 parsed.storyId(), parsed.anchorId(), parsed.speakerId(), currentUserResolver.currentOrNull());
+        boolean prefetch = body.path("prefetch").asBoolean(false);
+        // 미리 만들기(prefetch)는 전용 키라 기본 키의 하루 한도를 쓰지 않는다 - 실시간 호출만 익명 총량에 센다.
+        if (!prefetch) rateLimitService.enforceAnonymousLiveTts(request);
         NarrationPipelineService.StreamResult result = pipeline.processStream(
                 context, parsed.storyId(), parsed.speakerId(), parsed.text(),
-                RequestDeadline.startingNow(config.requestTimeoutMs()), body.path("prefetch").asBoolean(false));
+                RequestDeadline.startingNow(config.requestTimeoutMs()), prefetch);
 
         if (!result.ok()) {
             Map<String, Object> failure = result.failure();

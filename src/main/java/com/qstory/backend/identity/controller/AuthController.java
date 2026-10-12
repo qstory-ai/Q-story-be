@@ -12,6 +12,9 @@ import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
 import com.qstory.backend.identity.dto.UpdateProfileRequest;
 import com.qstory.backend.identity.dto.UserSummary;
 import com.qstory.backend.identity.security.CurrentUserResolver;
+import com.qstory.backend.ratelimit.RateLimitRule;
+import com.qstory.backend.ratelimit.RateLimitService;
+import java.util.Locale;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
@@ -38,11 +41,15 @@ public class AuthController {
     private final AuthService authService;
     private final CurrentUserResolver currentUserResolver;
     private final AdminTokenGuard adminTokenGuard;
+    private final RateLimitService rateLimitService;
 
-    public AuthController(AuthService authService, CurrentUserResolver currentUserResolver, AdminTokenGuard adminTokenGuard) {
+    public AuthController(
+            AuthService authService, CurrentUserResolver currentUserResolver, AdminTokenGuard adminTokenGuard,
+            RateLimitService rateLimitService) {
         this.authService = authService;
         this.currentUserResolver = currentUserResolver;
         this.adminTokenGuard = adminTokenGuard;
+        this.rateLimitService = rateLimitService;
     }
 
     @Operation(summary = "Sign up as an organization owner",
@@ -90,7 +97,14 @@ public class AuthController {
             + "(default true) picks the token lifetime: true = qstory.auth.remember-me-ttl-days, false = "
             + "qstory.auth.session-ttl-hours.")
     @PostMapping("/v1/auth/login")
-    public AuthResponse login(@RequestBody LoginRequest request) {
+    public AuthResponse login(HttpServletRequest httpRequest, @RequestBody LoginRequest request) {
+        // 비밀번호 대입 막기(보안 점검 M2) - 주소별 상한은 RateLimitFilter, 여기서는 (주소, 아이디)와 아이디 하나를 센다.
+        String loginId = request.loginId() == null ? "" : request.loginId().trim().toLowerCase(Locale.ROOT);
+        if (loginId.length() > 100) loginId = loginId.substring(0, 100);
+        if (!loginId.isEmpty()) {
+            rateLimitService.enforce(RateLimitRule.LOGIN_ACCOUNT, rateLimitService.clientIp(httpRequest) + "|" + loginId);
+            rateLimitService.enforce(RateLimitRule.LOGIN_ID, loginId);
+        }
         return authService.login(request);
     }
 
