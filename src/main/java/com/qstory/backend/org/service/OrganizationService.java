@@ -88,7 +88,7 @@ public class OrganizationService {
     private static String requireGuardianAck(Boolean acknowledged, String version) {
         if (!Boolean.TRUE.equals(acknowledged) || version == null || version.isBlank() || version.length() > 40) {
             throw ApiException.contractError(ErrorCode.CONSENT_REQUIRED,
-                    "원아의 보호자 동의를 받아 이용한다는 확인이 필요해요. 화면을 새로 고친 뒤 다시 시도해 주세요.");
+                    "원아의 보호자 동의를 받아 이용한다는 확인이 필요해요. 앱을 업데이트하거나 화면을 새로 고친 뒤 다시 시도해 주세요.");
         }
         return version.trim();
     }

@@ -64,8 +64,8 @@ public class ConsentService {
         if (!consents.overseasTransfer() || (role == Role.PARENT && !consents.guardian())) {
             throw ApiException.contractError(ErrorCode.CONSENT_REQUIRED,
                     role == Role.PARENT
-                            ? "법정대리인(보호자) 확인과 개인정보 국외 이전에 동의해 주세요. 화면을 새로 고친 뒤 다시 가입해 주세요."
-                            : "개인정보 국외 이전에 동의해 주세요. 화면을 새로 고친 뒤 다시 가입해 주세요.");
+                            ? "법정대리인(보호자) 확인과 개인정보 국외 이전에 동의해 주세요. 앱을 업데이트하거나 화면을 새로 고친 뒤 다시 가입해 주세요."
+                            : "개인정보 국외 이전에 동의해 주세요. 앱을 업데이트하거나 화면을 새로 고친 뒤 다시 가입해 주세요.");
         }
     }
 
