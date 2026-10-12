@@ -1,9 +1,11 @@
 package com.qstory.backend.common.error;
 
 import com.qstory.backend.common.web.RequestIdFilter;
+import com.qstory.backend.ratelimit.RateLimitedException;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -46,6 +48,14 @@ public class GlobalExceptionHandler {
                     currentRequestId(), error.code(), error.safeDetail(), error);
         }
         return respond(error.statusCode(), error.code(), error.safeDetail());
+    }
+
+    /** 요청 상한(보안 점검 M1/M2) - 429와 함께 언제 다시 해 볼 수 있는지 Retry-After(초)로 알린다. */
+    @ExceptionHandler(RateLimitedException.class)
+    public ResponseEntity<FailureBody> handleRateLimited(RateLimitedException error) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(error.retryAfterSeconds()))
+                .body(FailureBody.of(new Failure(ErrorCode.RATE_LIMITED.name(), "upload", false, error.safeDetail())));
     }
 
     @ExceptionHandler(NoHandlerFoundException.class)

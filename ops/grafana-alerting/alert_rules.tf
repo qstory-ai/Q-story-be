@@ -17,6 +17,7 @@
 #   client.error                   <- clienterror/ClientErrorController.java (브라우저에서 보낸 에러)
 #   fcm.send-failed                <- push/service/FcmClient.java, PushDispatcher.java (앱 푸시 발송 실패. disabled=true는
 #                                     앱 삭제 등으로 토큰이 죽은 늘 있는 경우라 규칙에서 뺀다)
+#   rate-limit.blocked             <- ratelimit/RateLimitService.java (요청 상한에 걸려 429로 끊은 요청, 1분 300줄까지)
 #
 # 각 규칙의 런북(대응 순서)은 README.md '런북' 절의 같은 이름 항목에 있다.
 #
@@ -164,6 +165,16 @@ locals {
       EOT
       logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"fcm.send-failed\" != \"disabled=true\" [5m]))"
       threshold   = var.fcm_failure_threshold
+    }
+    rate-limit-spike = {
+      severity    = "warning"
+      summary     = "요청 상한(429)에 걸린 요청이 5분간 ${var.rate_limit_blocked_threshold}건을 넘었어요."
+      description = <<-EOT
+        rate-limit.blocked 급증. group=으로 어느 상한(tts·companion-chat·login-account 등)인지, key=(주소·계정의
+        해시)로 한 곳에서 쏟아지는지 여러 곳인지 본다. tts-anonymous-daily면 오늘 익명 실시간 음성이 다 쓰였다는 뜻.
+      EOT
+      logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"rate-limit.blocked\" [5m]))"
+      threshold   = var.rate_limit_blocked_threshold
     }
     client-error-spike = {
       severity    = "warning"

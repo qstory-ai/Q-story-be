@@ -73,6 +73,45 @@ qstory:
     # 대화(sessionId) 하나가 10분 동안 받을 수 있는 표, 서버 전체가 1분 동안 줄 수 있는 표.
     session-ticket-limit: 40
     global-tickets-per-minute: 120
+  # 요청 상한(보안 점검 M1/M2, ratelimit/). 메모리 토큰 버킷이라 인스턴스 하나 기준이다. 문제가 생기면
+  # QSTORY_RATE_LIMIT_ENABLED=false로 모두 끈다. 상한별 값은 아래 limits에서 바꾼다(빠진 것은 RateLimitRule의 기본값).
+  rate-limit:
+    enabled: ${QSTORY_RATE_LIMIT_ENABLED:true}
+    # Vercel 프록시(fe/api/_qstory-proxy-core.mjs)와 같은 값. 프록시가 이 비밀로 서명한 x-qstory-client-ip만 믿는다.
+    # 비어 있으면 그 헤더를 보지 않고 연결 주소로 센다(웹 요청은 Vercel 주소 몇 개로 묶인다).
+    proxy-shared-secret: ${QSTORY_PROXY_SHARED_SECRET:}
+    # 서명이 없을 때(네이티브 앱·WebSocket) 볼 주소 헤더. 운영은 application-prod.yml에서 X-Real-IP.
+    client-ip-header: ${QSTORY_CLIENT_IP_HEADER:}
+    # 로그인하지 않은 실시간 TTS(기본 Gemini 키, 하루 100회)의 하루 상한 - 나머지는 로그인한 UT 사용자 몫.
+    tts-anonymous-daily: ${QSTORY_TTS_ANONYMOUS_DAILY_LIMIT:80}
+    limits:
+      tts: { requests: 40, window: 10m }
+      tts-anonymous-hourly: { requests: 60, window: 1h }
+      companion-chat: { requests: 30, window: 5m }
+      companion-chat-global: { requests: 1200, window: 1h }
+      stt: { requests: 40, window: 5m }
+      stt-global: { requests: 1500, window: 1h }
+      question-route: { requests: 30, window: 5m }
+      question-route-global: { requests: 1200, window: 1h }
+      login-client: { requests: 30, window: 15m }
+      login-account: { requests: 10, window: 15m }
+      login-id: { requests: 50, window: 1h }
+      signup: { requests: 10, window: 1h }
+      signup-staff: { requests: 5, window: 1h }
+      admin-token-failure: { requests: 10, window: 1h }
+      password-reset-request: { requests: 5, window: 1h }
+      password-reset-confirm: { requests: 10, window: 1h }
+      password-change: { requests: 10, window: 15m }
+      interactions: { requests: 120, window: 1m }
+      recording-chunks: { requests: 30, window: 1m }
+      play-session-turns: { requests: 60, window: 1m }
+      beta-events: { requests: 120, window: 1m }
+      client-errors: { requests: 120, window: 1m }
+      recording-consents: { requests: 30, window: 1h }
+      launch-notifications: { requests: 10, window: 1h }
+      completion-surveys: { requests: 10, window: 1h }
+      voice-research: { requests: 30, window: 1h }
+      feedback: { requests: 20, window: 1h }
   providers:
     rtzr:
       client-id: ${RTZR_CLIENT_ID:}

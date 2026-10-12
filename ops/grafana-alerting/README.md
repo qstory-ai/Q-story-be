@@ -33,6 +33,7 @@ threshold(변수, `variables.tf`)를 넘으면 Discord로 알린다. `backend-si
 | `backend-silent` | **critical** | `app.heartbeat`가 15분째 없음 | `HeartbeatLogger.java` (요청이 없어도 5분마다 찍힘) |
 | `slow-requests` | warning | `http.request`의 `duration_ms` p95 | `RequestIdFilter.java` (실시간 분기 생성 제외) |
 | `client-error-spike` | warning | `client.error` | `ClientErrorController.java` (브라우저에서 보낸 에러) |
+| `rate-limit-spike` | warning | `rate-limit.blocked` | `RateLimitService.java` (요청 상한에 걸려 429로 끊은 요청) |
 | `fcm-push-failure` | warning | `fcm.send-failed` (단 `disabled=true` 제외) | `FcmClient.java`, `PushDispatcher.java` (앱 푸시 발송 실패) |
 | `backend-unreachable` | **critical** | `probe_success` (Prometheus) | `synthetic.tf` - 바깥에서 본 `/health/ready` |
 
@@ -226,6 +227,21 @@ Explore 링크로 원본 로그를 연다.
 1. Explore에서 `|= "client.error"`로 열어 `kind`·`route`·`release`로 묶는다.
 2. 특정 `release`(프런트 배포)에서만 나면 그 배포를 Vercel에서 되돌린다.
 3. `PLAYBACK`이 많으면 음성 파일 주소(Supabase Storage)·브라우저 자동재생 제한을 의심.
+
+### rate-limit-spike
+요청 상한(보안 점검 M1/M2, be `ratelimit/`)에 걸린 요청이 많다. 상한 값은 `application.yml`의 `qstory.rate-limit`.
+1. Explore에서 `|= "rate-limit.blocked"`로 열어 `group=`과 `key=`로 묶는다. `key=`는 주소·계정 id의 해시라 원문은
+   없지만, 같은 값이 반복되면 한 클라이언트가 쏟아붓는 것이다.
+2. `group=login-account`·`login-id`·`admin-token-failure`가 몰리면 비밀번호·토큰 대입 시도. 상한이 막고 있으니
+   지켜보되, 특정 아이디에 몰리면 그 계정 주인에게 알린다.
+3. `group=tts`·`companion-chat`·`stt`·`question-route`가 한 key에 몰리면 비용을 쓰는 자동 호출. `*-global`이나
+   `tts-anonymous-daily`가 보이면 서버 전체 상한이 찬 것 - 그동안 익명 이용자는 그레텔 음성·대화가 "잠시 후에"로 바뀐다.
+   `tts-anonymous-daily`는 Gemini 하루 한도와 같은 시각(미국 태평양 자정)에 풀린다.
+4. 여러 key(여러 주소)가 같은 group에 고르게 걸리면 정상 이용자가 막히는 것일 수 있다. 특히 경고
+   `rate-limit.proxy-signature-invalid`가 함께 보이면 Vercel과 Railway의 `QSTORY_PROXY_SHARED_SECRET`이 서로 달라 웹
+   요청이 Vercel 주소 몇 개로 묶여 세지는 상태 - 두 값을 맞추고 Vercel을 다시 배포한다.
+5. 급하면 Railway 변수 `QSTORY_RATE_LIMIT_ENABLED=false`로 모든 상한을 끈다(재배포됨). 상한 값만 바꾸려면
+   `application.yml`의 `qstory.rate-limit.limits`를 고쳐 배포한다.
 
 ### fcm-push-failure
 1. 인앱 알림은 정상으로 쌓이고 기기 푸시만 안 가는 상태다. 로그의 `reason=`으로 가른다.

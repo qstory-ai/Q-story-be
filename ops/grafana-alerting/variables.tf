@@ -97,6 +97,12 @@ variable "client_error_threshold" {
   default     = 10
 }
 
+variable "rate_limit_blocked_threshold" {
+  description = "5분 창 안에서 요청 상한에 걸린 요청(rate-limit.blocked)이 이 건수를 넘으면 알림. 정상 이용자는 거의 걸리지 않는 값으로 잡았다."
+  type        = number
+  default     = 50
+}
+
 variable "tts_daily_limit" {
   description = "Gemini TTS 하루 호출 한도. 대시보드의 '오늘 TTS 사용량' 기준선으로만 쓴다(무료 등급 100회/일). 등급을 올리면 같이 바꾼다."
   type        = number
