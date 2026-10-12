@@ -1,7 +1,7 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.3.4'
-    id 'io.spring.dependency-management' version '1.1.6'
+    id 'org.springframework.boot' version '3.5.16'
+    id 'io.spring.dependency-management' version '1.1.7'
 }
 
 group = 'com.qstory'
@@ -21,10 +21,10 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     // 실시간 받아 적기(sttstream) - 앱·웹이 말하는 동안 오디오를 WebSocket으로 보내고 중간 문장을 받는다.
     implementation 'org.springframework.boot:spring-boot-starter-websocket'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
-    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
-    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
-    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.9.1'
+    implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.13.0'
 
     runtimeOnly 'org.postgresql:postgresql'
     // db/schema의 SQL을 한 번씩만 실행하고 적용 이력을 flyway_schema_history에 남긴다(application.yml 참고).
