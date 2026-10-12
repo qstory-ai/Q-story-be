@@ -7,10 +7,12 @@ import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
+import com.qstory.backend.identity.service.ConsentService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.org.SubscriptionStatus;
 import com.qstory.backend.org.dto.CreateOrganizationRequest;
 import com.qstory.backend.org.dto.EntitlementResponse;
+import com.qstory.backend.org.dto.GuardianConsentAckRequest;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.repository.OrganizationRepository;
 import java.time.Instant;
@@ -25,10 +27,12 @@ public class OrganizationService {
     private final AppUserRepository userRepository;
     private final JwtService jwtService;
     private final UserSummaryFactory userSummaryFactory;
+    private final ConsentService consentService;
 
     public OrganizationService(
             OrganizationRepository organizationRepository, AppUserRepository userRepository,
-            JwtService jwtService, UserSummaryFactory userSummaryFactory) {
+            JwtService jwtService, UserSummaryFactory userSummaryFactory, ConsentService consentService) {
+        this.consentService = consentService;
         this.organizationRepository = organizationRepository;
         this.userRepository = userRepository;
         this.jwtService = jwtService;
@@ -50,16 +54,43 @@ public class OrganizationService {
         if (request.name() == null || request.name().isBlank()) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "유치원 이름을 입력해 주세요.");
         }
+        String version = requireGuardianAck(request.guardianConsentAck(), request.consentVersion());
+        Instant now = Instant.now();
         Organization organization = organizationRepository.save(Organization.builder()
                 .name(request.name().trim())
-                .createdAt(Instant.now())
+                .guardianConsentAckAt(now)
+                .guardianConsentAckVersion(version)
+                .guardianConsentAckBy(director.getId())
+                .createdAt(now)
                 .build());
+        consentService.recordOrganizationGuardianAck(director.getId(), version, "ORGANIZATION_CREATE");
         director.setOrganization(organization);
         director = userRepository.save(director);
         CurrentUser refreshed = new CurrentUser(
                 director.getId(), director.getRole(), organization.getId(), caller.rememberMe(),
                 director.getTokenVersion(), caller.authTime());
         return new AuthResponse(jwtService.issue(refreshed), userSummaryFactory.of(director));
+    }
+
+    /** 이미 있는 기관(약관 2026-10-v2 이전에 만든 기관)의 보호자 동의 확인 - 다시 동의 화면에서 부른다. */
+    @Transactional
+    public void acknowledgeGuardianConsent(CurrentUser caller, UUID organizationId, GuardianConsentAckRequest request) {
+        Organization organization = requireOwned(caller, organizationId);
+        String version = requireGuardianAck(true, request == null ? null : request.consentVersion());
+        organization.setGuardianConsentAckAt(Instant.now());
+        organization.setGuardianConsentAckVersion(version);
+        organization.setGuardianConsentAckBy(caller.userId());
+        organizationRepository.save(organization);
+        consentService.recordOrganizationGuardianAck(caller.userId(), version, "RECONSENT");
+    }
+
+    /** 확인이 없거나 버전이 없으면 400 CONSENT_REQUIRED - 예전 화면(확인 항목 없음)에서 온 기관 등록도 여기서 막힌다. */
+    private static String requireGuardianAck(Boolean acknowledged, String version) {
+        if (!Boolean.TRUE.equals(acknowledged) || version == null || version.isBlank() || version.length() > 40) {
+            throw ApiException.contractError(ErrorCode.CONSENT_REQUIRED,
+                    "원아의 보호자 동의를 받아 이용한다는 확인이 필요해요. 화면을 새로 고친 뒤 다시 시도해 주세요.");
+        }
+        return version.trim();
     }
 
     public EntitlementResponse entitlement(CurrentUser caller, UUID organizationId) {

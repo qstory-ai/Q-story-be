@@ -57,7 +57,8 @@ class AccountErasureCoverageTest {
             Map.entry("class_homeroom_invite.used_by", "보존 - 담임 초대 이력, 계정은 익명화"),
             Map.entry("push_device_token.user_id", "삭제"),
             Map.entry("class_group.archived_by", "보존 - 반 보관 이력, 계정은 익명화"),
-            Map.entry("tutor_student_class_history.changed_by", "보존 - 반 이동 이력, 계정은 익명화"));
+            Map.entry("tutor_student_class_history.changed_by", "보존 - 반 이동 이력, 계정은 익명화"),
+            Map.entry("organization.guardian_consent_ack_by", "보존 - 기관 보호자 동의 확인 기록, 계정은 익명화"));
 
     private static final Pattern CREATE = Pattern.compile(
             "create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?(?:public\\.)?(\\w+)", Pattern.CASE_INSENSITIVE);
