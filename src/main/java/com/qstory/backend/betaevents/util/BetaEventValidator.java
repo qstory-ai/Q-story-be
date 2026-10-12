@@ -187,7 +187,9 @@ public class BetaEventValidator {
                 "anchor_id", "scene_id", "entry_mode", "turn_kind", "help_step", "family_id", "via_suggestion",
                 "reply_kind", "elapsed_ms", "turn_number", "latency_ms", "error_code",
                 // turn_kind=TRANSCRIBED - 말이 끝난 뒤 받아 적은 문장이 나오기까지(실시간 STREAM과 배치 BATCH 비교).
-                "stt_mode", "stt_ms", "stream_tried"));
+                "stt_mode", "stt_ms", "stream_tried",
+                // turn_kind=FILLER - 답을 기다리는 동안 튼 "생각 중" 말(어떤 녹음인지, 예정보다 늦은 시간).
+                "filler_clip", "filler_late_ms"));
         // Q-40 UT 데이터 수집. 질문 원문 같은 자유 문장은 받지 않는다.
         keys.put(EventName.APP_ENTRY, Set.of("entry", "path", "has_class_code"));
         keys.put(EventName.SIGNUP_STARTED, Set.of("role", "entry"));
