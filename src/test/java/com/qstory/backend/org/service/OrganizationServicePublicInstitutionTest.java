@@ -16,6 +16,7 @@ import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
+import com.qstory.backend.identity.service.ConsentService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
 import com.qstory.backend.institution.InstitutionKind;
 import com.qstory.backend.institution.entity.PublicInstitution;
@@ -38,7 +39,9 @@ class OrganizationServicePublicInstitutionTest {
     private final PublicInstitutionRepository publicInstitutionRepository = mock(PublicInstitutionRepository.class);
     private final OrganizationService service = new OrganizationService(
             organizationRepository, userRepository, mock(JwtService.class), mock(UserSummaryFactory.class),
-            publicInstitutionRepository);
+            publicInstitutionRepository, mock(ConsentService.class));
+
+    private static final String ACK = "2026-10-v2";
 
     private final AppUser director = AppUser.builder().id(UUID.randomUUID()).role(Role.DIRECTOR).build();
     private final CurrentUser caller = new CurrentUser(director.getId(), Role.DIRECTOR, null);
@@ -59,17 +62,18 @@ class OrganizationServicePublicInstitutionTest {
 
     @Test
     void registersWithPublicInstitutionName() {
-        service.create(caller, new CreateOrganizationRequest("아무 이름", kinder.getId()));
+        service.create(caller, new CreateOrganizationRequest("아무 이름", true, ACK, kinder.getId()));
 
         ArgumentCaptor<Organization> saved = ArgumentCaptor.forClass(Organization.class);
         verify(organizationRepository).saveAndFlush(saved.capture());
         assertEquals("가온유치원", saved.getValue().getName());
         assertEquals(kinder.getId(), saved.getValue().getPublicInstitutionId());
+        assertEquals(ACK, saved.getValue().getGuardianConsentAckVersion(), "목록에서 골라도 보호자 동의 확인이 남는다");
     }
 
     @Test
     void manualEntryStillWorks() {
-        service.create(caller, new CreateOrganizationRequest(" 별빛 공부방 ", null));
+        service.create(caller, new CreateOrganizationRequest(" 별빛 공부방 ", true, ACK, null));
 
         ArgumentCaptor<Organization> saved = ArgumentCaptor.forClass(Organization.class);
         verify(organizationRepository).saveAndFlush(saved.capture());
@@ -82,7 +86,7 @@ class OrganizationServicePublicInstitutionTest {
         when(organizationRepository.existsByPublicInstitutionId(kinder.getId())).thenReturn(true);
 
         ApiException error = assertThrows(ApiException.class,
-                () -> service.create(caller, new CreateOrganizationRequest(null, kinder.getId())));
+                () -> service.create(caller, new CreateOrganizationRequest(null, true, ACK, kinder.getId())));
         assertEquals(ErrorCode.PUBLIC_INSTITUTION_ALREADY_REGISTERED, error.code());
         verify(organizationRepository, never()).saveAndFlush(any());
     }
@@ -92,7 +96,7 @@ class OrganizationServicePublicInstitutionTest {
         doThrow(new DataIntegrityViolationException("dup")).when(organizationRepository).saveAndFlush(any());
 
         ApiException error = assertThrows(ApiException.class,
-                () -> service.create(caller, new CreateOrganizationRequest(null, kinder.getId())));
+                () -> service.create(caller, new CreateOrganizationRequest(null, true, ACK, kinder.getId())));
         assertEquals(ErrorCode.PUBLIC_INSTITUTION_ALREADY_REGISTERED, error.code());
     }
 
@@ -103,7 +107,7 @@ class OrganizationServicePublicInstitutionTest {
         when(publicInstitutionRepository.findById(closed.getId())).thenReturn(Optional.of(closed));
 
         ApiException error = assertThrows(ApiException.class,
-                () -> service.create(caller, new CreateOrganizationRequest(null, closed.getId())));
+                () -> service.create(caller, new CreateOrganizationRequest(null, true, ACK, closed.getId())));
         assertEquals(ErrorCode.NOT_FOUND, error.code());
     }
 

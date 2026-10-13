@@ -46,7 +46,7 @@ class ClassServiceJoinConsentTest {
     @Test
     void joinWithoutConsentIsRejectedBeforeSaving() {
         when(classGroups.findByJoinCode("SUN123")).thenReturn(Optional.of(ClassGroup.builder().build()));
-        doThrow(ApiException.contractError(ErrorCode.CONSENT_REQUIRED, "x")).when(consents).requireSignupConsents(any());
+        doThrow(ApiException.contractError(ErrorCode.CONSENT_REQUIRED, "x")).when(consents).requireSignupConsents(any(), any());
         ApiException e = assertThrows(ApiException.class, () -> service.join(request(null)));
         assertEquals(ErrorCode.CONSENT_REQUIRED, e.code());
         verify(users, never()).saveOrThrowDuplicate(any(), anyString());
@@ -54,7 +54,7 @@ class ClassServiceJoinConsentTest {
 
     @Test
     void joinWithConsentRecordsItAsClassJoinSignup() {
-        ConsentPayload ok = new ConsentPayload("2026-10-v1", true, true, false);
+        ConsentPayload ok = new ConsentPayload("2026-10-v2", true, true, false, true, true);
         when(classGroups.findByJoinCode("SUN123")).thenReturn(Optional.of(ClassGroup.builder().build()));
         when(users.saveOrThrowDuplicate(any(), anyString())).thenAnswer(i -> i.getArgument(0));
         service.join(request(ok));

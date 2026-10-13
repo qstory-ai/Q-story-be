@@ -14,8 +14,11 @@ public class GeminiTtsConfig {
     @Bean
     public GeminiTtsClient prefetchGeminiTtsClient(
             HttpClient httpClient, ObjectMapper objectMapper, AppProperties config,
-            @Value("${qstory.voice-streaming.tts:true}") boolean streaming) {
+            @Value("${qstory.voice-streaming.tts:true}") boolean streaming,
+            @Value("${qstory.voice-loudness.enabled:true}") boolean loudnessEnabled,
+            @Value("${qstory.voice-loudness.target-lufs:-17}") double loudnessTargetLufs) {
         return new GeminiTtsClient(
-                httpClient, objectMapper, config, config.providers().gemini().prefetchApiKey(), streaming);
+                httpClient, objectMapper, config, config.providers().gemini().prefetchApiKey(), streaming,
+                loudnessEnabled ? loudnessTargetLufs : null);
     }
 }
