@@ -131,6 +131,11 @@ qstory:
       tts-voice: ${GEMINI_TTS_VOICE:Sulafat}
       # 선택지 음성 미리 만들기 전용 키(기본 키의 하루 한도와 분리). 비면 prefetch 요청은 TTS 호출 없이 409.
       prefetch-api-key: ${GEMINI_TTS_PREFETCH_API_KEY:}
+  # 실시간 TTS 음량을 미리 녹음한 고정 음성(-17 LUFS)에 맞춘다 - 녹음한 대사와 실시간 대사가 번갈아 나올 때 음량이 튀지 않게.
+  # 스트리밍은 첫 말소리 약 0.6초를 모아 이득을 정한 뒤 내보낸다. 문제가 생기면 Railway 변수로 바로 끈다.
+  voice-loudness:
+    enabled: ${GEMINI_TTS_LOUDNESS_NORMALIZE:true}
+    target-lufs: ${GEMINI_TTS_TARGET_LUFS:-17}
   # 그레텔 답 음성을 빨리 들려주기 위한 스트리밍 스위치 - 소리 품질·한도에 문제가 생기면 Railway 변수로 바로 끈다.
   voice-streaming:
     # POST /v1/narrations/stream이 Gemini가 만드는 대로 PCM을 내보낸다(false: 전체를 만든 뒤 보냄). 호출 수는 같다.
