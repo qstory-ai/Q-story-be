@@ -33,6 +33,9 @@ public class ConversationRecordService {
 
     private static final Logger log = LoggerFactory.getLogger(ConversationRecordService.class);
 
+    /** 그레텔 대화에서 "실패해 보기" 장면을 들려준 턴의 route 값(상시대화 route는 보통 ANSWER/GENTLE_REDIRECT). */
+    public static final String TRY_AND_FAIL_ROUTE = "TRY_AND_FAIL";
+
     private final ConversationRecordRepository repository;
     private final TransactionTemplate transaction;
 
@@ -102,7 +105,8 @@ public class ConversationRecordService {
                 .childText(transcript)
                 .responseText(reply.responseText())
                 .speakerId(reply.speakerId())
-                .route(reply.interactionMode())
+                // 실패해 보기 장면은 따로 구분해 남긴다 - 아이가 어떤 행동을 해 보다가 다른 방법을 찾기로 했는지 원장에서 보이게.
+                .route(OpenRouterClient.TRY_FAIL.equals(reply.replyKind()) ? TRY_AND_FAIL_ROUTE : reply.interactionMode())
                 .topicTag(reply.topicTag())
                 .toneTag(reply.toneTag())
                 .valueTag(reply.valueTag())

@@ -312,7 +312,9 @@ public class OpenRouterClient {
             /** 질문 초대 중이면 그 앵커 - 실행 가능한 행동 제안을 고를 수 있는 범위. 상시 대화면 null. */
             com.qstory.backend.story.Anchor inviteAnchor,
             /** 장면에 맞는 호칭(노파 → 할머니/마녀). AI에게 보내는 글과 AI가 만든 글에 모두 적용한다. */
-            ChildFacingTerms terms) {
+            ChildFacingTerms terms,
+            /** "실패해 보기"(replyKind TRY_FAIL)를 허용하는지 - DialogueProperties 스위치. 질문 초대에서만 쓰인다. */
+            boolean tryAndFail) {
 
         public CompanionRequest {
             dialogue = dialogue == null ? com.qstory.backend.companionchat.DialogueInput.empty() : dialogue;
@@ -322,14 +324,31 @@ public class OpenRouterClient {
         public CompanionRequest(
                 String transcript, String promptVersion, String storyTitle, String primarySpeakerId,
                 List<String> allowedSpeakerIds, List<String> forbiddenKnowledge, CompanionPersona persona,
+                com.qstory.backend.companionchat.DialogueInput dialogue, com.qstory.backend.story.Anchor inviteAnchor,
+                ChildFacingTerms terms) {
+            this(transcript, promptVersion, storyTitle, primarySpeakerId, allowedSpeakerIds, forbiddenKnowledge,
+                    persona, dialogue, inviteAnchor, terms, false);
+        }
+
+        public CompanionRequest(
+                String transcript, String promptVersion, String storyTitle, String primarySpeakerId,
+                List<String> allowedSpeakerIds, List<String> forbiddenKnowledge, CompanionPersona persona,
                 com.qstory.backend.companionchat.DialogueInput dialogue, com.qstory.backend.story.Anchor inviteAnchor) {
             this(transcript, promptVersion, storyTitle, primarySpeakerId, allowedSpeakerIds, forbiddenKnowledge,
-                    persona, dialogue, inviteAnchor, null);
+                    persona, dialogue, inviteAnchor, null, false);
         }
 
         /** 도움 요청은 질문 초대 안에서만 받는다. */
         boolean helpRequested() {
             return inviteAnchor != null && dialogue.isHelp();
+        }
+
+        /**
+         * 이번 답에서 "실패해 보기"를 고를 수 있는지 - 스위치가 켜져 있고, 질문 초대 중이고, 도움 버튼 답이 아닐 때만.
+         * 상시 대화는 이야기 진행이 없으니 실패해 볼 행동도 없다.
+         */
+        boolean tryAndFailActive() {
+            return tryAndFail && inviteAnchor != null && !helpRequested();
         }
 
         List<String> inviteFamilyIds() {
@@ -340,6 +359,7 @@ public class OpenRouterClient {
     /**
      * @param replyKind              ANSWER(물은 것에 답함) / EMPATHY(감정·경험을 받아줌) / WAIT(공감하고 기다림)
      *                               / CLOSE(마무리 인사) / REDIRECT(안전 규칙으로 돌림)
+     *                               / TRY_FAIL(질문 초대에서 아이가 낸 행동을 해 봤다가 잘 안 된 짧은 장면 - 같은 질문 지점으로 돌아온다)
      * @param childWantsToEnd        아이가 그만 이야기하고 싶다고 분명히 말했는지
      * @param childMeaning           아이 말의 뜻을 짧게 - 리포트·기록용, 확대 해석하지 않는다
      * @param asksForHelp            "모르겠어"·"도와줘"처럼 도움을 바라는지
@@ -354,10 +374,34 @@ public class OpenRouterClient {
     static final List<String> REPLY_KINDS = List.of("ANSWER", "EMPATHY", "WAIT", "CLOSE", "REDIRECT");
 
     /**
+     * "실패해 보기" 답 - 몰래 가져가기·거짓말·혼자 도망치기처럼 결과로 배울 수 있는 행동을 거절하지 않고, 해 봤다가 잘 안 된
+     * 짧은 장면을 그레텔이 들려준 뒤 "다른 방법을 찾아보자"며 같은 질문 지점으로 돌아온다. 이야기 진행은 바뀌지 않는다.
+     */
+    public static final String TRY_FAIL = "TRY_FAIL";
+
+    /** 이 요청에서 고를 수 있는 replyKind - TRY_FAIL은 질문 초대에서 스위치가 켜졌을 때만. */
+    static List<String> replyKinds(CompanionRequest request) {
+        if (!request.tryAndFailActive()) {
+            return REPLY_KINDS;
+        }
+        List<String> kinds = new ArrayList<>(REPLY_KINDS);
+        kinds.add(TRY_FAIL);
+        return List.copyOf(kinds);
+    }
+
+    /**
      * 그레텔 대화 시스템 프롬프트(companionSystemPrompt) 버전 - 지시 문장을 바꾸면 올린다. 대화 원장에는 라우팅
      * 프롬프트 버전과 함께 남는다(ConversationRecordService.recordCompanionTurn).
      */
     public static final String COMPANION_PROMPT_VERSION = "GRETEL_DIALOGUE_V2";
+
+    /** V2 + 질문 초대의 "실패해 보기"(TRY_FAIL) 지시. 스위치(QSTORY_TRY_AND_FAIL_ENABLED)를 끄면 V2 그대로다. */
+    public static final String TRY_AND_FAIL_PROMPT_VERSION = "GRETEL_DIALOGUE_V3";
+
+    /** 대화 원장에 남길 그레텔 대화 지시 버전. */
+    public static String companionPromptVersion(boolean tryAndFail) {
+        return tryAndFail ? TRY_AND_FAIL_PROMPT_VERSION : COMPANION_PROMPT_VERSION;
+    }
 
     /**
      * 앵커에 독립적인 companion-chat 표면을 위한 형제 메서드: LLM 호출은 한 번뿐이며,
@@ -603,8 +647,14 @@ public class OpenRouterClient {
         String valueTag = nullableEnumLabel(value.get("valueTag"),
                 com.qstory.backend.common.enums.CompanionValueTag.ALL_LABELS);
         String replyKind = value.path("replyKind").asText("").trim();
-        if (!REPLY_KINDS.contains(replyKind)) {
+        if (!replyKinds(request).contains(replyKind)) {
             return null;
+        }
+        boolean triedAndFailed = TRY_FAIL.equals(replyKind);
+        if (triedAndFailed && "GENTLE_REDIRECT".equals(interactionMode)) {
+            // 안전 규칙으로 막았다면 실패 장면이 아니다 - 안전 쪽(REDIRECT)으로 읽는다.
+            replyKind = "REDIRECT";
+            triedAndFailed = false;
         }
         String childMeaning = value.path("childMeaning").isTextual() ? value.get("childMeaning").asText().trim() : "";
         if (childMeaning.length() > 80) {
@@ -617,13 +667,17 @@ public class OpenRouterClient {
         if (proposed != null && !request.inviteFamilyIds().contains(proposed)) {
             proposed = null;
         }
+        // 실패해 보기는 준비된 행동 제안이 아니다 - 실행 확인을 띄우지 않고, 대화를 끝내지도 않는다(같은 질문 지점으로 돌아온다).
+        if (triedAndFailed) {
+            proposed = null;
+        }
         // 도움 버튼으로 온 요청은 그 자체가 도움이다 - 다시 "도와줄까?"를 띄우지 않는다.
-        boolean asksForHelp = !request.helpRequested() && value.path("asksForHelp").asBoolean(false);
+        boolean asksForHelp = !triedAndFailed && !request.helpRequested() && value.path("asksForHelp").asBoolean(false);
         ChildFacingTerms terms = request.terms();
         return new CompanionReply(
                 interactionMode, terms.apply(routeResultValidator.normalizeKoreanResponseText(responseText)), speakerId,
                 topicTag, toneTag, valueTag,
-                replyKind, value.path("childWantsToEnd").asBoolean(false), terms.apply(childMeaning),
+                replyKind, !triedAndFailed && value.path("childWantsToEnd").asBoolean(false), terms.apply(childMeaning),
                 asksForHelp, proposed);
     }
 
@@ -660,7 +714,7 @@ public class OpenRouterClient {
         ObjectNode jsonSchema = responseFormat.putObject("json_schema");
         jsonSchema.put("name", "q_story_companion_v2");
         jsonSchema.put("strict", true);
-        jsonSchema.set("schema", companionSchema(request.allowedSpeakerIds(), request.inviteFamilyIds()));
+        jsonSchema.set("schema", companionSchema(request.allowedSpeakerIds(), request.inviteFamilyIds(), replyKinds(request)));
 
         root.putObject("provider").put("require_parameters", true);
         ObjectNode reasoning = root.putObject("reasoning");
@@ -722,7 +776,7 @@ public class OpenRouterClient {
         return payload;
     }
 
-    private ObjectNode companionSchema(List<String> allowedSpeakerIds, List<String> inviteFamilyIds) {
+    ObjectNode companionSchema(List<String> allowedSpeakerIds, List<String> inviteFamilyIds, List<String> replyKinds) {
         ObjectNode schema = objectMapper.createObjectNode();
         schema.put("type", "object");
         ObjectNode properties = schema.putObject("properties");
@@ -746,7 +800,7 @@ public class OpenRouterClient {
         ObjectNode replyKind = properties.putObject("replyKind");
         replyKind.put("type", "string");
         ArrayNode replyKindEnum = replyKind.putArray("enum");
-        REPLY_KINDS.forEach(replyKindEnum::add);
+        replyKinds.forEach(replyKindEnum::add);
         properties.putObject("childWantsToEnd").put("type", "boolean");
         addStringProperty(properties, "childMeaning", 0, 80);
         properties.putObject("asksForHelp").put("type", "boolean");
@@ -825,7 +879,12 @@ public class OpenRouterClient {
             lines.add("질문(예: 열쇠는 어디 있어?)은 행동 제안이 아니다. 아는 범위에서 답하고 proposedActionFamilyId는 null이다.");
             // V2(PM 피드백 - "그럼 살펴보자"에 동의했는데 이야기에서 그 행동이 나오지 않음).
             lines.add("앞에서 네가 preparedActions 중 하나와 뜻이 같은 행동을 말했고 아이가 그것에 동의하면(예: 네가 '새가 어디로 가는지 지켜볼까?'라고 한 뒤 아이가 '그래', '그럼 살펴보자', '좋아 그렇게 하자'), 아이가 그 행동을 제안한 것으로 보고 proposedActionFamilyId에 그 id를 넣고 뜻을 한 번 확인한다.");
-            lines.add("preparedActions에 없는 행동을 제안하면 그 생각을 받아주되, 이야기 속에서 실행했다고 꾸미거나 하겠다고 약속하지 않는다. proposedActionFamilyId는 null이다.");
+            if (request.tryAndFailActive()) {
+                lines.addAll(tryAndFailLines());
+                lines.add("그 밖에 preparedActions에 없는 행동을 제안하면 그 생각을 받아주되, 이야기 속에서 실행했다고 꾸미거나 하겠다고 약속하지 않는다. proposedActionFamilyId는 null이다.");
+            } else {
+                lines.add("preparedActions에 없는 행동을 제안하면 그 생각을 받아주되, 이야기 속에서 실행했다고 꾸미거나 하겠다고 약속하지 않는다. proposedActionFamilyId는 null이다.");
+            }
             lines.add("네가 먼저 '~해 볼까?'처럼 할 일을 제안할 때는 preparedActions에 있는 행동만 제안한다. preparedActions에 없는 행동(예: 집 주변을 살펴보자, 창문을 들여다보자)은 이야기가 보여 줄 수 없으니 할 일로 제안하지 않고, 대신 아이 생각을 묻는다.");
             if (request.inviteAnchor().actionFamilies().isEmpty()) {
                 lines.add("이 질문 지점에는 preparedActions가 없다 - 대화만 하는 곳이다. '집 주변을 살펴보면 어떨까?', '창문을 보자' 같은 할 일을 절대 제안하지 않는다. 아이가 뭘 해야 하냐고 물으면 할 일 대신 무엇이 궁금한지, 이 장면의 인물에게 무엇을 물어보고 싶은지 아이 생각을 묻는다.");
@@ -841,6 +900,9 @@ public class OpenRouterClient {
         }
         lines.add("위 안전 규칙에 해당하면 interactionMode를 GENTLE_REDIRECT, replyKind를 REDIRECT로 하고, 위험을 짧게 막은 뒤 안전한 화제로 부드럽게 돌아온다.");
         lines.add("그 외에는 interactionMode를 ANSWER로 하고, replyKind는 질문에 답했으면 ANSWER, 감정·경험을 받아줬으면 EMPATHY, 공감하고 기다리면 WAIT, 마무리 인사면 CLOSE로 한다.");
+        if (request.tryAndFailActive()) {
+            lines.add("실패해 보기 장면을 들려줬으면 interactionMode는 ANSWER, replyKind는 TRY_FAIL이다. 몰래 가져가기·거짓말·혼자 도망치기는 위 안전 규칙의 위험·폭력이 아니므로 GENTLE_REDIRECT로 막지 않는다.");
+        }
         lines.add("childMeaning에는 아이 말의 뜻을 30자 안팎으로 적는다. 확대 해석하지 않는다.");
         lines.add("topicTag/toneTag/valueTag는 아이의 말에서 뚜렷하게 드러날 때만 고르고, 확신이 없으면 null로 둔다.");
         lines.add("응답을 반환하기 전에 한국어 맞춤법·띄어쓰기와 캐릭터 말투 일치를 한 번 확인한다.");
@@ -848,6 +910,23 @@ public class OpenRouterClient {
         String prompt = request.terms().apply(String.join(" ", lines));
         String namingRule = request.terms().promptRule();
         return namingRule == null ? prompt : prompt + " " + namingRule;
+    }
+
+    /**
+     * 질문 초대의 "실패해 보기"(TRY_FAIL) 지시 - PM 피드백: 너무 비교육적인 것만 아니면 거절하지 말고 해 보고 실패하는 모습을
+     * 보여 준다. 다치거나 남을 해치는 행동은 그대로 안전 규칙(GENTLE_REDIRECT)으로 막는다. 장면은 무섭지 않게, 처벌 없이,
+     * 이야기 상태를 바꾸지 않고 같은 질문 지점으로 돌아온다.
+     */
+    static List<String> tryAndFailLines() {
+        return List.of(
+                "실패해 보기: preparedActions와 뜻이 같지 않은 행동 중 몰래 가져가기·훔치기, 거짓말하기·속이기, 헨젤처럼 함께 있는 사람을 두고 혼자 도망치기처럼 해 보면 결과로 배울 수 있는 행동을 아이가 분명히 제안하면, 거절하거나 말리지 말고 그 행동을 이야기 속에서 해 봤다가 잘 안 된 짧은 장면을 들려준다. 이때 replyKind는 TRY_FAIL, proposedActionFamilyId는 null이다.",
+                "장면에 없는 조건에 기대는 제안(예: 마녀가 잠들어 있지 않은데 '마녀가 잘 때 열쇠를 몰래 가져가자')도 실패해 보기다. 아이 제안이 preparedActions 중 하나와 뜻이 같으면 실패해 보기가 아니라 위의 행동 제안 규칙을 따른다.",
+                "TRY_FAIL의 responseText는 그레텔이 직접 겪은 일처럼 2~3문장으로 쓴다: 1) 아이 생각대로 해 보려 했다(예: 좋아, 살금살금 열쇠 쪽으로 손을 뻗어 봤어). 2) 작은 일이 생겨 잘 안 됐다(예: 그런데 마녀가 뒤척여서 깜짝 놀라 손을 떼고 얼른 숨었어). 3) '다른 방법을 찾아보자'고 말하고 아이 생각을 묻는 짧은 질문 하나로 끝낸다.",
+                "거짓말·속이기는 말을 꺼내 보다가 마음이 쿵쾅거려 말이 꼬이거나 상대가 대꾸 없이 하던 일을 계속해서 그만두는 장면으로, 혼자 도망치기는 혼자 몇 걸음 가 보다가 남겨진 헨젤이 마음에 걸려 발걸음을 돌리는 장면으로 쓴다. 교훈을 길게 설명하지 않는다.",
+                "실패해 보기에서 상대(마녀 등)는 아무것도 알아채지 못한다. 들켰다, 알아챘다, 거짓말인 걸 알았다, 의심한다처럼 쓰지 않는다 - 잘 안 된 이유는 작은 우연(뒤척임, 돌아봄, 발소리)이나 그레텔 자신의 마음이다.",
+                "실패해 보기 장면은 무섭지 않게 쓴다. 놀람·두려움은 '깜짝 놀랐지만 괜찮아' 수준까지만 쓰고, 들켜서 붙잡히거나 혼나거나 벌을 받거나 다치는 모습, 마녀가 화내거나 위협하는 모습은 쓰지 않는다. 아이나 아이 생각을 탓하거나 나쁜 생각이라고 하지 않는다.",
+                "실패해 보기 뒤에도 이야기는 그대로 이 질문 지점이다. 실패한 시도는 장면 상태(물건이 있는 곳, 등장인물이 아는 것, 마녀가 남매를 의심하는지)를 바꾸지 않는다. conversationSoFar에 있는 실패해 본 장면도 같다. 다른 방법을 찾자고 할 때 preparedActions나 탈출 방법을 정답처럼 먼저 알려 주지 않는다.",
+                "때리기·밀기·불이나 칼 쓰기·오븐에 넣기·가두기·높은 곳에서 뛰어내리기처럼 다치거나 남을 해치는 행동은 실패해 보기가 아니다 - 아래 안전 규칙대로 막는다(GENTLE_REDIRECT, replyKind REDIRECT).");
     }
 
     /**

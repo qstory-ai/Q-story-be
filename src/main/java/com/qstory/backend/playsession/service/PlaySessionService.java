@@ -39,7 +39,9 @@ public class PlaySessionService {
     private static final Set<String> ENTRY_MODES = Set.of("SPONTANEOUS", "INVITE", "HELP");
     private static final Set<String> INPUT_MODES = Set.of("VOICE", "TEXT");
     private static final Set<String> EVENTS = Set.of(
-            "ACTION_CONFIRMED", "ACTION_DECLINED", "INVITE_SKIPPED", "INVITE_CLOSED", "REPLY_FAILED", "STT_FAILED");
+            "ACTION_CONFIRMED", "ACTION_DECLINED", "INVITE_SKIPPED", "INVITE_CLOSED", "REPLY_FAILED", "STT_FAILED",
+            // 질문 초대에서 아이가 낸 행동을 "실패해 보기" 장면으로 보여 줬다(db/schema/084) - 이야기 진행은 그대로.
+            "TRY_FAILED");
     private static final Set<String> PLAY_SETTINGS = Set.of("HOME", "INDIVIDUAL", "SMALL_GROUP", "WHOLE_CLASS");
 
     private final JdbcTemplate jdbc;

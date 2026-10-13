@@ -15,6 +15,7 @@ import com.qstory.backend.companionchat.repository.CompanionChatTurnRepository;
 import com.qstory.backend.conversationrecord.ConversationAttribution;
 import com.qstory.backend.conversationrecord.service.ConversationRecordService;
 import com.qstory.backend.config.AppProperties;
+import com.qstory.backend.config.DialogueProperties;
 import com.qstory.backend.provider.ProviderReadiness;
 import com.qstory.backend.provider.audio.NormalizedAudio;
 import com.qstory.backend.provider.audio.service.AudioNormalizer;
@@ -54,11 +55,14 @@ public class CompanionChatPipelineService {
     private final VoiceCastService voiceCastService;
     private final CompanionChatTurnRepository turnRepository;
     private final ConversationRecordService conversationRecordService;
+    private final DialogueProperties dialogueProperties;
 
     public CompanionChatPipelineService(
             AppProperties config, AudioNormalizer normalizer, RtzrSttClient sttClient,
             OpenRouterClient openRouterClient, GeminiTtsClient geminiTtsClient, VoiceCastService voiceCastService,
-            CompanionChatTurnRepository turnRepository, ConversationRecordService conversationRecordService) {
+            CompanionChatTurnRepository turnRepository, ConversationRecordService conversationRecordService,
+            DialogueProperties dialogueProperties) {
+        this.dialogueProperties = dialogueProperties == null ? new DialogueProperties(null) : dialogueProperties;
         this.config = config;
         this.normalizer = normalizer;
         this.sttClient = sttClient;
@@ -174,7 +178,7 @@ public class CompanionChatPipelineService {
         OpenRouterClient.CompanionRequest request = new OpenRouterClient.CompanionRequest(
                 transcript, context.versions().promptVersion(), context.story().title(), context.primarySpeakerId(),
                 context.allowedSpeakerIds(), context.forbiddenKnowledge(), context.persona(), dialogue, inviteAnchor,
-                terms);
+                terms, dialogueProperties.tryAndFail());
         OpenRouterClient.CompanionReply reply = onResponseText == null
                 ? openRouterClient.generateCompanionReply(request, deadline)
                 : openRouterClient.streamCompanionReply(request, deadline, onResponseText);
@@ -192,10 +196,13 @@ public class CompanionChatPipelineService {
                 .valueTag(reply.valueTag())
                 .build());
         // 태그만 남기는 위 행과 별개로, 아이의 말과 캐릭터의 답 원문을 대화 원장에 남긴다(db/schema/052).
-        // 그레텔 대화 지시는 라우팅 프롬프트와 따로 바뀌므로 두 버전을 함께 남긴다(예: QSTORY_ROUTE_PROMPT_V7_COVERAGE+GRETEL_DIALOGUE_V2).
+        // 그레텔 대화 지시는 라우팅 프롬프트와 따로 바뀌므로 두 버전을 함께 남긴다(예: QSTORY_ROUTE_PROMPT_V7_COVERAGE+GRETEL_DIALOGUE_V3).
+        // 실패해 보기(TRY_FAIL) 답은 route가 TRY_AND_FAIL로 남는다(ConversationRecordService).
         conversationRecordService.recordCompanionTurn(
                 context.story().storyId(), context.sceneId(), conversationId, transcript, reply,
-                context.versions().promptVersion() + "+" + OpenRouterClient.COMPANION_PROMPT_VERSION, attribution);
+                context.versions().promptVersion() + "+"
+                        + OpenRouterClient.companionPromptVersion(dialogueProperties.tryAndFail()),
+                attribution);
 
         SynthesizedAudio generatedAudio = null;
         String ttsFailureCode = null;

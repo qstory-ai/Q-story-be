@@ -63,6 +63,11 @@ qstory:
     open-access-tutor-org: ${BETA_OPEN_ACCESS_TUTOR_ORG:true}
   # 실시간 받아 적기(sttstream, POST /v1/stt/stream-tickets + wss /v1/stt/stream). 끄면(STT_STREAM_ENABLED=false)
   # 표 발급이 503 STT_STREAM_UNAVAILABLE로 거절되고, 앱은 지금처럼 녹음을 다 올려 받아 적는다(배치).
+  # 그레텔 대화(질문 초대). try-and-fail-enabled - 몰래 가져가기·거짓말·혼자 도망치기 같은 행동을 거절하는 대신
+  # 짧은 실패 장면을 보여 주고 같은 질문 지점으로 돌아온다(때리기·불처럼 다치는 행동은 그대로 막는다).
+  # 문제가 생기면 QSTORY_TRY_AND_FAIL_ENABLED=false로 끈다(예전 대화 지시 GRETEL_DIALOGUE_V2로 돌아감).
+  dialogue:
+    try-and-fail-enabled: ${QSTORY_TRY_AND_FAIL_ENABLED:true}
   stt-stream:
     enabled: ${STT_STREAM_ENABLED:true}
     # RTZR 스트리밍 동시 채널 상한(유료 20) 안에서 우리가 쓸 몫. 넘치면 표를 주지 않아 배치로 간다.
