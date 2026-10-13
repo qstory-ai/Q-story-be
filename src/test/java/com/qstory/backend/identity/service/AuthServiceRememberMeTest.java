@@ -36,7 +36,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 class AuthServiceRememberMeTest {
 
     private static final String SECRET = "test-secret-test-secret-test-secret-0123456789";
-    private static final ConsentPayload OK = new ConsentPayload("2026-10-v1", true, true, true);
+    private static final ConsentPayload OK = new ConsentPayload("2026-10-v2", true, true, true, true, true);
 
     private final AppUserRepository users = mock(AppUserRepository.class);
     private final PasswordEncoder passwords = mock(PasswordEncoder.class);

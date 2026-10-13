@@ -30,7 +30,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 class AuthServiceConsentTest {
 
-    private static final ConsentPayload OK = new ConsentPayload("2026-10-v1", true, true, true);
+    private static final ConsentPayload OK = new ConsentPayload("2026-10-v2", true, true, true, true, true);
 
     private final AppUserRepository users = mock(AppUserRepository.class);
     private final GoogleOAuthVerifier google = mock(GoogleOAuthVerifier.class);
@@ -45,7 +45,7 @@ class AuthServiceConsentTest {
     }
 
     private void consentsRejectMissing() {
-        doThrow(ApiException.contractError(ErrorCode.CONSENT_REQUIRED, "x")).when(consents).requireSignupConsents(any());
+        doThrow(ApiException.contractError(ErrorCode.CONSENT_REQUIRED, "x")).when(consents).requireSignupConsents(any(), any());
     }
 
     /** 계정 생성과 동의 기록이 한 트랜잭션이어야 동의 저장 실패 시 계정 행이 남지 않는다. */
@@ -82,7 +82,7 @@ class AuthServiceConsentTest {
         AppUser existing = AppUser.builder().id(UUID.randomUUID()).role(Role.PARENT).build();
         when(users.findByOauthProviderAndOauthSubjectAndDeletedAtIsNull(OAuthProvider.GOOGLE, "sub")).thenReturn(Optional.of(existing));
         service.loginOrSignupWithOAuth(OAuthProvider.GOOGLE, new OAuthLoginRequest("tok", null, null));
-        verify(consents, never()).requireSignupConsents(any());
+        verify(consents, never()).requireSignupConsents(any(), any());
     }
 
     @Test

@@ -5,6 +5,7 @@ import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.security.CurrentUserResolver;
 import com.qstory.backend.org.dto.CreateOrganizationRequest;
 import com.qstory.backend.org.dto.EntitlementResponse;
+import com.qstory.backend.org.dto.GuardianConsentAckRequest;
 import com.qstory.backend.org.service.OrganizationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -38,6 +39,14 @@ public class OrganizationController {
         return service.create(currentUserResolver.requireRole(Role.DIRECTOR), request);
     }
 
+    @Operation(summary = "Acknowledge that the organization collects guardian consent",
+            description = "DIRECTOR of this organization. Records that the organization obtains consent from each "
+                    + "child's guardian (A5) - used by the re-consent screen for organizations created before 2026-10-v2.")
+    @PostMapping("/v1/organizations/{orgId}/guardian-consent-ack")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void acknowledgeGuardianConsent(@PathVariable UUID orgId, @RequestBody GuardianConsentAckRequest request) {
+        service.acknowledgeGuardianConsent(currentUserResolver.requireRole(Role.DIRECTOR), orgId, request);
+    }
 
     @Operation(summary = "Get an organization's entitlement status", description = "Thin read for a paywall/subscribe-banner UI.")
     @GetMapping("/v1/organizations/{orgId}/entitlement")

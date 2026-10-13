@@ -4,6 +4,7 @@ import com.qstory.backend.voiceresearch.repository.VoiceResearchRepository;
 
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.common.util.ContactInfoMasker;
 import com.qstory.backend.common.util.DigestUtil;
 import com.qstory.backend.common.util.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
@@ -102,11 +103,11 @@ public class VoiceResearchService {
                     .mimeType(request.audio().getContentType())
                     .byteSize(audioBytes.length)
                     .durationMillis(request.durationMillis())
-                    .sttDraft(request.sttDraft())
-                    .confirmedTranscript(request.confirmedTranscript())
+                    .sttDraft(ContactInfoMasker.mask(request.sttDraft()))
+                    .confirmedTranscript(ContactInfoMasker.mask(request.confirmedTranscript()))
                     .coverageStatus(request.coverageStatus())
                     .routedFamilyId(request.familyId())
-                    .intentSummary(request.intentSummary())
+                    .intentSummary(ContactInfoMasker.mask(request.intentSummary()))
                     .outcomeRecordedAt(request.hasRouteOutcome() ? Instant.now() : null)
                     .createdAt(Instant.now())
                     .build());

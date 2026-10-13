@@ -136,6 +136,21 @@ class PlaySessionServiceAnonymousTest {
         verify(jdbc, never()).update(startsWith("update play_session set user_id"), any(Object[].class));
     }
 
+    /** A2: 아이 줄은 연락처만 가려 저장하고, 캐릭터 줄은 그대로 둔다. */
+    @Test
+    void childTurnTextIsStoredWithContactInfoMasked() throws Exception {
+        ownersReturn(List.of(new Owner(userId, null)));
+        JsonNode body = json.readTree("{\"storyId\":\"story-1\",\"childId\":\"" + UUID.randomUUID() + "\",\"turns\":["
+                + "{\"seq\":1,\"role\":\"CHILD\",\"sceneId\":\"s1\",\"text\":\"엄마 번호 010-1234-5678 이야, 쿠키 3개\"},"
+                + "{\"seq\":2,\"role\":\"CHARACTER\",\"sceneId\":\"s1\",\"text\":\"02-123-4567\"}]}");
+        service.appendTurns(parent, sessionId, body);
+        var args = org.mockito.ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc, org.mockito.Mockito.times(2)).update(startsWith("insert into play_turn"), args.capture());
+        List<Object[]> rows = args.getAllValues();
+        assertThat(rows.get(0)[11]).isEqualTo("엄마 번호 [전화번호] 이야, 쿠키 3개");
+        assertThat(rows.get(1)[11]).isEqualTo("02-123-4567");
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void ownersReturn(List<Owner> first, List<Owner>... next) {
         var stub = when(jdbc.query(startsWith(OWNER_SQL), any(RowMapper.class), eq(sessionId))).thenReturn((List) first);
