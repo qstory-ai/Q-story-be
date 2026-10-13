@@ -51,6 +51,10 @@ public class Organization {
     @Column(name = "subscription_seats")
     private Integer subscriptionSeats;
 
+    /** 공공 기관 목록(public_institution)에서 고른 기관이면 그 id(083). 한 공공 기관은 한 기관만 가리킬 수 있다(유니크). */
+    @Column(name = "public_institution_id")
+    private UUID publicInstitutionId;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 }

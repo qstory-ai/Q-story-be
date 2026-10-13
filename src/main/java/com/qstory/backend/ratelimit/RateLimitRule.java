@@ -54,7 +54,13 @@ public enum RateLimitRule {
     LAUNCH_NOTIFICATIONS("launch-notifications", 10, Duration.ofHours(1), Scope.PER_CLIENT),
     COMPLETION_SURVEYS("completion-surveys", 10, Duration.ofHours(1), Scope.PER_CLIENT),
     VOICE_RESEARCH("voice-research", 30, Duration.ofHours(1), Scope.PER_CLIENT),
-    FEEDBACK("feedback", 20, Duration.ofHours(1), Scope.PER_CLIENT);
+    FEEDBACK("feedback", 20, Duration.ofHours(1), Scope.PER_CLIENT),
+
+    // ---- 공공 기관 목록 검색과 소속 신청(083)
+    /** 기관 검색 - 글자를 칠 때마다(앱은 쉬었다가) 불린다. 익명(원장 가입 화면)도 부른다. */
+    PUBLIC_INSTITUTION_SEARCH("public-institution-search", 60, Duration.ofMinutes(1), Scope.PER_CLIENT),
+    /** 선생님 소속 신청 - 원장에게 알림이 가므로 마구 보내지 못하게. */
+    ORGANIZATION_JOIN_REQUEST("organization-join-request", 20, Duration.ofHours(1), Scope.PER_CLIENT);
 
     public enum Scope { PER_CLIENT, GLOBAL, GLOBAL_ANONYMOUS }
 

@@ -8,13 +8,17 @@ import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.security.JwtService;
 import com.qstory.backend.identity.service.UserSummaryFactory;
+import com.qstory.backend.institution.entity.PublicInstitution;
+import com.qstory.backend.institution.repository.PublicInstitutionRepository;
 import com.qstory.backend.org.SubscriptionStatus;
 import com.qstory.backend.org.dto.CreateOrganizationRequest;
 import com.qstory.backend.org.dto.EntitlementResponse;
+import com.qstory.backend.org.dto.OrganizationProfileResponse;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.repository.OrganizationRepository;
 import java.time.Instant;
 import java.util.UUID;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,14 +29,17 @@ public class OrganizationService {
     private final AppUserRepository userRepository;
     private final JwtService jwtService;
     private final UserSummaryFactory userSummaryFactory;
+    private final PublicInstitutionRepository publicInstitutionRepository;
 
     public OrganizationService(
             OrganizationRepository organizationRepository, AppUserRepository userRepository,
-            JwtService jwtService, UserSummaryFactory userSummaryFactory) {
+            JwtService jwtService, UserSummaryFactory userSummaryFactory,
+            PublicInstitutionRepository publicInstitutionRepository) {
         this.organizationRepository = organizationRepository;
         this.userRepository = userRepository;
         this.jwtService = jwtService;
         this.userSummaryFactory = userSummaryFactory;
+        this.publicInstitutionRepository = publicInstitutionRepository;
     }
 
     /**
@@ -47,11 +54,16 @@ public class OrganizationService {
         if (director.getOrganization() != null) {
             throw ApiException.contractError(ErrorCode.ORGANIZATION_ALREADY_EXISTS, "이미 등록된 유치원이 있어요.");
         }
-        if (request.name() == null || request.name().isBlank()) {
+        PublicInstitution institution = request.publicInstitutionId() == null
+                ? null
+                : requireRegistrable(request.publicInstitutionId());
+        String name = institution != null ? institution.getName() : request.name();
+        if (name == null || name.isBlank()) {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "유치원 이름을 입력해 주세요.");
         }
-        Organization organization = organizationRepository.save(Organization.builder()
-                .name(request.name().trim())
+        Organization organization = saveUnique(Organization.builder()
+                .name(name.trim())
+                .publicInstitutionId(institution == null ? null : institution.getId())
                 .createdAt(Instant.now())
                 .build());
         director.setOrganization(organization);
@@ -60,6 +72,63 @@ public class OrganizationService {
                 director.getId(), director.getRole(), organization.getId(), caller.rememberMe(),
                 director.getTokenVersion(), caller.authTime());
         return new AuthResponse(jwtService.issue(refreshed), userSummaryFactory.of(director));
+    }
+
+    /** 원장 화면 - 우리 기관이 공공 기관 목록의 어느 곳과 연결됐는지(선생님이 검색으로 찾을 수 있는지). */
+    @Transactional(readOnly = true)
+    public OrganizationProfileResponse profile(CurrentUser caller, UUID organizationId) {
+        Organization organization = requireOwned(caller, organizationId);
+        PublicInstitution institution = organization.getPublicInstitutionId() == null
+                ? null
+                : publicInstitutionRepository.findById(organization.getPublicInstitutionId()).orElse(null);
+        return OrganizationProfileResponse.of(organization, institution);
+    }
+
+    /**
+     * 이미 직접 입력으로 등록한 기관을 공공 기관 목록의 한 곳과 연결한다 - 그래야 선생님이 검색해 소속 신청할 수 있다.
+     * 기관 이름은 바꾸지 않는다(원장이 정한 이름). 다른 기관이 이미 연결한 곳이면 409. 같은 곳으로 다시 부르면 그대로 둔다.
+     */
+    @Transactional
+    public OrganizationProfileResponse linkPublicInstitution(
+            CurrentUser caller, UUID organizationId, UUID publicInstitutionId) {
+        Organization organization = requireOwned(caller, organizationId);
+        if (publicInstitutionId == null) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "연결할 기관을 골라 주세요.");
+        }
+        PublicInstitution institution;
+        if (publicInstitutionId.equals(organization.getPublicInstitutionId())) {
+            institution = publicInstitutionRepository.findById(publicInstitutionId).orElse(null);
+        } else {
+            institution = requireRegistrable(publicInstitutionId);
+            organization.setPublicInstitutionId(institution.getId());
+            organization = saveUnique(organization);
+        }
+        return OrganizationProfileResponse.of(organization, institution);
+    }
+
+    private PublicInstitution requireRegistrable(UUID publicInstitutionId) {
+        PublicInstitution institution = publicInstitutionRepository.findById(publicInstitutionId)
+                .filter(PublicInstitution::isActive)
+                .orElseThrow(() -> ApiException.contractError(
+                        ErrorCode.NOT_FOUND, "고른 기관을 찾을 수 없어요. 다시 검색해 주세요.", 404));
+        if (organizationRepository.existsByPublicInstitutionId(institution.getId())) {
+            throw alreadyRegistered();
+        }
+        return institution;
+    }
+
+    /** 두 원장이 같은 곳을 동시에 고르면 유니크 색인(083)이 하나를 막는다 - 그 경우도 같은 409로 안내한다. */
+    private Organization saveUnique(Organization organization) {
+        try {
+            return organizationRepository.saveAndFlush(organization);
+        } catch (DataIntegrityViolationException e) {
+            throw alreadyRegistered();
+        }
+    }
+
+    private static ApiException alreadyRegistered() {
+        return ApiException.contractError(ErrorCode.PUBLIC_INSTITUTION_ALREADY_REGISTERED,
+                "이미 다른 관리자가 등록한 기관이에요. 그 기관의 관리자에게 선생님 초대를 받거나, 잘못 등록됐다면 고객센터로 알려 주세요.");
     }
 
     public EntitlementResponse entitlement(CurrentUser caller, UUID organizationId) {

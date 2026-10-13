@@ -37,6 +37,7 @@ class AccountErasureCoverageTest {
             Map.entry("notification_settings.user_id", "삭제"),
             Map.entry("bookmark.user_id", "삭제"),
             Map.entry("organization_tutor.tutor_id", "삭제(기관 소속 해제)"),
+            Map.entry("organization_join_request.tutor_id", "삭제(기관 소속 신청)"),
             Map.entry("organization_tutor_invite.used_by_tutor_id", "보존 - 초대 사용 이력, 계정은 익명화"),
             Map.entry("lesson.tutor_id", "개인 수업 삭제, 기관 반 수업은 보존"),
             Map.entry("notifications.user_id", "삭제"),

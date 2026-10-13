@@ -74,6 +74,8 @@ public class AccountErasureService {
     static final String DETACH_STORY_SESSIONS = "update story_sessions set user_id = null where user_id = ?";
     static final String DELETE_VOICE_RESEARCH_PREFERENCE = "delete from voice_research_preferences where user_id = ?";
 
+    private static final String DELETE_JOIN_REQUESTS = "delete from public.organization_join_request where tutor_id = ?";
+
     private final AppUserRepository userRepository;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final BookmarkRepository bookmarkRepository;
@@ -167,6 +169,8 @@ public class AccountErasureService {
         notificationSettingsRepository.deleteAllByUserId(userId);
         // 탈퇴한 계정의 기기로 푸시가 가지 않게 한다(075).
         pushDeviceTokenRepository.deleteAllByUserId(userId);
+        // 선생님의 기관 소속 신청(083) - 대기·처리 기록 모두. 원장 화면에 탈퇴 계정의 신청이 남지 않게.
+        jdbc.update(DELETE_JOIN_REQUESTS, userId);
         improvementFeedbackRepository.deleteAllByUserId(userId);
         conversationRecordRepository.deleteAllByUserId(userId);
 

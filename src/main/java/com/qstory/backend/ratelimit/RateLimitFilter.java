@@ -62,7 +62,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             new Route("POST", "^/v1/launch-notifications$", RateLimitRule.LAUNCH_NOTIFICATIONS),
             new Route("POST", "^/v1/completion-surveys$", RateLimitRule.COMPLETION_SURVEYS),
             new Route("POST", "^/v1/voice-research(/withdraw)?$", RateLimitRule.VOICE_RESEARCH),
-            new Route("POST", "^/v1/feedback$", RateLimitRule.FEEDBACK));
+            new Route("POST", "^/v1/feedback$", RateLimitRule.FEEDBACK),
+            new Route("GET", "^/v1/public-institutions$", RateLimitRule.PUBLIC_INSTITUTION_SEARCH),
+            new Route("POST", "^/v1/organization-join-requests$", RateLimitRule.ORGANIZATION_JOIN_REQUEST));
 
     private final RateLimitService rateLimitService;
     private final ObjectMapper objectMapper;
