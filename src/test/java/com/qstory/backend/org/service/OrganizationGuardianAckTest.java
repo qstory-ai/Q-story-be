@@ -34,7 +34,8 @@ class OrganizationGuardianAckTest {
     private final AppUserRepository users = mock(AppUserRepository.class);
     private final ConsentService consents = mock(ConsentService.class);
     private final OrganizationService service = new OrganizationService(
-            organizations, users, mock(JwtService.class), mock(UserSummaryFactory.class), consents);
+            organizations, users, mock(JwtService.class), mock(UserSummaryFactory.class),
+            mock(com.qstory.backend.institution.repository.PublicInstitutionRepository.class), consents);
     private final UUID directorId = UUID.randomUUID();
     private final CurrentUser caller = new CurrentUser(directorId, Role.DIRECTOR, null);
 
@@ -42,30 +43,32 @@ class OrganizationGuardianAckTest {
     void createWithoutAcknowledgementIsRejected() {
         when(users.findById(directorId)).thenReturn(Optional.of(AppUser.builder().id(directorId).role(Role.DIRECTOR).build()));
         for (CreateOrganizationRequest bad : new CreateOrganizationRequest[] {
-                new CreateOrganizationRequest("무지개 유치원", null, null),
-                new CreateOrganizationRequest("무지개 유치원", false, "2026-10-v2"),
-                new CreateOrganizationRequest("무지개 유치원", true, " ")}) {
+                new CreateOrganizationRequest("무지개 유치원", null, null, null),
+                new CreateOrganizationRequest("무지개 유치원", false, "2026-10-v2", null),
+                new CreateOrganizationRequest("무지개 유치원", true, " ", null),
+                // 공공 기관 목록에서 고른 등록도 보호자 동의 확인이 있어야 한다(083).
+                new CreateOrganizationRequest(null, null, null, UUID.randomUUID())}) {
             ApiException e = assertThrows(ApiException.class, () -> service.create(caller, bad));
             assertEquals(ErrorCode.CONSENT_REQUIRED, e.code());
         }
-        verify(organizations, never()).save(any());
+        verify(organizations, never()).saveAndFlush(any());
     }
 
     @Test
     void createRecordsAcknowledgementOnOrganization() {
         AppUser director = AppUser.builder().id(directorId).role(Role.DIRECTOR).build();
         when(users.findById(directorId)).thenReturn(Optional.of(director));
-        when(organizations.save(any())).thenAnswer(i -> {
+        when(organizations.saveAndFlush(any())).thenAnswer(i -> {
             Organization org = i.getArgument(0);
             org.setId(UUID.randomUUID());
             return org;
         });
         when(users.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        service.create(caller, new CreateOrganizationRequest("무지개 유치원", true, "2026-10-v2"));
+        service.create(caller, new CreateOrganizationRequest("무지개 유치원", true, "2026-10-v2", null));
 
         ArgumentCaptor<Organization> saved = ArgumentCaptor.forClass(Organization.class);
-        verify(organizations).save(saved.capture());
+        verify(organizations).saveAndFlush(saved.capture());
         assertNotNull(saved.getValue().getGuardianConsentAckAt());
         assertEquals("2026-10-v2", saved.getValue().getGuardianConsentAckVersion());
         assertEquals(directorId, saved.getValue().getGuardianConsentAckBy());

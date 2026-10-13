@@ -112,6 +112,8 @@ qstory:
       completion-surveys: { requests: 10, window: 1h }
       voice-research: { requests: 30, window: 1h }
       feedback: { requests: 20, window: 1h }
+      public-institution-search: { requests: 60, window: 1m }
+      organization-join-request: { requests: 20, window: 1h }
   providers:
     rtzr:
       client-id: ${RTZR_CLIENT_ID:}

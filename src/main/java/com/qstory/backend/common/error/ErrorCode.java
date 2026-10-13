@@ -75,7 +75,13 @@ public enum ErrorCode {
     /** 지난 반(보관된 반)이라 담임 배정·초대·학생 옮겨 넣기를 할 수 없다(076). */
     CLASS_ARCHIVED(409),
     /** 반에 아직 지금 학생이 있어 보관할 수 없다 - 학기 넘기기로 옮기거나 졸업 처리해야 한다(076). */
-    CLASS_HAS_ACTIVE_STUDENTS(409);
+    CLASS_HAS_ACTIVE_STUDENTS(409),
+    /** 고른 공공 기관(유치원·어린이집)을 이미 다른 원장이 등록했다(083). */
+    PUBLIC_INSTITUTION_ALREADY_REGISTERED(409),
+    /** 이미 그 기관 소속인 선생님이 소속 신청을 했다(083). */
+    ALREADY_ORGANIZATION_MEMBER(409),
+    /** 이미 처리(수락·거절·취소)된 소속 신청을 다시 처리하려 했다(083). */
+    JOIN_REQUEST_ALREADY_DECIDED(409);
 
     private final int defaultStatus;
 
