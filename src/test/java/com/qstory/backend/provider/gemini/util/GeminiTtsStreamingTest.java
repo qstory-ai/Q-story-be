@@ -2,6 +2,7 @@ package com.qstory.backend.provider.gemini.util;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
@@ -10,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
+import com.qstory.backend.common.util.PcmLoudness;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.provider.openrouter.SynthesizedAudioStream;
@@ -122,5 +124,36 @@ class GeminiTtsStreamingTest {
         assertThatThrownBy(() -> silent.synthesizeStream("line", "Leda", 1.0, RequestDeadline.startingNow(10_000)))
                 .isInstanceOfSatisfying(ProviderException.class,
                         error -> assertThat(error.code()).isEqualTo(ProviderErrorCode.GEMINI_TTS_EMPTY));
+    }
+
+    @Test
+    void levelsTheStreamedVoiceToThePrerecordedLoudness() throws Exception {
+        // 2초짜리 -23 LUFS 사인을 40ms 조각으로 - 맞추면 -17 LUFS 언저리가 된다.
+        int rate = 24_000;
+        byte[] pcm = new byte[rate * 2 * 2];
+        for (int index = 0; index < pcm.length / 2; index++) {
+            int sample = (int) Math.round(Math.sin(2 * Math.PI * 997 * index / rate) * 0.1 * 32767);
+            pcm[index * 2] = (byte) sample;
+            pcm[index * 2 + 1] = (byte) (sample >> 8);
+        }
+        List<String> events = new ArrayList<>();
+        int chunk = rate / 25 * 2;
+        for (int offset = 0; offset < pcm.length; offset += chunk) {
+            events.add(audioEvent(java.util.Arrays.copyOfRange(pcm, offset, Math.min(pcm.length, offset + chunk)),
+                    "audio/l16; rate=24000; channels=1"));
+        }
+        ArgumentCaptor<HttpRequest> request = ArgumentCaptor.forClass(HttpRequest.class);
+        HttpClient httpClient = httpReturning(200, sse(events.toArray(String[]::new)), request);
+        AppProperties config = mock(AppProperties.class, RETURNS_DEEP_STUBS);
+        when(config.providers().gemini().ttsModel()).thenReturn("gemini-3.1-flash-tts-preview");
+        when(config.providers().gemini().ttsVoice()).thenReturn("Sulafat");
+        GeminiTtsClient leveling = new GeminiTtsClient(httpClient, objectMapper, config, "key", true, -17.0);
+
+        byte[] out = leveling.synthesizeStream("line", "Leda", 1.0, RequestDeadline.startingNow(10_000))
+                .stream().readAllBytes();
+
+        assertThat(out).hasSameSizeAs(pcm);
+        assertThat(PcmLoudness.integratedLufs(pcm, rate)).isCloseTo(-23.0, within(0.3));
+        assertThat(PcmLoudness.integratedLufs(out, rate)).isCloseTo(-17.0, within(0.5));
     }
 }

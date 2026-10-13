@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
+import com.qstory.backend.common.util.PcmLoudness;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.common.util.WavPcmUtil;
 import com.qstory.backend.config.AppProperties;
@@ -37,6 +38,9 @@ import org.springframework.stereotype.Component;
  * (qstory.voice-streaming.tts) models/{model}:streamGenerateContent?alt=sse로 소리를 만들어지는 대로 내보낸다 -
  * 같은 모델·목소리·입력 문장이라 목소리는 같고, 2026-10 실측으로 첫 소리가 약 1.4초에 온다(전체를 기다리면 8~11초).
  * 호출은 여전히 답 하나에 한 번이다(하루 요청 수 한도 그대로). 꺼져 있으면 예전처럼 전체를 만든 뒤 감싸 보낸다.
+ *
+ * <p>loudnessTargetLufs가 있으면(qstory.voice-loudness) 두 길 모두 소리를 미리 녹음한 고정 음성과 같은 음량으로 맞춘다
+ * (PcmLoudness) - Gemini가 내는 음량은 호출마다 -14.6 ~ -22.5 LUFS로 제각각이라 녹음한 대사 사이에서 튀었다.
  */
 @Component
 @Primary
@@ -57,12 +61,17 @@ public class GeminiTtsClient {
     private final String ttsModel;
     private final String ttsVoice;
     private final boolean streaming;
+    /** null이면 음량을 맞추지 않는다(Gemini가 준 그대로). */
+    private final Double loudnessTargetLufs;
 
     @Autowired
     public GeminiTtsClient(
             HttpClient httpClient, ObjectMapper objectMapper, AppProperties config,
-            @Value("${qstory.voice-streaming.tts:true}") boolean streaming) {
-        this(httpClient, objectMapper, config, config.providers().gemini().apiKey(), streaming);
+            @Value("${qstory.voice-streaming.tts:true}") boolean streaming,
+            @Value("${qstory.voice-loudness.enabled:true}") boolean loudnessEnabled,
+            @Value("${qstory.voice-loudness.target-lufs:-17}") double loudnessTargetLufs) {
+        this(httpClient, objectMapper, config, config.providers().gemini().apiKey(), streaming,
+                loudnessEnabled ? loudnessTargetLufs : null);
     }
 
     public GeminiTtsClient(HttpClient httpClient, ObjectMapper objectMapper, AppProperties config) {
@@ -75,17 +84,29 @@ public class GeminiTtsClient {
      */
     public GeminiTtsClient(
             HttpClient httpClient, ObjectMapper objectMapper, AppProperties config, String apiKey, boolean streaming) {
+        this(httpClient, objectMapper, config, apiKey, streaming, null);
+    }
+
+    /** @param loudnessTargetLufs 맞출 음량(LUFS) - null이면 맞추지 않는다. */
+    public GeminiTtsClient(
+            HttpClient httpClient, ObjectMapper objectMapper, AppProperties config, String apiKey, boolean streaming,
+            Double loudnessTargetLufs) {
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
         this.apiKey = apiKey;
         this.ttsModel = config.providers().gemini().ttsModel();
         this.ttsVoice = config.providers().gemini().ttsVoice();
         this.streaming = streaming;
+        this.loudnessTargetLufs = loudnessTargetLufs;
+    }
+
+    private byte[] leveled(byte[] pcm) {
+        return loudnessTargetLufs == null ? pcm : PcmLoudness.normalize(pcm, PCM_SAMPLE_RATE, loudnessTargetLufs);
     }
 
     /** speed는 호출부 호환용으로만 받는다 - Gemini Interactions API에 대응 파라미터가 없다. */
     public SynthesizedAudio synthesize(String text, String voice, double speed, RequestDeadline deadline) {
-        byte[] pcm = fetchPcm("synthesize", text, voice, deadline);
+        byte[] pcm = leveled(fetchPcm("synthesize", text, voice, deadline));
         byte[] wav = WavPcmUtil.wrapPcmAsWav(pcm, PCM_SAMPLE_RATE, PCM_CHANNELS, PCM_BIT_DEPTH);
         return new SynthesizedAudio(wav, "audio/wav", null);
     }
@@ -99,7 +120,7 @@ public class GeminiTtsClient {
         if (streaming) {
             return openPcmStream(text, voice, deadline);
         }
-        byte[] pcm = fetchPcm("synthesizeStream", text, voice, deadline);
+        byte[] pcm = leveled(fetchPcm("synthesizeStream", text, voice, deadline));
         return new SynthesizedAudioStream(
                 new ByteArrayInputStream(pcm), "audio/pcm", PCM_SAMPLE_RATE, PCM_CHANNELS, PCM_BIT_DEPTH, null);
     }
@@ -133,7 +154,10 @@ public class GeminiTtsClient {
                 throw new ProviderException(ProviderErrorCode.GEMINI_TTS_EMPTY, "답변 음성이 비어 있어요.");
             }
             firstAudioMs[0] = (System.nanoTime() - startedAt) / 1_000_000;
-            return new SynthesizedAudioStream(pcm, "audio/pcm", pcm.sampleRate(), PCM_CHANNELS, PCM_BIT_DEPTH, null);
+            InputStream audio = loudnessTargetLufs == null
+                    ? pcm
+                    : PcmLoudness.leveling(pcm, pcm.sampleRate(), loudnessTargetLufs);
+            return new SynthesizedAudioStream(audio, "audio/pcm", pcm.sampleRate(), PCM_CHANNELS, PCM_BIT_DEPTH, null);
         } catch (ProviderException | AbortException known) {
             closeQuietly(body);
             throw known;
