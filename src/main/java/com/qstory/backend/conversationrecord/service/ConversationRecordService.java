@@ -96,6 +96,18 @@ public class ConversationRecordService {
     public void recordCompanionTurn(
             String storyId, String sceneId, UUID conversationId, String transcript,
             OpenRouterClient.CompanionReply reply, String promptVersion, ConversationAttribution attribution) {
+        recordCompanionTurn(storyId, sceneId, conversationId, transcript, reply, promptVersion, attribution, null);
+    }
+
+    /**
+     * @param attemptTurn 질문 초대의 시도 장면 안에서 한 말이면 장면 안 몇 번째 말인지, 아니면 null. 시도 장면 시작은
+     *                    route TRY_AND_FAIL(장면 줄도 답 글에 함께 남긴다), 장면 안 대화는 TRY_AND_FAIL_TALK_n, 마침은
+     *                    TRY_AND_FAIL_END_n(n = 장면 안 아이 말 수)으로 남긴다 - 무엇을 해 봤고 몇 번 이어졌는지 원장에서 보이게.
+     */
+    public void recordCompanionTurn(
+            String storyId, String sceneId, UUID conversationId, String transcript,
+            OpenRouterClient.CompanionReply reply, String promptVersion, ConversationAttribution attribution,
+            Integer attemptTurn) {
         ConversationAttribution withSession = attribution.sessionId() != null
                 ? attribution
                 : new ConversationAttribution(
@@ -103,15 +115,39 @@ public class ConversationRecordService {
                         attribution.inputMode(), attribution.userId(), attribution.userRole());
         save(base(ConversationRecordKind.COMPANION_TURN, storyId, sceneId, withSession)
                 .childText(transcript)
-                .responseText(reply.responseText())
+                .responseText(responseWithScene(reply))
                 .speakerId(reply.speakerId())
-                // 실패해 보기 장면은 따로 구분해 남긴다 - 아이가 어떤 행동을 해 보다가 다른 방법을 찾기로 했는지 원장에서 보이게.
-                .route(OpenRouterClient.TRY_FAIL.equals(reply.replyKind()) ? TRY_AND_FAIL_ROUTE : reply.interactionMode())
+                .route(companionRoute(reply, attemptTurn))
                 .topicTag(reply.topicTag())
                 .toneTag(reply.toneTag())
                 .valueTag(reply.valueTag())
                 .promptVersion(promptVersion)
                 .build());
+    }
+
+    static String companionRoute(OpenRouterClient.CompanionReply reply, Integer attemptTurn) {
+        if (OpenRouterClient.TRY_FAIL.equals(reply.replyKind())) {
+            return TRY_AND_FAIL_ROUTE;
+        }
+        if (OpenRouterClient.ATTEMPT_END.equals(reply.replyKind())) {
+            return TRY_AND_FAIL_ROUTE + "_END_" + (attemptTurn == null ? 0 : attemptTurn);
+        }
+        if (attemptTurn != null) {
+            return TRY_AND_FAIL_ROUTE + "_TALK_" + attemptTurn;
+        }
+        return reply.interactionMode();
+    }
+
+    /** 시도 장면을 시작한 답은 장면 줄(화자: 글)을 앞에 붙여 남긴다 - 아이가 들은 장면 그대로. */
+    static String responseWithScene(OpenRouterClient.CompanionReply reply) {
+        if (reply.attemptScene().isEmpty()) {
+            return reply.responseText();
+        }
+        StringBuilder text = new StringBuilder();
+        for (OpenRouterClient.SceneLine line : reply.attemptScene()) {
+            text.append('[').append(line.speakerId()).append("] ").append(line.text()).append(" / ");
+        }
+        return text.append(reply.responseText()).toString();
     }
 
     private static ConversationRecord.ConversationRecordBuilder base(

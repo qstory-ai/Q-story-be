@@ -50,7 +50,7 @@ public class ReportAnalysisService {
             - observation은 아이가 실제로 한 말의 범위만 쓴다. 캐릭터가 바꿔 말한 내용(예: "~하는 동안 내가 열쇠를 가져오자는 거지?")을 아이 생각에 덧붙이지 않는다.
             - 아이 제안 뒤 ACTION_CONFIRMED가 있으면 signals에 PROPOSED_ACTION을 넣는다.
             - 도움 예시를 보고 고른 행동(viaSuggestion=true)은 아이 스스로의 생각이 아니다 - 관찰로 만들지 않는다.
-            - event=TRY_FAILED는 아이가 낸 행동을 이야기 속에서 해 봤다가 잘 안 돼 다른 방법을 다시 찾기로 한 기록이다. 관찰은 "~을 해 보자고 했고, 잘 안 되자 다른 방법을 생각했다"까지만 쓰고, 실패를 아이의 잘못·성향·나쁜 생각으로 쓰지 않는다.
+            - event=TRY_FAILED는 아이가 낸 준비되지 않은 행동을 이야기 속에서 해 보는 시도 장면을 시작한 기록이고(text = 해 본 것), event=TRY_ENDED는 그 장면에서 몇 번 더 이야기한 뒤(attemptTurns) 원래 질문으로 돌아온 기록이다. 관찰은 "~을 해 보자고 했고, 잘 안 되자 다른 방법을 생각했다"까지만 쓰고, 실패를 아이의 잘못·성향·나쁜 생각으로 쓰지 않는다. 시도 장면 안의 아이 말도 아이 생각의 근거가 된다.
             - observation은 부모에게 보여 줄 한 문장, 해요체.
             - '노파'라는 말은 쓰지 않는다. 과자집 주인은 정체가 드러나기 전 장면이면 '할머니', 드러난 뒤 장면이면 '마녀'라고 쓴다.""";
 
@@ -348,7 +348,7 @@ public class ReportAnalysisService {
             ObjectNode t = out.addObject();
             t.put("id", id);
             for (String key : List.of("sceneId", "anchorId", "entryMode", "role", "speaker", "text", "inputMode",
-                    "helpStep", "event", "familyId", "viaSuggestion", "suggestionLabel", "proposedFamilyId")) {
+                    "helpStep", "event", "familyId", "viaSuggestion", "suggestionLabel", "proposedFamilyId", "attemptTurns")) {
                 Object value = turn.get(key);
                 if (value != null) t.set(key, objectMapper.valueToTree(value));
             }

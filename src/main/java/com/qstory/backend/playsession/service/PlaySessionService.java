@@ -40,8 +40,9 @@ public class PlaySessionService {
     private static final Set<String> INPUT_MODES = Set.of("VOICE", "TEXT");
     private static final Set<String> EVENTS = Set.of(
             "ACTION_CONFIRMED", "ACTION_DECLINED", "INVITE_SKIPPED", "INVITE_CLOSED", "REPLY_FAILED", "STT_FAILED",
-            // 질문 초대에서 아이가 낸 행동을 "실패해 보기" 장면으로 보여 줬다(db/schema/084) - 이야기 진행은 그대로.
-            "TRY_FAILED");
+            // 질문 초대 시도 장면(db/schema/084): TRY_FAILED = 시도 장면 시작(text = 해 본 것), TRY_ENDED = 장면을 마치고
+            // 원래 질문 지점으로 돌아옴(attemptTurns = 장면 안 아이 말 수). 이야기 진행은 그대로다.
+            "TRY_FAILED", "TRY_ENDED");
     private static final Set<String> PLAY_SETTINGS = Set.of("HOME", "INDIVIDUAL", "SMALL_GROUP", "WHOLE_CLASS");
 
     private final JdbcTemplate jdbc;
@@ -171,8 +172,8 @@ public class PlaySessionService {
                 "insert into play_turn (session_id, seq, occurred_at, received_at, scene_id, visual_id, anchor_id, entry_mode, "
                         + "role, speaker, character_speaker_id, text, input_mode, transcript_edited, fixed, help_step, reply_kind, "
                         + "proposed_family_id, reply_audio_played, event, family_id, via_suggestion, suggestion_label, result_visual_id, "
-                        + "latency_ms, error_code) "
-                        + "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) on conflict (session_id, seq) do nothing",
+                        + "latency_ms, error_code, attempt_turns) "
+                        + "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) on conflict (session_id, seq) do nothing",
                 sessionId, seq, Timestamp.from(occurredAt(turn.path("occurredAt"), receivedAt)), Timestamp.from(receivedAt),
                 sceneId, shortText(turn.path("visualId"), 80), shortText(turn.path("anchorId"), 64),
                 oneOf(turn.path("entryMode"), ENTRY_MODES, null), role, speaker,
@@ -184,7 +185,9 @@ public class PlaySessionService {
                 shortText(turn.path("familyId"), 80), bool(turn.path("viaSuggestion")),
                 shortText(turn.path("suggestionLabel"), 80), shortText(turn.path("resultVisualId"), 80),
                 turn.path("latencyMs").isInt() && turn.path("latencyMs").asInt() >= 0 ? turn.path("latencyMs").asInt() : null,
-                shortText(turn.path("errorCode"), 60));
+                shortText(turn.path("errorCode"), 60),
+                turn.path("attemptTurns").isInt() && turn.path("attemptTurns").asInt() >= 0
+                        ? Math.min(turn.path("attemptTurns").asInt(), 50) : null);
     }
 
     /**
@@ -225,6 +228,7 @@ public class PlaySessionService {
                     put(turn, "resultVisualId", rs.getString("result_visual_id"));
                     put(turn, "latencyMs", (Integer) rs.getObject("latency_ms"));
                     put(turn, "errorCode", rs.getString("error_code"));
+                    put(turn, "attemptTurns", (Integer) rs.getObject("attempt_turns"));
                     return turn;
                 },
                 sessionId, ownerUserId);

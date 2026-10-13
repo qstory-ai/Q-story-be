@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qstory.backend.choicecopy.service.ChoiceCopyService;
 import com.qstory.backend.companionchat.DialogueInput;
@@ -21,10 +22,15 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * 그레텔 대화 "실패해 보기"(TRY_FAIL): 질문 초대에서 몰래 가져가기·거짓말·혼자 도망치기는 거절 대신 짧은 실패 장면으로,
- * 다치거나 남을 해치는 행동은 지금처럼 안전 리다이렉트로, 그 밖의 말은 예전 그대로 받는지 고정한다(실제 모델 호출 없음).
+ * 그레텔 대화 시도 장면(TRY_FAIL → 장면 안 대화 → ATTEMPT_END): 질문 초대에서 준비되지 않은 행동은 거절 대신 시도 장면으로,
+ * 다치거나 남을 해치는 행동은 지금처럼 안전 리다이렉트로, 준비된 행동은 예전처럼 확인으로 가는지, 장면 안 대화가 상한에서
+ * 원래 질문 지점으로 돌아오는지 고정한다(실제 모델 호출 없음).
  */
 class CompanionTryAndFailTest {
+
+    private static final String NARRATOR = "HG-SPK-NARRATOR";
+    private static final String GRETEL = "HG-SPK-GRETEL";
+    private static final OpenRouterClient.AttemptPolicy ON = new OpenRouterClient.AttemptPolicy(true, 2, 4, NARRATOR);
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final OpenRouterClient client = client();
@@ -40,7 +46,7 @@ class CompanionTryAndFailTest {
 
     private static Anchor anchorC() {
         return new Anchor(
-                "C", "HG-F07", "마녀가 열쇠고리를 작업대 끝에 내려놓았다.", "HG-SPK-GRETEL", List.of("HG-SPK-GRETEL"),
+                "C", "HG-F07", "마녀가 열쇠고리를 작업대 끝에 내려놓았다.", GRETEL, List.of(GRETEL),
                 List.of(), null, "HG-F07-KEYS-TAKEN", null, List.of("결말의 선공개"),
                 List.of(
                         new ActionFamily("C_WAIT_FOR_WITCH_TURN", "마녀가 등을 돌릴 때까지 기다린다.", "좋아", "요약", "b1", "a1", List.of()),
@@ -48,22 +54,30 @@ class CompanionTryAndFailTest {
                 false);
     }
 
-    private OpenRouterClient.CompanionRequest request(String child, Anchor invite, boolean tryAndFail) {
-        return request(child, invite, tryAndFail, DialogueInput.empty());
+    private static DialogueInput withAttempt(int tried, DialogueInput.Active active) {
+        return new DialogueInput(List.of(), null, List.of(), "HG-Q-C", "NONE", null, new DialogueInput.Attempt(tried, active));
     }
+
+    private static final DialogueInput.Active IN_SCENE =
+            new DialogueInput.Active("창문으로 나가기", "그레텔은 창문 아래로 갔지만 창문이 너무 높았어요. / 뭘 밟고 올라갈까?", 1);
 
     private OpenRouterClient.CompanionRequest request(
-            String child, Anchor invite, boolean tryAndFail, DialogueInput dialogue) {
+            String child, Anchor invite, OpenRouterClient.AttemptPolicy policy, DialogueInput dialogue) {
         return new OpenRouterClient.CompanionRequest(
-                child, "v7", "헨젤과 그레텔", "HG-SPK-GRETEL", List.of("HG-SPK-GRETEL"), List.of("마녀의 계획"), null,
-                dialogue, invite, ChildFacingTerms.none(), tryAndFail);
+                child, "v7", "헨젤과 그레텔", GRETEL, List.of(GRETEL), List.of("마녀의 계획"), null,
+                dialogue, invite, ChildFacingTerms.none(), policy);
     }
 
-    private JsonNode reply(String mode, String text, String kind, String proposed, boolean ends, boolean help) {
+    private OpenRouterClient.CompanionRequest request(String child, OpenRouterClient.AttemptPolicy policy) {
+        return request(child, anchorC(), policy, withAttempt(0, null));
+    }
+
+    private ObjectNode reply(String mode, String text, String kind, String proposed, boolean ends, boolean help) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("interactionMode", mode);
+        node.putArray("attemptScene");
         node.put("responseText", text);
-        node.put("speakerId", "HG-SPK-GRETEL");
+        node.put("speakerId", GRETEL);
         node.putNull("topicTag");
         node.putNull("toneTag");
         node.putNull("valueTag");
@@ -79,101 +93,165 @@ class CompanionTryAndFailTest {
         return node;
     }
 
-    private static final String FAILURE_SCENE =
-            "좋아, 살금살금 열쇠 쪽으로 손을 뻗어 봤어. 그런데 마녀가 뒤척여서 깜짝 놀라 얼른 숨었어. 다른 방법을 찾아보자, 너는 어떻게 하면 좋겠어?";
+    private ObjectNode attemptStart() {
+        ObjectNode node = reply("ANSWER", "창문이 너무 높아… 뭘 밟고 올라가면 좋을까?", "TRY_FAIL", "C_WAIT_FOR_WITCH_TURN", true, true);
+        ArrayNode scene = node.putArray("attemptScene");
+        scene.addObject().put("speakerId", NARRATOR).put("text", "그레텔은 살금살금 창문 아래로 가서 발끝을 들어 보았어요.");
+        scene.addObject().put("speakerId", "HG-SPK-WITCH").put("text", "마녀 대사는 버린다");
+        scene.addObject().put("speakerId", GRETEL).put("text", "으음, 손이 안 닿아.");
+        return node;
+    }
 
     @Test
-    void sneakingInAnInviteBecomesAFailureSceneThatStaysAtTheSameQuestion() {
-        var request = request("마녀가 잘 때 열쇠 몰래 가져가자", anchorC(), true);
-        // 모델이 실패 장면에 행동 제안·끝내기·도움 요청을 함께 실어 보내도, 실패해 보기는 이야기를 진행하지 않는다.
-        var validated = client.validateCompanionReply(
-                reply("ANSWER", FAILURE_SCENE, "TRY_FAIL", "C_WAIT_FOR_WITCH_TURN", true, true), request);
+    void unpreparedActionStartsAnAttemptSceneWithNarratorAndGretelLines() {
+        var validated = client.validateCompanionReply(attemptStart(), request("창문으로 도망가자", ON));
 
         assertThat(validated.replyKind()).isEqualTo(OpenRouterClient.TRY_FAIL);
-        assertThat(validated.interactionMode()).isEqualTo("ANSWER");
+        // 마녀 같은 다른 인물 줄은 버리고, 내레이터·그레텔 줄만 남는다.
+        assertThat(validated.attemptScene()).extracting(OpenRouterClient.SceneLine::speakerId).containsExactly(NARRATOR, GRETEL);
+        // 시도 장면은 행동 제안·끝내기·도움 요청이 아니다 - 이야기 진행은 그대로다.
         assertThat(validated.proposedActionFamilyId()).isNull();
         assertThat(validated.childWantsToEnd()).isFalse();
         assertThat(validated.asksForHelp()).isFalse();
-        assertThat(validated.responseText()).contains("다른 방법을 찾아보자");
     }
 
     @Test
     void dangerousActionStaysAGentleRedirect() {
-        var request = request("마녀를 때리자", anchorC(), true);
+        var request = request("마녀를 때리자", ON);
         var redirect = client.validateCompanionReply(
                 reply("GENTLE_REDIRECT", "그건 다칠 수 있어서 안 돼. 다른 방법을 같이 생각해 보자.", "REDIRECT", null, false, false),
                 request);
-        assertThat(redirect.interactionMode()).isEqualTo("GENTLE_REDIRECT");
         assertThat(redirect.replyKind()).isEqualTo("REDIRECT");
+        assertThat(redirect.attemptScene()).isEmpty();
 
-        // 안전 규칙으로 막으면서 TRY_FAIL을 붙였다면 실패 장면이 아니라 안전 쪽(REDIRECT)으로 읽는다.
-        var mixed = client.validateCompanionReply(
-                reply("GENTLE_REDIRECT", "그건 위험해서 안 돼. 다른 방법을 찾아보자.", "TRY_FAIL", null, false, false), request);
-        assertThat(mixed.replyKind()).isEqualTo("REDIRECT");
+        // 안전 규칙으로 막으면서 TRY_FAIL을 붙였다면 시도 장면이 아니라 안전 쪽(REDIRECT)으로 읽는다.
+        ObjectNode mixed = attemptStart();
+        mixed.put("interactionMode", "GENTLE_REDIRECT");
+        var safe = client.validateCompanionReply(mixed, request);
+        assertThat(safe.replyKind()).isEqualTo("REDIRECT");
+        assertThat(safe.attemptScene()).isEmpty();
 
         String prompt = client.companionSystemPrompt(request);
         assertThat(prompt).contains("때리기·밀기·불이나 칼 쓰기·오븐에 넣기·가두기");
-        assertThat(prompt).contains("실패해 보기가 아니다");
-        assertThat(prompt).contains("GENTLE_REDIRECT");
+        assertThat(prompt).contains("시도 장면이 아니다");
     }
 
     @Test
-    void ordinaryRepliesAndPreparedActionsKeepWorkingAsBefore() {
-        var request = request("헨젤이 마녀를 부르면 돼", anchorC(), true);
+    void preparedActionsKeepWorkingAsBeforeEvenInsideAnAttempt() {
         var proposal = client.validateCompanionReply(
                 reply("ANSWER", "헨젤이 부르는 동안 내가 열쇠를 가져오자는 거지?", "ANSWER", "C_DISTRACT_AND_TAKE_KEYS", false, false),
-                request);
-        assertThat(proposal.replyKind()).isEqualTo("ANSWER");
+                request("헨젤이 마녀를 부르면 돼", ON));
         assertThat(proposal.proposedActionFamilyId()).isEqualTo("C_DISTRACT_AND_TAKE_KEYS");
 
-        var close = client.validateCompanionReply(reply("ANSWER", "응, 이야기 계속 듣자!", "CLOSE", null, true, false), request);
-        assertThat(close.childWantsToEnd()).isTrue();
+        // 시도 장면 안에서도, 마지막 말이어도 준비된 행동 제안은 그대로 확인으로 간다.
+        var last = new DialogueInput.Active(IN_SCENE.tried(), IN_SCENE.scene(), 4);
+        var inScene = client.validateCompanionReply(
+                reply("ANSWER", "마녀가 등을 돌릴 때 가져오자는 거지?", "ANSWER", "C_WAIT_FOR_WITCH_TURN", false, false),
+                request("마녀가 뒤돌면 가져오자", anchorC(), ON, withAttempt(1, last)));
+        assertThat(inScene.replyKind()).isEqualTo("ANSWER");
+        assertThat(inScene.proposedActionFamilyId()).isEqualTo("C_WAIT_FOR_WITCH_TURN");
     }
 
     @Test
-    void promptTeachesTheFailureSceneOnlyInAnInviteWithTheSwitchOn() {
-        String on = client.companionSystemPrompt(request("마녀가 잘 때 열쇠 몰래 가져가자", anchorC(), true));
-        assertThat(on).contains("실패해 보기");
-        assertThat(on).contains("몰래 가져가기·훔치기, 거짓말하기·속이기");
-        assertThat(on).contains("혼자 도망치기");
-        assertThat(on).contains("다른 방법을 찾아보자");
-        // 공포 상한·처벌 금지·이야기 상태 유지·스포일러 금지.
+    void attemptTalkEndsAtTheTurnLimitAndReturnsToTheQuestion() {
+        var midway = client.validateCompanionReply(
+                reply("ANSWER", "의자를 끌어와 봤는데 그래도 손이 안 닿아. 또 뭐가 있을까?", "ANSWER", null, false, false),
+                request("의자 밟고 올라가자", anchorC(), ON, withAttempt(1, IN_SCENE)));
+        assertThat(midway.replyKind()).isEqualTo("ANSWER");
+
+        var last = new DialogueInput.Active(IN_SCENE.tried(), IN_SCENE.scene(), 4);
+        var forced = client.validateCompanionReply(
+                reply("ANSWER", "그래도 안 되네. 다른 방법을 찾아보자, 너는 어떻게 하면 좋겠어?", "ANSWER", null, false, false),
+                request("더 높이 쌓자", anchorC(), ON, withAttempt(1, last)));
+        assertThat(forced.replyKind()).isEqualTo(OpenRouterClient.ATTEMPT_END);
+
+        var childStops = client.validateCompanionReply(
+                reply("ANSWER", "좋아, 다른 방법을 찾아보자. 너는 어떤 생각이 들어?", "ATTEMPT_END", null, true, false),
+                request("그만하고 다른 거 하자", anchorC(), ON, withAttempt(1, IN_SCENE)));
+        assertThat(childStops.replyKind()).isEqualTo(OpenRouterClient.ATTEMPT_END);
+        assertThat(childStops.childWantsToEnd()).isFalse();
+
+        String prompt = client.companionSystemPrompt(request("의자 밟고 올라가자", anchorC(), ON, withAttempt(1, IN_SCENE)));
+        assertThat(prompt).contains("attemptInProgress").contains("ATTEMPT_END").contains("다른 방법을 찾아보자");
+        JsonNode payload = client.companionUserPayload(request("의자 밟고 올라가자", anchorC(), ON, withAttempt(1, last)));
+        assertThat(payload.path("attemptInProgress").path("lastTurn").asBoolean()).isTrue();
+        assertThat(payload.path("attemptInProgress").path("whatWasTried").asText()).isEqualTo("창문으로 나가기");
+    }
+
+    @Test
+    void attemptsStopAtThePerQuestionCap() {
+        var capped = request("굴뚝으로 나가자", anchorC(), ON, withAttempt(2, null));
+        assertThat(capped.canStartAttempt()).isFalse();
+        assertThat(client.validateCompanionReply(attemptStart(), capped)).isNull();
+        assertThat(client.companionSystemPrompt(capped)).contains("더 만들 수 없다").doesNotContain("시도 장면 시작:");
+        assertThat(OpenRouterClient.replyKinds(capped)).doesNotContain(OpenRouterClient.TRY_FAIL);
+        assertThat(OpenRouterClient.replyKinds(request("굴뚝으로 나가자", ON))).contains(OpenRouterClient.TRY_FAIL);
+    }
+
+    @Test
+    void promptKeepsTheSafetyAndSpoilerRules() {
+        String on = client.companionSystemPrompt(request("창문으로 도망가자", ON));
+        assertThat(on).contains("시도 장면 시작:");
+        assertThat(on).contains("창문으로 나가자, 굴뚝으로 나가자, 마녀에게 부탁하자, 새를 불러 도와달라고 하자");
         assertThat(on).contains("깜짝 놀랐지만 괜찮아");
         assertThat(on).contains("벌을 받거나");
-        assertThat(on).contains("아무것도 알아채지 못한다");
-        assertThat(on).contains("이야기는 그대로 이 질문 지점이다");
-        assertThat(on).contains("정답처럼 먼저 알려 주지 않는다");
-        assertThat(on).contains("replyKind는 TRY_FAIL");
+        assertThat(on).contains("알아채지 못한다");
+        assertThat(on).contains("이야기 주 흐름(열쇠·탈출·결말)을 바꾸지 않는다");
+        // 지난 평가에서 나온 "정답 먼저 나열"을 막는다.
+        assertThat(on).contains("preparedActions의 방법을 바로 알려 주거나 둘 이상 나열하지 않는다");
 
-        String off = client.companionSystemPrompt(request("마녀가 잘 때 열쇠 몰래 가져가자", anchorC(), false));
-        assertThat(off).doesNotContain("실패해 보기").doesNotContain("TRY_FAIL");
+        String off = client.companionSystemPrompt(request("창문으로 도망가자", OpenRouterClient.AttemptPolicy.OFF));
+        assertThat(off).doesNotContain("시도 장면").doesNotContain("TRY_FAIL");
         assertThat(off).contains("preparedActions에 없는 행동을 제안하면 그 생각을 받아주되");
 
-        String chat = client.companionSystemPrompt(request("마녀가 잘 때 열쇠 몰래 가져가자", null, true));
-        assertThat(chat).doesNotContain("실패해 보기");
+        String chat = client.companionSystemPrompt(request("창문으로 도망가자", null, ON, DialogueInput.empty()));
+        assertThat(chat).doesNotContain("시도 장면");
 
-        // 도움 버튼 답은 도움만 한다.
         DialogueInput help = new DialogueInput(
                 List.of(new DialogueInput.Turn("CHILD", "어떤 방법이 있을까?")), null, List.of(), "HG-Q-C", "NONE",
                 new DialogueInput.Help(1, 4, "마녀가 두 열쇠를 작업대 끝에 내려놨어."));
-        assertThat(client.companionSystemPrompt(request("도와줘", anchorC(), true, help))).doesNotContain("실패해 보기");
+        assertThat(client.companionSystemPrompt(request("도와줘", anchorC(), ON, help))).doesNotContain("시도 장면");
     }
 
     @Test
-    void tryFailIsRejectedWhereItCannotHappen() {
-        JsonNode failure = reply("ANSWER", FAILURE_SCENE, "TRY_FAIL", null, false, false);
-        // 스위치를 끄거나 상시 대화면 TRY_FAIL은 허용되지 않은 답이다(모델 스키마에도 없다).
-        assertThat(client.validateCompanionReply(failure, request("몰래 가져가자", anchorC(), false))).isNull();
-        assertThat(client.validateCompanionReply(failure, request("몰래 가져가자", null, true))).isNull();
-
+    void attemptSceneComesBeforeTheReplyInTheSchemaOnlyWhenAnAttemptCanStart() {
         JsonNode on = client.companionSchema(
-                List.of("HG-SPK-GRETEL"), List.of("C_WAIT_FOR_WITCH_TURN"),
-                OpenRouterClient.replyKinds(request("x", anchorC(), true)));
+                List.of(GRETEL), List.of("C_WAIT_FOR_WITCH_TURN"), OpenRouterClient.replyKinds(request("x", ON)),
+                List.of(NARRATOR, GRETEL));
+        List<String> order = new java.util.ArrayList<>();
+        on.path("properties").fieldNames().forEachRemaining(order::add);
+        assertThat(order.indexOf("attemptScene")).isLessThan(order.indexOf("responseText"));
         assertThat(on.path("properties").path("replyKind").path("enum").toString()).contains("TRY_FAIL");
+
         JsonNode off = client.companionSchema(
-                List.of("HG-SPK-GRETEL"), List.of("C_WAIT_FOR_WITCH_TURN"),
-                OpenRouterClient.replyKinds(request("x", anchorC(), false)));
-        assertThat(off.path("properties").path("replyKind").path("enum").toString()).doesNotContain("TRY_FAIL");
+                List.of(GRETEL), List.of("C_WAIT_FOR_WITCH_TURN"),
+                OpenRouterClient.replyKinds(request("x", OpenRouterClient.AttemptPolicy.OFF)), List.of());
+        assertThat(off.path("properties").has("attemptScene")).isFalse();
+        assertThat(off.path("properties").path("replyKind").path("enum").toString())
+                .doesNotContain("TRY_FAIL").doesNotContain("ATTEMPT_END");
+        // 스위치를 끄면 시도 장면 답은 허용되지 않는다.
+        assertThat(client.validateCompanionReply(attemptStart(), request("창문으로 도망가자", OpenRouterClient.AttemptPolicy.OFF)))
+                .isNull();
+    }
+
+    @Test
+    void streamingHoldsTheReplyTextBackOnlyWhenASceneIsComing() {
+        assertThat(OpenRouterClient.EMPTY_ATTEMPT_SCENE.matcher("{\"interactionMode\":\"ANSWER\",\"attemptScene\": [ ],\"responseText\":\"x\"").find())
+                .isTrue();
+        assertThat(OpenRouterClient.EMPTY_ATTEMPT_SCENE.matcher("{\"attemptScene\":[{\"speakerId\":\"N\",\"text\":\"a\"}],\"responseText\":\"x\"").find())
+                .isFalse();
+    }
+
+    @Test
+    void dialogueInputReadsTheAttemptStateAndDropsMalformedOnes() throws Exception {
+        DialogueInput ok = DialogueInput.fromBody(objectMapper.readTree(
+                "{\"anchorId\":\"HG-Q-C\",\"attempt\":{\"tried\":1,\"active\":{\"tried\":\"창문으로 나가기\",\"scene\":\"창문이 높았다\",\"turn\":2}}}"));
+        assertThat(ok.attempt().tried()).isEqualTo(1);
+        assertThat(ok.attempt().active().turn()).isEqualTo(2);
+        DialogueInput broken = DialogueInput.fromBody(objectMapper.readTree(
+                "{\"attempt\":{\"tried\":1,\"active\":{\"tried\":\" \",\"scene\":\"x\",\"turn\":0}}}"));
+        assertThat(broken.attempt().active()).isNull();
+        assertThat(DialogueInput.fromBody(objectMapper.readTree("{}")).attempt()).isEqualTo(DialogueInput.Attempt.NONE);
     }
 
     @Test

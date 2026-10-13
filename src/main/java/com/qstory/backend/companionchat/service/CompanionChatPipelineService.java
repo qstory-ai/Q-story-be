@@ -178,7 +178,7 @@ public class CompanionChatPipelineService {
         OpenRouterClient.CompanionRequest request = new OpenRouterClient.CompanionRequest(
                 transcript, context.versions().promptVersion(), context.story().title(), context.primarySpeakerId(),
                 context.allowedSpeakerIds(), context.forbiddenKnowledge(), context.persona(), dialogue, inviteAnchor,
-                terms, dialogueProperties.tryAndFail());
+                terms, attemptPolicy(context));
         OpenRouterClient.CompanionReply reply = onResponseText == null
                 ? openRouterClient.generateCompanionReply(request, deadline)
                 : openRouterClient.streamCompanionReply(request, deadline, onResponseText);
@@ -202,7 +202,7 @@ public class CompanionChatPipelineService {
                 context.story().storyId(), context.sceneId(), conversationId, transcript, reply,
                 context.versions().promptVersion() + "+"
                         + OpenRouterClient.companionPromptVersion(dialogueProperties.tryAndFail()),
-                attribution);
+                attribution, request.attemptActive() ? dialogue.attempt().active().turn() : null);
 
         SynthesizedAudio generatedAudio = null;
         String ttsFailureCode = null;
@@ -237,6 +237,15 @@ public class CompanionChatPipelineService {
         dialogueResult.put("childMeaning", reply.childMeaning());
         dialogueResult.put("asksForHelp", reply.asksForHelp());
         dialogueResult.put("proposedActionFamilyId", reply.proposedActionFamilyId());
+        // 시도 장면을 시작했으면 장면 줄(내레이터·인물 목소리로 먼저 들려줄 것)과 장면 안 대화 횟수 상한을 함께 내려 준다.
+        if (OpenRouterClient.TRY_FAIL.equals(reply.replyKind())) {
+            Map<String, Object> attempt = new LinkedHashMap<>();
+            attempt.put("scene", reply.attemptScene().stream()
+                    .map(line -> Map.of("speakerId", line.speakerId(), "text", line.text()))
+                    .toList());
+            attempt.put("maxTurns", dialogueProperties.maxAttemptTurns());
+            dialogueResult.put("attempt", attempt);
+        }
         result.put("dialogue", dialogueResult);
         if (generatedAudio != null) {
             result.put("audio", AudioPayload.of(generatedAudio.mimeType(), generatedAudio.audio()));
@@ -248,6 +257,20 @@ public class CompanionChatPipelineService {
             result.put("audioDeferred", true);
         }
         return result;
+    }
+
+    /** 시도 장면 설정 - 스위치·상한(DialogueProperties)과 이 이야기 캐스트의 내레이터(장면 내레이션 목소리). */
+    OpenRouterClient.AttemptPolicy attemptPolicy(ResolvedCompanionContext context) {
+        if (!dialogueProperties.tryAndFail()) {
+            return OpenRouterClient.AttemptPolicy.OFF;
+        }
+        String narrator = context.story().cast() == null ? null : context.story().cast().values().stream()
+                .filter(cast -> cast != null && "NARRATOR".equalsIgnoreCase(cast.role()))
+                .map(com.qstory.backend.story.CastEntry::speakerId)
+                .findFirst()
+                .orElse(null);
+        return new OpenRouterClient.AttemptPolicy(
+                true, dialogueProperties.maxAttemptsPerAnchor(), dialogueProperties.maxAttemptTurns(), narrator);
     }
 
     private Map<String, Object> failedResult(Exception error) {

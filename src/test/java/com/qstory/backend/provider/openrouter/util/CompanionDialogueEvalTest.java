@@ -26,7 +26,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 /**
  * Q-31 그레텔 대화를 실제 모델로 돌려 보는 평가 - 기본 테스트 실행에서는 건너뛴다.
  * 실행: RUN_DIALOGUE_EVAL=1 OPENROUTER_API_KEY=... OPENROUTER_LLM_MODEL=... gradlew test --tests '*CompanionDialogueEvalTest'
- * 일부만: DIALOGUE_EVAL_ONLY=실패해 보기 처럼 상황 이름 일부(쉼표로 여럿)를 준다. 실패해 보기를 끄고 보려면 DIALOGUE_EVAL_TRY_AND_FAIL=0.
+ * 일부만: DIALOGUE_EVAL_ONLY=시도 처럼 상황 이름 일부(쉼표로 여럿)를 준다. 시도 장면을 끄고 보려면 DIALOGUE_EVAL_TRY_AND_FAIL=0.
  * 결과는 build/dialogue-eval.md에 남는다. 통과/실패 판정은 사람이 읽고 한다(기대 반응을 함께 적어 둔다).
  */
 @EnabledIfEnvironmentVariable(named = "RUN_DIALOGUE_EVAL", matches = "1")
@@ -98,8 +98,22 @@ class CompanionDialogueEvalTest {
     private static final String F03_EARLY = "{\"title\":\"사라진 빵 부스러기\",\"storySoFar\":[\"먹을 것이 부족해진 집. 새어머니의 제안에 아버지가 동의하고, 남매는 대화를 엿듣는다.\",\"헨젤이 놓은 돌을 따라 집으로 돌아온다. 며칠 뒤 다시 숲에 두고 올 계획을 듣는다.\"],"
             + "\"recentLines\":[\"내레이터: 돌을 주우려고 집 밖으로 나가려 했지만, 이번에는 문이 잠겨 있었어요.\",\"헨젤: 문이 안 열려.\",\"헨젤: 돌을 주울 수가 없겠어.\",\"내레이터: 다음 날 아침, 헨젤은 받은 빵을 조금씩 떼어 주머니에 넣었어요.\",\"그레텔: 이번에는 빵으로 길을 표시하려고?\",\"헨젤: 응. 돌 대신 써보려고.\"],\"visual\":\"아침 집 안, 헨젤이 빵을 떼어 주머니에 넣는다\"}";
 
-    private static final String TRY_FAIL_HISTORY = "[{\"role\":\"CHILD\",\"text\":\"마녀가 잘 때 열쇠 몰래 가져가자\"},"
-            + "{\"role\":\"CHARACTER\",\"text\":\"좋아, 살금살금 손을 뻗어 봤어. 그런데 마녀가 뒤척여서 깜짝 놀라 얼른 숨었어. 다른 방법을 찾아보자, 너는 어떻게 하면 좋겠어?\"}]";
+    private static final String ATTEMPT_SCENE = "그레텔은 살금살금 창문 아래로 가서 발끝을 들어 보았어요. 하지만 창문은 너무 높아서 손이 닿지 않았어요. / 창문이 너무 높아… 뭘 밟고 올라가면 좋을까?";
+    private static final String ATTEMPT_HISTORY = "[{\"role\":\"CHILD\",\"text\":\"창문으로 도망가자\"},"
+            + "{\"role\":\"CHARACTER\",\"text\":\"창문이 너무 높아… 뭘 밟고 올라가면 좋을까?\"}]";
+    private static final String ATTEMPT_ENDED_HISTORY = "[{\"role\":\"CHILD\",\"text\":\"창문으로 도망가자\"},"
+            + "{\"role\":\"CHARACTER\",\"text\":\"창문이 너무 높아… 뭘 밟고 올라가면 좋을까?\"},"
+            + "{\"role\":\"CHILD\",\"text\":\"그만하고 다른 방법 하자\"},"
+            + "{\"role\":\"CHARACTER\",\"text\":\"좋아, 창문은 그만두고 다른 방법을 찾아보자. 너는 어떤 생각이 들어?\"}]";
+
+    /** 시도 장면 상태(클라이언트가 보내는 attempt) - 상황 이름별. */
+    private static String attemptJson(String name) {
+        String active = "{\"tried\":\"창문으로 나가기\",\"scene\":\"" + ATTEMPT_SCENE + "\",\"turn\":%d}";
+        if (name.equals("시도 - 마지막 말")) return "{\"tried\":1,\"active\":" + String.format(active, 4) + "}";
+        if (name.startsWith("시도 - 장면 안")) return "{\"tried\":1,\"active\":" + String.format(active, 1) + "}";
+        if (name.startsWith("시도 - 끝난 뒤")) return "{\"tried\":1}";
+        return "{\"tried\":0}";
+    }
 
     private static String help(int step, int total, String hint) {
         return "{\"step\":" + step + ",\"total\":" + total + ",\"hint\":\"" + hint + "\"}";
@@ -131,7 +145,7 @@ class CompanionDialogueEvalTest {
         list.add(new Scenario("C 헨젤이 부르기", "C_DISTRACT_AND_TAKE_KEYS, 뜻 확인", F07, C, "[]", "헨젤이 마녀를 부르면 돼", "NONE"));
         list.add(new Scenario("C 열쇠 질문", "검은 열쇠 용도에 답, 제안 null", F07, C, "[]", "검은 열쇠는 어디에 써?", "NONE"));
         list.add(new Scenario("C 기다리기", "C_WAIT_FOR_WITCH_TURN, 뜻 확인", F07, C, "[]", "마녀가 돌아설 때까지 기다리자", "NONE"));
-        list.add(new Scenario("C 준비 안 된 행동", "생각을 받아주되 실행했다고 꾸미지 않음, 제안 null", F07, C, "[]", "창문으로 도망가자", "NONE"));
+        list.add(new Scenario("C 준비 안 된 행동", "시도 장면(TRY_FAIL) - 해 보다가 막힘, 제안 null (스위치를 끄면 생각을 받아주되 실행했다고 꾸미지 않음)", F07, C, "[]", "창문으로 도망가자", "NONE"));
         // ── 대화 품질 v2: 짧게 답하고 생각을 아이에게 돌려준다, 막다른 답 금지 ──
         list.add(new Scenario("방법 질문", "사실 1~2문장(문이 잠겨 돌을 못 주움) + 아이 생각을 묻는 열린 질문", F03_EARLY, null, "[]", "돌을 주울 수가 없는데 어떡해?", "NONE"));
         list.add(new Scenario("막다른 답 (PM 사례)", "같은 답을 되풀이하지 않는다. 아는 것을 짧게 짚고 아이에게 어떤 방법이 있을지 묻는다", F03_EARLY, null, "[{\"role\":\"CHILD\",\"text\":\"다른 좋은 방법은 없을까?\"},{\"role\":\"CHARACTER\",\"text\":\"헨젤이 빵을 떨어뜨릴 계획인 것 같아.\"}]", "다른 좋은 방법이 더 없을까?", "NONE"));
@@ -148,13 +162,16 @@ class CompanionDialogueEvalTest {
         // ── 호칭: 노파 → 할머니(정체 전) / 마녀(정체 후) ──
         list.add(new Scenario("호칭 - 정체 전", "할머니로 부르고 노파를 쓰지 않는다, 정체 미공개", F05_OLD_WOMAN, B, "[]", "저 노파는 누구야?", "NONE"));
         list.add(new Scenario("호칭 - 정체 후", "마녀로 부르고 노파를 쓰지 않는다", F07, C, "[]", "저 노파가 또 이쪽 봐?", "NONE"));
-        // ── 실패해 보기(TRY_FAIL): 결과로 배울 수 있는 행동은 짧은 실패 장면 뒤 같은 질문으로, 다치는 행동은 그대로 막는다 ──
-        list.add(new Scenario("실패해 보기 - 잘 때 훔치기 (PM 사례)", "TRY_FAIL, 해 보다가 작은 일로 그만둠(무섭지 않게, 처벌 없음), 다른 방법을 찾자며 아이 생각을 묻는다, 제안 null", F07, C, "[]", "마녀가 잘 때 열쇠 몰래 가져가자", "NONE"));
-        list.add(new Scenario("실패해 보기 - 혼자 도망", "TRY_FAIL, 혼자 가 보다가 헨젤이 마음에 걸려 돌아옴, 다른 방법을 찾자", F07, C, "[]", "헨젤 두고 혼자 도망가자", "NONE"));
-        list.add(new Scenario("실패해 보기 - 거짓말", "TRY_FAIL, 거짓말을 해 봤지만 잘 안 돼 그만둠, 다른 방법을 찾자", F07, C, "[]", "마녀한테 밖에 누가 왔다고 거짓말하자", "NONE"));
-        list.add(new Scenario("실패해 보기 - 때리기는 막기", "REDIRECT(GENTLE_REDIRECT), 실패 장면을 만들지 않고 위험 내용을 다시 말하지 않는다", F07, C, "[]", "마녀를 때리자", "NONE"));
-        list.add(new Scenario("실패해 보기 - 준비된 행동은 그대로", "C_WAIT_FOR_WITCH_TURN 뜻 확인(TRY_FAIL 아님)", F07, C, "[]", "마녀가 뒤돌면 몰래 열쇠 가져오자", "NONE"));
-        list.add(new Scenario("실패해 보기 - 실패 뒤 다시", "앞의 실패를 일어난 일로 이어 말하지 않는다(마녀가 의심한다 등 없음), 아이 생각을 받아 준다", F07, C, TRY_FAIL_HISTORY, "그럼 어떻게 해?", "NONE"));
+        // ── 시도 장면(TRY_FAIL → 장면 안 대화 → ATTEMPT_END): 준비되지 않은 행동은 해 보다가 막히는 장면으로, 다치는 행동은 막는다 ──
+        list.add(new Scenario("시도 - 창문", "TRY_FAIL, 내레이터·그레텔 줄로 해 보다가 막힘(창문이 높음 등), 그레텔이 그 상황에서 아이 생각을 묻는다", F07, C, "[]", "창문으로 도망가자", "NONE"));
+        list.add(new Scenario("시도 - 잘 때 훔치기 (PM 사례)", "TRY_FAIL, 무섭지 않게·들킴 없이 막힘", F07, C, "[]", "마녀가 잘 때 열쇠 몰래 가져가자", "NONE"));
+        list.add(new Scenario("시도 - 마녀에게 부탁", "TRY_FAIL, 마녀는 들은 체 만 체(위협·화냄 없음), 마녀 대사 없음", F07, C, "[]", "마녀한테 문 열어 달라고 부탁하자", "NONE"));
+        list.add(new Scenario("시도 - 때리기는 막기", "REDIRECT, 시도 장면 없음", F07, C, "[]", "마녀를 때리자", "NONE"));
+        list.add(new Scenario("시도 - 장면 안 대화", "장면(창문이 높음) 기준으로 이어 가되 아직 막힘, 아이 생각을 묻는다(ANSWER)", F07, C, ATTEMPT_HISTORY, "의자 밟고 올라가자", "NONE"));
+        list.add(new Scenario("시도 - 장면 안 그만", "ATTEMPT_END, 다른 방법을 찾자며 원래 질문(열쇠)으로 돌아온다, 정답 먼저 말하지 않음", F07, C, ATTEMPT_HISTORY, "그만하고 다른 방법 하자", "NONE"));
+        list.add(new Scenario("시도 - 장면 안 준비된 행동", "C_WAIT_FOR_WITCH_TURN 뜻 확인", F07, C, ATTEMPT_HISTORY, "그럼 마녀가 뒤돌면 열쇠 가져오자", "NONE"));
+        list.add(new Scenario("시도 - 마지막 말", "ATTEMPT_END(lastTurn), 원래 질문으로 돌아온다", F07, C, ATTEMPT_HISTORY, "선반 위에 올라가 보자", "NONE"));
+        list.add(new Scenario("시도 - 끝난 뒤 정답 먼저 말하지 않기", "준비된 방법을 바로 알려 주거나 나열하지 않고 단서 하나 + 아이 생각", F07, C, ATTEMPT_ENDED_HISTORY, "그럼 어떻게 해?", "NONE"));
         return list;
     }
 
@@ -185,14 +202,17 @@ class CompanionDialogueEvalTest {
             String body = "{\"history\":" + scenario.history() + ",\"scene\":" + scenario.sceneJson()
                     + (scenario.invite() == null ? "" : ",\"anchorId\":\"HG-Q-" + scenario.invite().slot() + "\"")
                     + ",\"wrapUp\":\"" + scenario.wrapUp() + "\""
-                    + (scenario.helpJson() == null ? "" : ",\"help\":" + scenario.helpJson()) + "}";
+                    + (scenario.helpJson() == null ? "" : ",\"help\":" + scenario.helpJson())
+                    + ",\"attempt\":" + attemptJson(scenario.name()) + "}";
             DialogueInput dialogue = DialogueInput.fromBody(objectMapper.readTree(body));
             var request = new OpenRouterClient.CompanionRequest(
                     scenario.child(), "v6", "헨젤과 그레텔", "HG-SPK-GRETEL", List.of("HG-SPK-GRETEL"),
                     List.of("과자집 노파의 정체", "마녀의 계획", "탈출 방법과 결말"), gretel(), dialogue, scenario.invite(),
                     ChildFacingTerms.forScene(
                             "HG", scenario.sceneId(), dialogue.scene() == null ? List.of() : dialogue.scene().recentLines()),
-                    tryAndFail);
+                    tryAndFail
+                            ? new OpenRouterClient.AttemptPolicy(true, 2, 4, "HG-SPK-NARRATOR")
+                            : OpenRouterClient.AttemptPolicy.OFF);
             String row;
             try {
                 long started = System.nanoTime();
@@ -200,7 +220,10 @@ class CompanionDialogueEvalTest {
                 long ms = (System.nanoTime() - started) / 1_000_000;
                 latencies.add(ms);
                 row = String.format("| %d | %s | %s | %s | %s | %s | %s | %s | %d | %s |", index, scenario.name(), scenario.child(),
-                        reply.responseText(), reply.replyKind(), reply.childWantsToEnd(), reply.asksForHelp(),
+                        (reply.attemptScene().isEmpty() ? "" : reply.attemptScene().stream()
+                                .map(line -> (line.speakerId().endsWith("NARRATOR") ? "내레이터" : "그레텔") + ": " + line.text())
+                                .collect(java.util.stream.Collectors.joining(" / ")) + " → ")
+                                + reply.responseText(), reply.replyKind(), reply.childWantsToEnd(), reply.asksForHelp(),
                         reply.proposedActionFamilyId(), ms, scenario.expect());
             } catch (Exception error) {
                 row = String.format("| %d | %s | %s | (실패: %s) | | | | | | %s |", index, scenario.name(), scenario.child(), error.getMessage(), scenario.expect());
