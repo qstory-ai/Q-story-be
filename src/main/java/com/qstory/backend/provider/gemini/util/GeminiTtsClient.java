@@ -63,6 +63,8 @@ public class GeminiTtsClient {
     private final boolean streaming;
     /** null이면 음량을 맞추지 않는다(Gemini가 준 그대로). */
     private final Double loudnessTargetLufs;
+    /** 호출 수 세기(하루 한도 경고) - 기본 키 인스턴스에만 GeminiTtsUsageTracker가 건다. 바로 돌아와야 한다. */
+    private volatile GeminiTtsUsageListener usageListener = GeminiTtsUsageListener.NONE;
 
     @Autowired
     public GeminiTtsClient(
@@ -100,6 +102,10 @@ public class GeminiTtsClient {
         this.loudnessTargetLufs = loudnessTargetLufs;
     }
 
+    public void setUsageListener(GeminiTtsUsageListener listener) {
+        this.usageListener = listener == null ? GeminiTtsUsageListener.NONE : listener;
+    }
+
     private byte[] leveled(byte[] pcm) {
         return loudnessTargetLufs == null ? pcm : PcmLoudness.normalize(pcm, PCM_SAMPLE_RATE, loudnessTargetLufs);
     }
@@ -129,9 +135,13 @@ public class GeminiTtsClient {
         long startedAt = System.nanoTime();
         InputStream body = null;
         try {
+            usageListener.onCall();
             HttpResponse<InputStream> response = httpClient.send(
                     buildStreamHttpRequest(text, voice, deadline), HttpResponse.BodyHandlers.ofInputStream());
             body = response.body();
+            if (response.statusCode() == 429) {
+                usageListener.onRateLimited();
+            }
             if (response.statusCode() / 100 != 2) {
                 byte[] failureBody = body.readNBytes(FAILURE_BODY_LOG_LIMIT * 4);
                 logProviderHttpFailure("synthesizeStream", response.statusCode(), failureBody);
@@ -205,7 +215,11 @@ public class GeminiTtsClient {
     private byte[] fetchPcm(String context, String text, String voice, RequestDeadline deadline) {
         try {
             HttpRequest httpRequest = buildSpeechHttpRequest(text, voice, deadline);
+            usageListener.onCall();
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() == 429) {
+                usageListener.onRateLimited();
+            }
             if (response.statusCode() / 100 != 2) {
                 logProviderHttpFailure(context, response.statusCode(), response.body());
                 throw new ProviderException(
