@@ -4,6 +4,8 @@ package com.qstory.backend.common.enums;
 public enum EventName {
     LANDING_VIEW(EventSource.LANDING),
     LANDING_CTA_CLICK(EventSource.LANDING),
+    /** 소개 구역의 발견·표현·탐색 원을 끌어 본 것 - 원 이름만(discover/express/explore), 세션당 원별 1회. */
+    INTRO_CIRCLE_DRAG(EventSource.LANDING),
     STORY_STARTED(EventSource.PLAYER),
     SCENE_REACHED(EventSource.PLAYER),
     QUESTION_INVITE_SHOWN(EventSource.PLAYER),

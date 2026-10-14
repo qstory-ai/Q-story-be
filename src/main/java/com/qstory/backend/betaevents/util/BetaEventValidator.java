@@ -159,6 +159,7 @@ public class BetaEventValidator {
         Map<EventName, Set<String>> keys = new LinkedHashMap<>();
         keys.put(EventName.LANDING_VIEW, Set.of("page", "entry"));
         keys.put(EventName.LANDING_CTA_CLICK, Set.of("cta_location"));
+        keys.put(EventName.INTRO_CIRCLE_DRAG, Set.of("circle"));
         keys.put(EventName.STORY_STARTED, Set.of("resume", "entry_source", "play_setting", "play_session_id"));
         keys.put(EventName.SCENE_REACHED, Set.of("scene_id"));
         keys.put(EventName.QUESTION_INVITE_SHOWN, Set.of("anchor_id", "scene_id"));

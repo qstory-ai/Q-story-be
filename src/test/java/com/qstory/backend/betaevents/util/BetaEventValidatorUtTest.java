@@ -47,4 +47,15 @@ class BetaEventValidatorUtTest {
         assertThatThrownBy(() -> validator.parse(event("child_registered", "app", "{\"name\":\"서아\"}")))
                 .isInstanceOf(ApiException.class);
     }
+
+    @Test
+    void introCircleDragIsALandingEventWithTheCircleNameOnly() throws Exception {
+        var parsed = validator.parse(event("intro_circle_drag", "landing", "{\"circle\":\"discover\",\"traffic_type\":\"beta\"}"));
+        assertThat(parsed.eventName()).isEqualTo(EventName.INTRO_CIRCLE_DRAG);
+        assertThat(parsed.metadata()).containsEntry("circle", "discover");
+        assertThatThrownBy(() -> validator.parse(event("intro_circle_drag", "app", "{\"circle\":\"discover\"}")))
+                .isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> validator.parse(event("intro_circle_drag", "landing", "{\"x\":12}")))
+                .isInstanceOf(ApiException.class);
+    }
 }
