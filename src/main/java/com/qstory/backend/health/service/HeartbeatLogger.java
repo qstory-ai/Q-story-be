@@ -4,6 +4,7 @@ import java.lang.management.ManagementFactory;
 import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -26,6 +27,8 @@ public class HeartbeatLogger {
     private final JdbcTemplate jdbc;
     private final LongSupplier nanoTime;
 
+    /** 생성자가 둘이라 Spring이 쓸 생성자를 명시한다 - 없으면 기본 생성자를 찾다 부팅이 실패한다. */
+    @Autowired
     public HeartbeatLogger(JdbcTemplate jdbc) {
         this(jdbc, System::nanoTime);
     }
