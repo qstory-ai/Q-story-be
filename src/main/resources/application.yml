@@ -18,6 +18,14 @@ spring:
   web:
     resources:
       add-mappings: false
+  task:
+    scheduling:
+      # @Scheduled 작업이 같이 쓰는 스레드 수(기본 1). 리포트 분석(ReportAnalysisWorker, LLM 호출 수십 초)이나 보존 정리가
+      # 도는 동안에도 app.heartbeat(5분)와 다른 정기 작업이 밀리지 않게 4개로 둔다. 각 작업은 fixedDelay/cron이라
+      # 같은 작업이 겹쳐 돌지는 않는다.
+      pool:
+        size: 4
+      thread-name-prefix: scheduling-
   datasource:
     url: ${SUPABASE_DB_URL:jdbc:postgresql://localhost:5432/postgres}
     username: ${SUPABASE_DB_USERNAME:postgres}
@@ -47,9 +55,14 @@ spring:
         default_schema: public
         jdbc.time_zone: UTC
         format_sql: false
+        # 지연 로딩 컬렉션·연관을 50개씩 IN 쿼리로 묶어 읽는다 - 지금 반복 호출(N+1)은 없지만 새 화면이 목록을 돌며
+        # 연관을 건드려도 쿼리 수가 행 수만큼 늘지 않게 하는 보험. 백엔드와 DB가 대륙을 건너 있어 쿼리 하나가 비싸다.
+        default_batch_fetch_size: 50
 
 qstory:
-  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006,https://q-story-f07-pilot.kaangaa.chatgpt.site,http://localhost:5173,http://127.0.0.1:5173,https://qstory.ai.kr,https://www.qstory.ai.kr,https://start.qstory.ai.kr,https://play.qstory.ai.kr,https://dev.qstory.ai.kr,https://demo.qstory.ai.kr,https://demo.api.qstory.ai.kr}
+  # dev·staging·prod 프로필 yml이 각자 덮어쓰므로 이 기본값은 그 밖의 프로필로 띄울 때만 쓰인다. 옛 출처(chatgpt.site 시범판,
+  # start.·dev.·demo.api.)는 뺐다 - 운영 값은 application-prod.yml과 Railway의 ALLOWED_ORIGINS가 정한다.
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006,http://localhost:5173,http://127.0.0.1:5173,https://qstory.ai.kr,https://www.qstory.ai.kr,https://play.qstory.ai.kr,https://demo.qstory.ai.kr}
   # 태블릿·폰 네이티브 앱(Capacitor WebView)의 출처 - fe/q-story-web/capacitor.config.ts의
   # server.hostname(app.qstory.ai.kr)에 Android는 https, iOS는 capacitor 스킴이 붙는다.
   # 프로필 yml이나 ALLOWED_ORIGINS가 allowed-origins를 덮어써도 SecurityConfig가 이 목록을 항상

@@ -37,6 +37,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 마이페이지 계정 단위 음성 연구 동의: 기본값, 다시 동의(약관 버전 확인), 철회(계정에 연결된 녹음 삭제),
@@ -57,7 +59,8 @@ class VoiceResearchServiceAccountConsentTest {
         AppProperties config = mock(AppProperties.class);
         when(config.supabase()).thenReturn(
                 new AppProperties.Supabase("https://example.supabase.co", "key", "voice-bucket", null, null, null, null));
-        service = new VoiceResearchService(validator, repository, storageClient, config, consentService);
+        service = new VoiceResearchService(validator, repository, storageClient, config, consentService,
+                new TransactionTemplate(mock(PlatformTransactionManager.class)));
         when(repository.savePreference(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(repository.saveConsent(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -349,6 +352,38 @@ class VoiceResearchServiceAccountConsentTest {
 
         assertEquals(ErrorCode.VALIDATION_FAILED, error.code());
         verify(storageClient, never()).upload(anyString(), anyString(), any(), anyString());
+    }
+
+    /** 업로드는 트랜잭션 밖에서 먼저 끝나고, 기록 저장이 실패하면 올린 파일을 지운다(고아 파일 방지). */
+    @Test
+    void failedSampleSaveAfterUploadDeletesTheUploadedObject() {
+        when(repository.findPreference(parentId)).thenReturn(VoiceResearchPreference.builder()
+                .userId(parentId).enabled(true).consentVersion(VoiceResearchService.CONSENT_VERSION)
+                .updatedAt(Instant.now()).build());
+        when(storageClient.upload(anyString(), anyString(), any(), anyString())).thenReturn(true);
+        when(repository.saveSample(any())).thenThrow(new IllegalStateException("db down"));
+        UploadRequest request = uploadRequest();
+
+        ApiException error = assertThrows(ApiException.class, () -> service.upload(request, parent));
+
+        assertEquals(ErrorCode.STORAGE_FAILED, error.code());
+        String objectName = request.consentId() + "/" + request.sampleId() + ".webm";
+        verify(storageClient).upload(eq("voice-bucket"), eq(objectName), any(), eq("audio/webm"));
+        verify(storageClient).delete("voice-bucket", objectName);
+    }
+
+    @Test
+    void failedUploadStoresNoConsentOrSample() {
+        when(repository.findPreference(parentId)).thenReturn(VoiceResearchPreference.builder()
+                .userId(parentId).enabled(true).consentVersion(VoiceResearchService.CONSENT_VERSION)
+                .updatedAt(Instant.now()).build());
+        when(storageClient.upload(anyString(), anyString(), any(), anyString())).thenReturn(false);
+
+        ApiException error = assertThrows(ApiException.class, () -> service.upload(uploadRequest(), parent));
+
+        assertEquals(ErrorCode.STORAGE_FAILED, error.code());
+        verify(repository, never()).saveConsent(any());
+        verify(repository, never()).saveSample(any());
     }
 
     private static VoiceResearchConsent consent(UUID userId) {
