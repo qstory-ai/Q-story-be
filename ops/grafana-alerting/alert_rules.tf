@@ -233,7 +233,26 @@ resource "grafana_rule_group" "backend_failures" {
         })
       }
 
-      # C: A가 threshold를 넘는지 보는 순수 표현식(expr) 쿼리 - 데이터소스 없이 __expr__로 계산.
+      # B: A(시계열)를 마지막 값 하나로 줄인다. Grafana 알림 조건은 줄인 값만 판정할 수 있어서, 시계열에
+      # 바로 threshold를 걸면 "only reduced data can be alerted on" 평가 오류가 나고 exec_err_state=Error로
+      # 알림이 계속 울린다(로그가 멀쩡해도 backend-silent가 5분마다 울리던 원인).
+      data {
+        ref_id = "B"
+        relative_time_range {
+          from = rule.value.range_seconds
+          to   = 0
+        }
+        datasource_uid = "__expr__"
+        model = jsonencode({
+          type       = "reduce"
+          expression = "A"
+          reducer    = "last"
+          settings   = { mode = "dropNN" }
+          refId      = "B"
+        })
+      }
+
+      # C: B가 threshold를 넘는지 보는 순수 표현식(expr) 쿼리 - 데이터소스 없이 __expr__로 계산.
       data {
         ref_id = "C"
         relative_time_range {
@@ -243,7 +262,7 @@ resource "grafana_rule_group" "backend_failures" {
         datasource_uid = "__expr__"
         model = jsonencode({
           type       = "threshold"
-          expression = "A"
+          expression = "B"
           conditions = [{
             evaluator = { type = rule.value.comparison, params = [rule.value.threshold] }
           }]
