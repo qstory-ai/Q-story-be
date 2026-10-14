@@ -69,7 +69,7 @@ qstory:
   # 시도 장면은 TTS를 더 쓰므로 질문 지점마다 max-attempts-per-anchor번까지만 만든다.
   dialogue:
     try-and-fail-enabled: ${QSTORY_TRY_AND_FAIL_ENABLED:true}
-    max-attempts-per-anchor: ${QSTORY_TRY_AND_FAIL_MAX_PER_ANCHOR:2}
+    max-attempts-per-anchor: ${QSTORY_TRY_AND_FAIL_MAX_PER_ANCHOR:1}
     max-attempt-turns: ${QSTORY_TRY_AND_FAIL_MAX_TURNS:4}
   stt-stream:
     enabled: ${STT_STREAM_ENABLED:true}
