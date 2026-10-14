@@ -37,6 +37,7 @@ class AccountErasureCoverageTest {
             Map.entry("notification_settings.user_id", "삭제"),
             Map.entry("bookmark.user_id", "삭제"),
             Map.entry("organization_tutor.tutor_id", "삭제(기관 소속 해제)"),
+            Map.entry("organization_join_request.tutor_id", "삭제(기관 소속 신청)"),
             Map.entry("organization_tutor_invite.used_by_tutor_id", "보존 - 초대 사용 이력, 계정은 익명화"),
             Map.entry("lesson.tutor_id", "개인 수업 삭제, 기관 반 수업은 보존"),
             Map.entry("notifications.user_id", "삭제"),
@@ -57,7 +58,8 @@ class AccountErasureCoverageTest {
             Map.entry("class_homeroom_invite.used_by", "보존 - 담임 초대 이력, 계정은 익명화"),
             Map.entry("push_device_token.user_id", "삭제"),
             Map.entry("class_group.archived_by", "보존 - 반 보관 이력, 계정은 익명화"),
-            Map.entry("tutor_student_class_history.changed_by", "보존 - 반 이동 이력, 계정은 익명화"));
+            Map.entry("tutor_student_class_history.changed_by", "보존 - 반 이동 이력, 계정은 익명화"),
+            Map.entry("organization.guardian_consent_ack_by", "보존 - 기관 보호자 동의 확인 기록, 계정은 익명화"));
 
     private static final Pattern CREATE = Pattern.compile(
             "create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?(?:public\\.)?(\\w+)", Pattern.CASE_INSENSITIVE);

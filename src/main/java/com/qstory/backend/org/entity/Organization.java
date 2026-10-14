@@ -51,6 +51,23 @@ public class Organization {
     @Column(name = "subscription_seats")
     private Integer subscriptionSeats;
 
+    /** 공공 기관 목록(public_institution)에서 고른 기관이면 그 id(083). 한 공공 기관은 한 기관만 가리킬 수 있다(유니크). */
+    @Column(name = "public_institution_id")
+    private UUID publicInstitutionId;
+
+    /**
+     * 기관이 "원아의 보호자 동의를 받아 이용한다(기관이 보호자에게 안내·동의를 받는다)"를 마지막으로 확인한 시각·문구 버전·확인한
+     * 원장(A5, db/schema/082). 원장 계정의 동의 이력(user_consent, ORG_GUARDIAN_ACK)에도 매번 한 줄씩 쌓인다.
+     */
+    @Column(name = "guardian_consent_ack_at")
+    private Instant guardianConsentAckAt;
+
+    @Column(name = "guardian_consent_ack_version", length = 40)
+    private String guardianConsentAckVersion;
+
+    @Column(name = "guardian_consent_ack_by")
+    private UUID guardianConsentAckBy;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 }

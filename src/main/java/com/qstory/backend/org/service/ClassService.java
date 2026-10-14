@@ -360,7 +360,7 @@ public class ClassService {
         ClassGroup classGroup = resolveClassGroup(request.classCode());
         authValidator.validateSignup(new SignupOrganizationOwnerRequest(
                 request.loginId(), request.email(), request.password(), request.displayName(), request.consents()));
-        consentService.requireSignupConsents(request.consents());
+        consentService.requireSignupConsents(request.consents(), Role.PARENT);
 
         AppUser parent = AppUser.builder()
                 .role(Role.PARENT)

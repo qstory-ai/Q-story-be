@@ -2,6 +2,7 @@ package com.qstory.backend.conversationrecord.service;
 
 import com.qstory.backend.common.enums.ConversationInputMode;
 import com.qstory.backend.common.enums.ConversationRecordKind;
+import com.qstory.backend.common.util.ContactInfoMasker;
 import com.qstory.backend.conversationrecord.ConversationAttribution;
 import com.qstory.backend.conversationrecord.entity.ConversationRecord;
 import com.qstory.backend.conversationrecord.repository.ConversationRecordRepository;
@@ -21,7 +22,8 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 대화 원장(conversation_record)에 쓰는 유일한 경로. 읽기 메서드는 의도적으로 없다.
+ * 대화 원장(conversation_record)에 쓰는 유일한 경로. 읽기 메서드는 의도적으로 없다. 아이 발화는 저장 전에
+ * 연락처(전화번호·이메일·주민번호)만 가린다(ContactInfoMasker).
  *
  * <p>모든 메서드는 예외를 삼키고 로그만 남긴다 - 기록이 실패했다고 아이의 질문 응답이 실패해서는
  * 안 된다. 그래서 @Transactional 대신 TransactionTemplate을 try 안에서 쓴다: 어노테이션 방식은
@@ -54,7 +56,7 @@ public class ConversationRecordService {
                 .questionRound(questionRound)
                 .locale(locale)
                 .sourceMimeType(sourceMimeType)
-                .childText(transcript)
+                .childText(ContactInfoMasker.mask(transcript))
                 .build());
     }
 
@@ -68,13 +70,13 @@ public class ConversationRecordService {
                 .questionRound(questionRound)
                 .locale(locale)
                 .sourceMimeType(sourceMimeType)
-                .childText(transcript)
+                .childText(ContactInfoMasker.mask(transcript))
                 .responseText(decision.responseText())
                 .speakerId(decision.speakerId())
                 .route(decision.route())
                 .actionFamilyId(decision.actionFamilyId())
                 .coverageStatus(decision.coverageStatus())
-                .childRelevantMeaning(truncate(decision.childRelevantMeaning(), 500))
+                .childRelevantMeaning(truncate(ContactInfoMasker.mask(decision.childRelevantMeaning()), 500))
                 .options(optionsOf(decision.options()))
                 .modelId(decision.modelId())
                 .promptVersion(decision.storyVersions() == null ? null : decision.storyVersions().promptVersion())
@@ -88,7 +90,7 @@ public class ConversationRecordService {
         save(base(ConversationRecordKind.COMPANION_TRANSCRIPT, storyId, sceneId, attribution.withInputMode(ConversationInputMode.VOICE))
                 .locale(locale)
                 .sourceMimeType(sourceMimeType)
-                .childText(transcript)
+                .childText(ContactInfoMasker.mask(transcript))
                 .build());
     }
 
@@ -114,7 +116,7 @@ public class ConversationRecordService {
                         conversationId, attribution.childId(), attribution.tutorStudentId(), attribution.lessonId(),
                         attribution.inputMode(), attribution.userId(), attribution.userRole());
         save(base(ConversationRecordKind.COMPANION_TURN, storyId, sceneId, withSession)
-                .childText(transcript)
+                .childText(ContactInfoMasker.mask(transcript))
                 .responseText(responseWithScene(reply))
                 .speakerId(reply.speakerId())
                 .route(companionRoute(reply, attemptTurn))

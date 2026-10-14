@@ -55,3 +55,16 @@ dependencies {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+// 공공데이터 기관 목록(유치원·어린이집) 적재 - 운영자가 손으로 돌린다. 사용법은 PublicInstitutionImportMain 주석.
+// 예: ./gradlew importPublicInstitutions -Pargs="kindergarten --timing 20261 --dry-run"
+tasks.register('importPublicInstitutions', JavaExec) {
+    group = 'qstory'
+    description = '유치원알리미/어린이집정보공개포털 기관 목록을 public_institution에 넣는다'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.qstory.backend.institution.importer.PublicInstitutionImportMain'
+    jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+    args = (project.findProperty('args') ?: '').toString().trim().split(/\s+(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+            .findAll { it }
+            .collect { it.replaceAll(/^"|"$/, '') }
+}

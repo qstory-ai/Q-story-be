@@ -3,6 +3,7 @@ package com.qstory.backend.playsession.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.common.util.ContactInfoMasker;
 import com.qstory.backend.identity.security.CurrentUser;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -177,7 +178,7 @@ public class PlaySessionService {
                 sessionId, seq, Timestamp.from(occurredAt(turn.path("occurredAt"), receivedAt)), Timestamp.from(receivedAt),
                 sceneId, shortText(turn.path("visualId"), 80), shortText(turn.path("anchorId"), 64),
                 oneOf(turn.path("entryMode"), ENTRY_MODES, null), role, speaker,
-                shortText(turn.path("characterSpeakerId"), 64), longText(turn.path("text")),
+                shortText(turn.path("characterSpeakerId"), 64), childTextMasked(role, longText(turn.path("text"))),
                 oneOf(turn.path("inputMode"), INPUT_MODES, null), bool(turn.path("transcriptEdited")),
                 bool(turn.path("fixed")), turn.path("helpStep").isInt() ? turn.path("helpStep").asInt() : null,
                 shortText(turn.path("replyKind"), 16), shortText(turn.path("proposedFamilyId"), 80),
@@ -328,6 +329,11 @@ public class PlaySessionService {
         String value = node.asText().trim();
         if (value.isEmpty()) return null;
         return value.length() > max ? value.substring(0, max) : value;
+    }
+
+    /** 아이 줄의 글은 연락처만 가려 저장한다(ContactInfoMasker) - 리포트에는 나머지 말이 그대로 보인다. */
+    private static String childTextMasked(String role, String text) {
+        return "CHILD".equals(role) ? ContactInfoMasker.mask(text) : text;
     }
 
     private static String longText(JsonNode node) {

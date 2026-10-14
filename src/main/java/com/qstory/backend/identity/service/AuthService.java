@@ -149,7 +149,7 @@ public class AuthService {
         // STAFF는 내부 계정이라 고객 약관 동의 대상이 아니다.
         boolean needsConsent = role != Role.STAFF;
         if (needsConsent) {
-            consentService.requireSignupConsents(request.consents());
+            consentService.requireSignupConsents(request.consents(), role);
         }
         String loginId = request.loginId().trim().toLowerCase();
         String email = request.email().trim().toLowerCase();
@@ -204,7 +204,7 @@ public class AuthService {
             throw ApiException.contractError(ErrorCode.OAUTH_ROLE_REQUIRED, "가입할 역할을 먼저 선택해 주세요.");
         }
 
-        consentService.requireSignupConsents(request.consents());
+        consentService.requireSignupConsents(request.consents(), request.role());
         String loginId = resolveLoginId(provider, identity);
         if (userRepository.existsByLoginId(loginId)) {
             throw ApiException.contractError(
