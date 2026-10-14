@@ -1,10 +1,12 @@
--- GA4(속성 555537619 - 랜딩 qstory.ai.kr, 웹 demo.qstory.ai.kr, 태블릿 앱) 일일 집계를 우리 DB로 가져온다.
+-- GA4 일일 집계(랜딩 qstory.ai.kr, 웹 demo.qstory.ai.kr, 태블릿 앱)를 우리 DB로 가져온다.
 -- analytics/service/GaImportService가 GA Data API(runReport)로 최근 며칠을 매일 다시 받아 날짜 단위로 갈아 끼운다
 -- (GA 처리 지연으로 늦게 들어온 데이터를 반영). Grafana "Q-Story 유입 → 전환" 대시보드가 grafana 스키마 뷰로 읽는다.
+-- 속성이 여럿이다(랜딩 qstory.ai.kr은 558917997, 웹·앱은 555537619) - property_id로 구분한다.
 -- GA가 비워 둔 값은 GA 그대로 '(not set)' 문자열로 남는다 - 기본 키에 null이 들어가지 않게.
 
 -- 1) 이벤트별: 날짜 × 호스트 × 유입(source/medium/campaign) × 플랫폼·화면(사용자 속성) × 이벤트 이름.
 create table if not exists public.ga_daily_metrics (
+    property_id text not null,
     metric_date date not null,
     host_name text not null,
     session_source text not null,
@@ -17,11 +19,12 @@ create table if not exists public.ga_daily_metrics (
     total_users bigint not null,
     sessions bigint not null,
     imported_at timestamptz not null default now(),
-    primary key (metric_date, host_name, session_source, session_medium, session_campaign, qs_platform, qs_surface, event_name)
+    primary key (property_id, metric_date, host_name, session_source, session_medium, session_campaign, qs_platform, qs_surface, event_name)
 );
 
 -- 2) 방문 규모: 위와 같은 분할에서 이벤트 이름만 뺀 것. 사용자·세션은 이벤트별 행을 더하면 중복으로 세어지므로 따로 받는다.
 create table if not exists public.ga_daily_traffic (
+    property_id text not null,
     metric_date date not null,
     host_name text not null,
     session_source text not null,
@@ -35,12 +38,13 @@ create table if not exists public.ga_daily_traffic (
     engaged_sessions bigint not null,
     page_views bigint not null,
     imported_at timestamptz not null default now(),
-    primary key (metric_date, host_name, session_source, session_medium, session_campaign, qs_platform, qs_surface)
+    primary key (property_id, metric_date, host_name, session_source, session_medium, session_campaign, qs_platform, qs_surface)
 );
 
 -- 3) 가져오기 실행 기록 - 마지막으로 언제 성공했는지, 몇 행을 받았는지(오류 시 사유 한 줄, 키·토큰은 넣지 않는다).
 create table if not exists public.ga_import_run (
     id bigserial primary key,
+    property_id text not null,
     started_at timestamptz not null,
     finished_at timestamptz not null,
     start_date date not null,
@@ -62,6 +66,7 @@ alter table public.ga_import_run enable row level security;
 --    channel: 유입 경로를 사람이 읽는 묶음으로. QR 코드 주소는 utm_source=qr&utm_medium=offline.
 create or replace view grafana.ga_daily_events as
 select
+    m.property_id,
     m.metric_date,
     case
         when m.host_name in ('localhost', '127.0.0.1') or m.host_name like '192.168.%' or m.host_name like '10.%' then 'DEV'
@@ -98,6 +103,7 @@ from public.ga_daily_metrics m;
 
 create or replace view grafana.ga_daily_traffic as
 select
+    t.property_id,
     t.metric_date,
     case
         when t.host_name in ('localhost', '127.0.0.1') or t.host_name like '192.168.%' or t.host_name like '10.%' then 'DEV'
@@ -134,7 +140,7 @@ select
 from public.ga_daily_traffic t;
 
 create or replace view grafana.ga_import_runs as
-select started_at, finished_at, start_date, end_date, status, event_rows, traffic_rows, error
+select property_id, started_at, finished_at, start_date, end_date, status, event_rows, traffic_rows, error
 from public.ga_import_run;
 
 -- 5) 우리 DB 퍼널(랜딩 방문 → 데모 시작 → 그레텔 대화 → 완주 → 리포트 열기)용. 세션의 유입(utm)과 트래픽 구분을 붙인다.

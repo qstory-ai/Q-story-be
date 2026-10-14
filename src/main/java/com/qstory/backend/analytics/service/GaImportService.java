@@ -17,10 +17,11 @@ import org.springframework.transaction.support.TransactionOperations;
 /**
  * GA4 일일 집계를 받아 ga_daily_metrics(이벤트별)·ga_daily_traffic(방문 규모)에 넣는다. 매번 오늘(한국 시간, GA 속성
  * 시간대와 같다)을 포함한 최근 lookback-days일을 다시 받아 날짜 단위로 갈아 끼운다 - GA는 하루 이상 늦게 처리를
- * 끝내므로 어제·그제 숫자가 바뀐다. 테이블이 비어 있으면 첫 실행만 initial-backfill-days일을 받는다.
+ * 끝내므로 어제·그제 숫자가 바뀐다. 그 속성 행이 아직 없으면 첫 실행만 initial-backfill-days일을 받는다.
+ * 속성이 여럿이면(랜딩 속성과 웹·앱 속성) 하나씩 따로 받고 property_id로 구분해 넣는다.
  *
- * <p>두 보고서를 모두 받은 뒤에 한 트랜잭션으로 쓴다(하나라도 실패하면 기존 행을 그대로 둔다). 실행 결과는
- * ga_import_run에 한 줄, 로그 ga-import.ok / ga-import.failed로 남긴다.
+ * <p>속성마다 두 보고서를 모두 받은 뒤에 한 트랜잭션으로 쓴다(하나라도 실패하면 그 속성의 기존 행을 그대로 둔다).
+ * 실행 결과는 속성마다 ga_import_run에 한 줄, 로그 ga-import.ok / ga-import.failed로 남긴다.
  */
 @Service
 public class GaImportService {
@@ -56,16 +57,34 @@ public class GaImportService {
         return client.enabled();
     }
 
-    /** 최근 며칠을 다시 받는다. 꺼져 있거나 이미 도는 중이면 아무것도 하지 않고 false. */
+    /**
+     * 속성마다 최근 며칠을 다시 받는다(그 속성 행이 아직 없으면 백필). 꺼져 있거나 이미 도는 중이면 아무것도 하지 않고
+     * false. 한 속성이 실패해도 나머지는 받는다 - 모두 성공해야 true.
+     */
     public boolean importRecent() {
-        if (!enabled()) {
+        if (!enabled() || !running.compareAndSet(false, true)) {
             return false;
         }
-        LocalDate today = today();
-        int days = repository.isEmpty()
-                ? properties.initialBackfillDaysOrDefault()
-                : properties.lookbackDaysOrDefault();
-        return importRange(today.minusDays(days - 1L), today);
+        try {
+            LocalDate today = today();
+            boolean allOk = true;
+            for (String property : client.propertyIds()) {
+                int days;
+                try {
+                    days = repository.isEmpty(property)
+                            ? properties.initialBackfillDaysOrDefault()
+                            : properties.lookbackDaysOrDefault();
+                } catch (RuntimeException dbDown) {
+                    log.warn("ga-import.failed property={} reason={}", property, dbDown.getClass().getSimpleName());
+                    allOk = false;
+                    continue;
+                }
+                allOk &= importOne(property, today.minusDays(days - 1L), today);
+            }
+            return allOk;
+        } finally {
+            running.set(false);
+        }
     }
 
     /** GA 속성 시간대(한국 시간)의 오늘. */
@@ -73,36 +92,49 @@ public class GaImportService {
         return LocalDate.now(clock.withZone(GA_ZONE));
     }
 
-    /** start~end(포함)를 받아 갈아 끼운다. 성공하면 true. */
+    /** 모든 속성의 start~end(포함)를 받아 갈아 끼운다. 모두 성공하면 true. */
     public boolean importRange(LocalDate start, LocalDate end) {
         if (!enabled() || !running.compareAndSet(false, true)) {
             return false;
         }
+        try {
+            boolean allOk = true;
+            for (String property : client.propertyIds()) {
+                allOk &= importOne(property, start, end);
+            }
+            return allOk;
+        } finally {
+            running.set(false);
+        }
+    }
+
+    /** 한 속성의 두 보고서를 모두 받은 뒤 한 트랜잭션으로 갈아 끼운다. 실패하면 기존 행을 그대로 둔다. */
+    private boolean importOne(String property, LocalDate start, LocalDate end) {
         Instant startedAt = clock.instant();
         try {
-            List<GaRows.EventRow> events = client.events(start, end);
-            List<GaRows.TrafficRow> traffic = client.traffic(start, end);
+            List<GaRows.EventRow> events = client.events(property, start, end);
+            List<GaRows.TrafficRow> traffic = client.traffic(property, start, end);
             Instant importedAt = clock.instant();
             transactions.executeWithoutResult(status -> {
-                repository.replaceEvents(start, end, events, importedAt);
-                repository.replaceTraffic(start, end, traffic, importedAt);
-                repository.recordRun(startedAt, clock.instant(), start, end, true, events.size(), traffic.size(), null);
+                repository.replaceEvents(property, start, end, events, importedAt);
+                repository.replaceTraffic(property, start, end, traffic, importedAt);
+                repository.recordRun(
+                        property, startedAt, clock.instant(), start, end, true, events.size(), traffic.size(), null);
             });
-            log.info("ga-import.ok start={} end={} event_rows={} traffic_rows={}", start, end, events.size(), traffic.size());
+            log.info("ga-import.ok property={} start={} end={} event_rows={} traffic_rows={}",
+                    property, start, end, events.size(), traffic.size());
             return true;
         } catch (GaDataClient.GaApiException | RuntimeException error) {
             String reason = error instanceof GaDataClient.GaApiException
                     ? error.getMessage()
                     : error.getClass().getSimpleName();
-            log.warn("ga-import.failed start={} end={} reason={}", start, end, reason);
+            log.warn("ga-import.failed property={} start={} end={} reason={}", property, start, end, reason);
             try {
-                repository.recordRun(startedAt, clock.instant(), start, end, false, 0, 0, reason);
+                repository.recordRun(property, startedAt, clock.instant(), start, end, false, 0, 0, reason);
             } catch (RuntimeException recordFailed) {
                 log.warn("ga-import.run-log-failed reason={}", recordFailed.getClass().getSimpleName());
             }
             return false;
-        } finally {
-            running.set(false);
         }
     }
 }

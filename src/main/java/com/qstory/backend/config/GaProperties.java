@@ -4,7 +4,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * GA4 일일 집계 가져오기 설정(qstory.ga). serviceAccountJson은 서비스 계정 키 JSON 원문 또는 그 base64
- * (GA_SERVICE_ACCOUNT_JSON), propertyId는 숫자 속성 ID(GA_PROPERTY_ID). 둘 중 하나라도 비었거나 importEnabled가
+ * (GA_SERVICE_ACCOUNT_JSON), propertyId는 숫자 속성 ID(GA_PROPERTY_ID, 여러 개면 쉼표로 - 랜딩과 웹·앱 속성). 둘 중 하나라도 비었거나 importEnabled가
  * false(QSTORY_GA_IMPORT_ENABLED)면 가져오기는 아무것도 하지 않는다.
  */
 @ConfigurationProperties(prefix = "qstory.ga")

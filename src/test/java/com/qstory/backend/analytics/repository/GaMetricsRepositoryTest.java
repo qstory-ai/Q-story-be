@@ -24,6 +24,7 @@ class GaMetricsRepositoryTest {
 
     private final NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
     private final GaMetricsRepository repository = new GaMetricsRepository(jdbc);
+    private static final String P = "555537619";
     private static final LocalDate START = LocalDate.of(2026, 10, 12);
     private static final LocalDate END = LocalDate.of(2026, 10, 14);
     private static final GaRows.Key KEY =
@@ -31,12 +32,13 @@ class GaMetricsRepositoryTest {
 
     @Test
     void eventsDeleteTheRangeThenUpsertEachRow() {
-        repository.replaceEvents(START, END, List.of(
+        repository.replaceEvents(P, START, END, List.of(
                 new GaRows.EventRow(KEY, "sign_up", 2, 2, 2),
                 new GaRows.EventRow(KEY, "story_complete", 5, 3, 4)), Instant.parse("2026-10-14T20:00:00Z"));
 
         ArgumentCaptor<SqlParameterSource> range = ArgumentCaptor.forClass(SqlParameterSource.class);
         verify(jdbc).update(eq(GaMetricsRepository.DELETE_EVENTS), range.capture());
+        assertEquals(P, range.getValue().getValue("property"));
         assertEquals(Date.valueOf(START), range.getValue().getValue("start"));
         assertEquals(Date.valueOf(END), range.getValue().getValue("end"));
 
@@ -45,6 +47,7 @@ class GaMetricsRepositoryTest {
         SqlParameterSource second = batch.getValue()[1];
         assertEquals(2, batch.getValue().length);
         assertEquals(Date.valueOf(KEY.date()), second.getValue("date"));
+        assertEquals(P, second.getValue("property"));
         assertEquals("qr", second.getValue("source"));
         assertEquals("ios", second.getValue("platform"));
         assertEquals("story_complete", second.getValue("eventName"));
@@ -55,7 +58,7 @@ class GaMetricsRepositoryTest {
 
     @Test
     void trafficWithNoRowsStillClearsTheRange() {
-        repository.replaceTraffic(START, END, List.of(), Instant.now());
+        repository.replaceTraffic(P, START, END, List.of(), Instant.now());
 
         verify(jdbc).update(eq(GaMetricsRepository.DELETE_TRAFFIC), any(SqlParameterSource.class));
         verify(jdbc, never()).batchUpdate(anyString(), any(SqlParameterSource[].class));
@@ -63,7 +66,7 @@ class GaMetricsRepositoryTest {
 
     @Test
     void trafficRowBindsAllMetrics() {
-        repository.replaceTraffic(START, END, List.of(new GaRows.TrafficRow(KEY, 6, 4, 10, 9, 50)), Instant.now());
+        repository.replaceTraffic(P, START, END, List.of(new GaRows.TrafficRow(KEY, 6, 4, 10, 9, 50)), Instant.now());
 
         ArgumentCaptor<SqlParameterSource[]> batch = ArgumentCaptor.forClass(SqlParameterSource[].class);
         verify(jdbc).batchUpdate(eq(GaMetricsRepository.UPSERT_TRAFFIC), batch.capture());
@@ -77,7 +80,7 @@ class GaMetricsRepositoryTest {
 
     @Test
     void runLogTrimsLongError() {
-        repository.recordRun(Instant.now(), Instant.now(), START, END, false, 0, 0, "x".repeat(900));
+        repository.recordRun(P, Instant.now(), Instant.now(), START, END, false, 0, 0, "x".repeat(900));
 
         ArgumentCaptor<SqlParameterSource> params = ArgumentCaptor.forClass(SqlParameterSource.class);
         verify(jdbc).update(eq(GaMetricsRepository.INSERT_RUN), params.capture());

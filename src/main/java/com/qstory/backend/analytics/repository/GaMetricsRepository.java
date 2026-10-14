@@ -12,42 +12,49 @@ import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.stereotype.Repository;
 
 /**
- * ga_daily_metrics·ga_daily_traffic·ga_import_run(db/schema/085). 가져온 기간은 날짜 단위로 갈아 끼운다 - 그 기간의
- * 행을 지우고 받은 행을 넣는다(같은 키가 두 번 오면 나중 값으로 덮는다). GA에서 사라진 분할이 남지 않게 하려는 것.
- * 호출하는 쪽(GaImportService)이 한 트랜잭션으로 묶는다.
+ * ga_daily_metrics·ga_daily_traffic·ga_import_run(db/schema/085). 가져온 기간은 속성·날짜 단위로 갈아 끼운다 - 그
+ * 속성의 그 기간 행을 지우고 받은 행을 넣는다(같은 키가 두 번 오면 나중 값으로 덮는다). GA에서 사라진 분할이 남지
+ * 않게 하려는 것. 호출하는 쪽(GaImportService)이 한 트랜잭션으로 묶는다.
  */
 @Repository
 public class GaMetricsRepository {
 
     static final String DELETE_EVENTS =
-            "delete from public.ga_daily_metrics where metric_date between :start and :end";
+            "delete from public.ga_daily_metrics where property_id = :property and metric_date between :start and :end";
     static final String DELETE_TRAFFIC =
-            "delete from public.ga_daily_traffic where metric_date between :start and :end";
+            "delete from public.ga_daily_traffic where property_id = :property and metric_date between :start and :end";
 
     static final String UPSERT_EVENT = """
-            insert into public.ga_daily_metrics (metric_date, host_name, session_source, session_medium, session_campaign,
-                qs_platform, qs_surface, event_name, event_count, total_users, sessions, imported_at)
-            values (:date, :host, :source, :medium, :campaign, :platform, :surface, :eventName,
+            insert into public.ga_daily_metrics (property_id, metric_date, host_name, session_source, session_medium,
+                session_campaign, qs_platform, qs_surface, event_name, event_count, total_users, sessions, imported_at)
+            values (:property, :date, :host, :source, :medium, :campaign, :platform, :surface, :eventName,
                 :eventCount, :totalUsers, :sessions, :importedAt)
-            on conflict (metric_date, host_name, session_source, session_medium, session_campaign, qs_platform, qs_surface, event_name)
+            on conflict (property_id, metric_date, host_name, session_source, session_medium, session_campaign,
+                qs_platform, qs_surface, event_name)
             do update set event_count = excluded.event_count, total_users = excluded.total_users,
                 sessions = excluded.sessions, imported_at = excluded.imported_at
             """;
 
     static final String UPSERT_TRAFFIC = """
-            insert into public.ga_daily_traffic (metric_date, host_name, session_source, session_medium, session_campaign,
-                qs_platform, qs_surface, total_users, new_users, sessions, engaged_sessions, page_views, imported_at)
-            values (:date, :host, :source, :medium, :campaign, :platform, :surface,
+            insert into public.ga_daily_traffic (property_id, metric_date, host_name, session_source, session_medium,
+                session_campaign, qs_platform, qs_surface, total_users, new_users, sessions, engaged_sessions, page_views,
+                imported_at)
+            values (:property, :date, :host, :source, :medium, :campaign, :platform, :surface,
                 :totalUsers, :newUsers, :sessions, :engagedSessions, :pageViews, :importedAt)
-            on conflict (metric_date, host_name, session_source, session_medium, session_campaign, qs_platform, qs_surface)
+            on conflict (property_id, metric_date, host_name, session_source, session_medium, session_campaign,
+                qs_platform, qs_surface)
             do update set total_users = excluded.total_users, new_users = excluded.new_users, sessions = excluded.sessions,
                 engaged_sessions = excluded.engaged_sessions, page_views = excluded.page_views, imported_at = excluded.imported_at
             """;
 
     static final String INSERT_RUN = """
-            insert into public.ga_import_run (started_at, finished_at, start_date, end_date, status, event_rows, traffic_rows, error)
-            values (:startedAt, :finishedAt, :start, :end, :status, :eventRows, :trafficRows, :error)
+            insert into public.ga_import_run (property_id, started_at, finished_at, start_date, end_date, status,
+                event_rows, traffic_rows, error)
+            values (:property, :startedAt, :finishedAt, :start, :end, :status, :eventRows, :trafficRows, :error)
             """;
+
+    static final String ANY_TRAFFIC =
+            "select exists (select 1 from public.ga_daily_traffic where property_id = :property)";
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -55,19 +62,20 @@ public class GaMetricsRepository {
         this.jdbc = jdbc;
     }
 
-    public boolean isEmpty() {
-        Boolean exists = jdbc.getJdbcTemplate()
-                .queryForObject("select exists (select 1 from public.ga_daily_traffic)", Boolean.class);
+    /** 이 속성으로 받은 행이 아직 없는지 - 처음이면 백필한다. */
+    public boolean isEmpty(String property) {
+        Boolean exists = jdbc.queryForObject(ANY_TRAFFIC, new MapSqlParameterSource("property", property), Boolean.class);
         return !Boolean.TRUE.equals(exists);
     }
 
-    public void replaceEvents(LocalDate start, LocalDate end, List<GaRows.EventRow> rows, Instant importedAt) {
-        jdbc.update(DELETE_EVENTS, range(start, end));
+    public void replaceEvents(
+            String property, LocalDate start, LocalDate end, List<GaRows.EventRow> rows, Instant importedAt) {
+        jdbc.update(DELETE_EVENTS, range(property, start, end));
         if (rows.isEmpty()) {
             return;
         }
         SqlParameterSource[] batch = rows.stream()
-                .map(row -> key(row.key(), importedAt)
+                .map(row -> key(property, row.key(), importedAt)
                         .addValue("eventName", row.eventName())
                         .addValue("eventCount", row.eventCount())
                         .addValue("totalUsers", row.totalUsers())
@@ -76,13 +84,14 @@ public class GaMetricsRepository {
         jdbc.batchUpdate(UPSERT_EVENT, batch);
     }
 
-    public void replaceTraffic(LocalDate start, LocalDate end, List<GaRows.TrafficRow> rows, Instant importedAt) {
-        jdbc.update(DELETE_TRAFFIC, range(start, end));
+    public void replaceTraffic(
+            String property, LocalDate start, LocalDate end, List<GaRows.TrafficRow> rows, Instant importedAt) {
+        jdbc.update(DELETE_TRAFFIC, range(property, start, end));
         if (rows.isEmpty()) {
             return;
         }
         SqlParameterSource[] batch = rows.stream()
-                .map(row -> key(row.key(), importedAt)
+                .map(row -> key(property, row.key(), importedAt)
                         .addValue("totalUsers", row.totalUsers())
                         .addValue("newUsers", row.newUsers())
                         .addValue("sessions", row.sessions())
@@ -93,9 +102,9 @@ public class GaMetricsRepository {
     }
 
     public void recordRun(
-            Instant startedAt, Instant finishedAt, LocalDate start, LocalDate end, boolean success,
+            String property, Instant startedAt, Instant finishedAt, LocalDate start, LocalDate end, boolean success,
             int eventRows, int trafficRows, String error) {
-        jdbc.update(INSERT_RUN, range(start, end)
+        jdbc.update(INSERT_RUN, range(property, start, end)
                 .addValue("startedAt", Timestamp.from(startedAt))
                 .addValue("finishedAt", Timestamp.from(finishedAt))
                 .addValue("status", success ? "SUCCESS" : "FAILED")
@@ -104,14 +113,16 @@ public class GaMetricsRepository {
                 .addValue("error", error == null ? null : error.length() > 500 ? error.substring(0, 500) : error));
     }
 
-    private static MapSqlParameterSource range(LocalDate start, LocalDate end) {
+    private static MapSqlParameterSource range(String property, LocalDate start, LocalDate end) {
         return new MapSqlParameterSource()
+                .addValue("property", property)
                 .addValue("start", Date.valueOf(start))
                 .addValue("end", Date.valueOf(end));
     }
 
-    private static MapSqlParameterSource key(GaRows.Key key, Instant importedAt) {
+    private static MapSqlParameterSource key(String property, GaRows.Key key, Instant importedAt) {
         return new MapSqlParameterSource()
+                .addValue("property", property)
                 .addValue("date", Date.valueOf(key.date()))
                 .addValue("host", key.hostName())
                 .addValue("source", key.source())

@@ -34,7 +34,7 @@ class GaDataClientTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient http = mock(HttpClient.class);
-    private final GaDataClient client = new GaDataClient(http, objectMapper, "555537619", () -> "access-123");
+    private final GaDataClient client = new GaDataClient(http, objectMapper, List.of("555537619"), () -> "access-123");
 
     @SuppressWarnings("unchecked")
     private static HttpResponse<byte[]> response(int status, String body) {
@@ -65,7 +65,7 @@ class GaDataClientTest {
         HttpResponse<byte[]> second = response(200, trafficPage(3, "20261014"));
         doReturn(first).doReturn(second).when(http).send(any(HttpRequest.class), any());
 
-        List<GaRows.TrafficRow> rows = client.traffic(LocalDate.of(2026, 10, 12), LocalDate.of(2026, 10, 14));
+        List<GaRows.TrafficRow> rows = client.traffic("555537619", LocalDate.of(2026, 10, 12), LocalDate.of(2026, 10, 14));
 
         assertEquals(3, rows.size());
         ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
@@ -99,7 +99,7 @@ class GaDataClientTest {
         doReturn(denied).when(http).send(any(HttpRequest.class), any());
 
         GaDataClient.GaApiException error = assertThrows(GaDataClient.GaApiException.class,
-                () -> client.events(LocalDate.of(2026, 10, 12), LocalDate.of(2026, 10, 14)));
+                () -> client.events("555537619", LocalDate.of(2026, 10, 12), LocalDate.of(2026, 10, 14)));
 
         assertTrue(error.getMessage().startsWith("http-403 PERMISSION_DENIED"));
         assertFalse(error.getMessage().contains("access-123"));
@@ -113,7 +113,21 @@ class GaDataClientTest {
         assertFalse(new GaDataClient(http, objectMapper, new GaProperties("not-a-key", "555537619", true, 3, 30)).enabled());
         assertFalse(new GaDataClient(http, objectMapper, new GaProperties("{\"type\":\"service_account\"}", "abc", true, 3, 30)).enabled());
         assertThrows(GaDataClient.GaApiException.class, () ->
-                new GaDataClient(http, objectMapper, null, null).traffic(LocalDate.now(), LocalDate.now()));
+                new GaDataClient(http, objectMapper, List.of(), null).traffic("1", LocalDate.now(), LocalDate.now()));
+        verifyNoInteractions(http);
+    }
+
+    @Test
+    void severalPropertiesAreSplitOnCommaOrSpaceAndAnyTypoDisablesAll() {
+        assertEquals(List.of("555537619", "558917997"), GaDataClient.setupPropertyIds(
+                new GaProperties("{}", " 555537619, properties/558917997 555537619", true, 3, 30)));
+        assertEquals(List.of(), GaDataClient.setupPropertyIds(new GaProperties("{}", "555537619,G-7PH6EEGDR3", true, 3, 30)));
+    }
+
+    @Test
+    void unknownPropertyIsRefusedWithoutCalling() {
+        assertThrows(GaDataClient.GaApiException.class,
+                () -> client.events("999", LocalDate.of(2026, 10, 12), LocalDate.of(2026, 10, 14)));
         verifyNoInteractions(http);
     }
 

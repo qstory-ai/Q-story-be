@@ -37,44 +37,51 @@ public class GaDataClient {
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
-    private final String propertyId;
+    private final List<String> propertyIds;
     private final GaAccessTokenProvider tokens;
 
     @Autowired
     public GaDataClient(HttpClient httpClient, ObjectMapper objectMapper, GaProperties properties) {
-        this(httpClient, objectMapper, setupPropertyId(properties), setupTokens(properties));
+        this(httpClient, objectMapper, setupPropertyIds(properties), setupTokens(properties));
     }
 
-    /** 테스트용 - propertyId나 tokens가 null이면 꺼진 클라이언트. */
-    GaDataClient(HttpClient httpClient, ObjectMapper objectMapper, String propertyId, GaAccessTokenProvider tokens) {
+    /** 테스트용 - propertyIds가 비었거나 tokens가 null이면 꺼진 클라이언트. */
+    GaDataClient(
+            HttpClient httpClient, ObjectMapper objectMapper, List<String> propertyIds, GaAccessTokenProvider tokens) {
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
-        this.propertyId = propertyId;
+        this.propertyIds = propertyIds == null ? List.of() : List.copyOf(propertyIds);
         this.tokens = tokens;
     }
 
     public boolean enabled() {
-        return propertyId != null && tokens != null;
+        return !propertyIds.isEmpty() && tokens != null;
     }
 
-    public List<GaRows.EventRow> events(LocalDate start, LocalDate end) throws GaApiException {
-        return fetchAll(GaReport.EVENTS, start, end, GaReportParser::events);
+    /** 가져올 GA 속성(숫자 ID). 랜딩(qstory.ai.kr)과 웹·앱이 서로 다른 속성으로 보내므로 여러 개를 받는다. */
+    public List<String> propertyIds() {
+        return propertyIds;
     }
 
-    public List<GaRows.TrafficRow> traffic(LocalDate start, LocalDate end) throws GaApiException {
-        return fetchAll(GaReport.TRAFFIC, start, end, GaReportParser::traffic);
+    public List<GaRows.EventRow> events(String propertyId, LocalDate start, LocalDate end) throws GaApiException {
+        return fetchAll(propertyId, GaReport.EVENTS, start, end, GaReportParser::events);
+    }
+
+    public List<GaRows.TrafficRow> traffic(String propertyId, LocalDate start, LocalDate end) throws GaApiException {
+        return fetchAll(propertyId, GaReport.TRAFFIC, start, end, GaReportParser::traffic);
     }
 
     private <T> List<T> fetchAll(
-            GaReport report, LocalDate start, LocalDate end, Function<JsonNode, GaReportParser.Page<T>> parse)
+            String propertyId, GaReport report, LocalDate start, LocalDate end,
+            Function<JsonNode, GaReportParser.Page<T>> parse)
             throws GaApiException {
-        if (!enabled()) {
+        if (!enabled() || !propertyIds.contains(propertyId)) {
             throw new GaApiException("disabled");
         }
         List<T> all = new ArrayList<>();
         int offset = 0;
         for (int page = 0; page < MAX_PAGES; page++) {
-            GaReportParser.Page<T> result = parse.apply(call(requestBody(report, start, end, offset)));
+            GaReportParser.Page<T> result = parse.apply(call(propertyId, requestBody(report, start, end, offset)));
             all.addAll(result.rows());
             offset += result.rawRows();
             if (result.rawRows() == 0 || offset >= result.rowCount()) {
@@ -98,7 +105,7 @@ public class GaDataClient {
         return body;
     }
 
-    private JsonNode call(ObjectNode body) throws GaApiException {
+    private JsonNode call(String propertyId, ObjectNode body) throws GaApiException {
         String accessToken;
         try {
             accessToken = tokens.accessToken();
@@ -144,19 +151,26 @@ public class GaDataClient {
         }
     }
 
-    private static String setupPropertyId(GaProperties properties) {
+    /**
+     * "555537619,558917997"처럼 쉼표·공백으로 여러 개("properties/" 접두사 허용). 하나라도 형식이 틀리면 전부 끈다 -
+     * 오타 난 속성을 조용히 빼고 넘어가지 않게.
+     */
+    static List<String> setupPropertyIds(GaProperties properties) {
         if (properties == null || !properties.enabled()) {
-            return null;
+            return List.of();
         }
-        String id = properties.propertyId().trim();
-        if (id.startsWith("properties/")) {
-            id = id.substring("properties/".length());
+        List<String> ids = new ArrayList<>();
+        for (String raw : properties.propertyId().trim().split("[,\\s]+")) {
+            String id = raw.startsWith("properties/") ? raw.substring("properties/".length()) : raw;
+            if (!id.matches("[0-9]{1,20}")) {
+                log.warn("ga-import.disabled reason=invalid-property-id");
+                return List.of();
+            }
+            if (!ids.contains(id)) {
+                ids.add(id);
+            }
         }
-        if (!id.matches("[0-9]{1,20}")) {
-            log.warn("ga-import.disabled reason=invalid-property-id");
-            return null;
-        }
-        return id;
+        return ids;
     }
 
     private static GaAccessTokenProvider setupTokens(GaProperties properties) {

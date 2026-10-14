@@ -5,6 +5,8 @@
 #
 # GA 숫자 읽는 법: 방문자(totalUsers)는 날짜·유입·플랫폼으로 쪼갠 행을 더한 값이라 같은 사람이 여러 분할에 걸치면
 # 두 번 센다(세션·이벤트 수는 그대로 더해도 맞다). GA가 하루 넘게 늦게 처리하므로 최근 3일은 매일 다시 받는다.
+# 랜딩(qstory.ai.kr, 속성 558917997)과 웹·앱(demo.qstory.ai.kr·태블릿 앱, 555537619)은 GA 속성이 달라 둘 다 받아 합친다
+# (GA_PROPERTY_ID에 쉼표로). 화면(surface)은 호스트로 나눈다.
 
 locals {
   # GA 날짜 열(date) 기간 필터 - 대시보드 기간을 한국 날짜로 바꿔 자른다.
@@ -83,7 +85,7 @@ locals {
     }
     f_qr_funnel = {
       title       = "QR 퍼널 (GA4)"
-      description = "QR 코드(utm_source=qr, utm_medium=offline, qr-main)로 시작한 세션. 방문·데모 방문은 세션 수, 나머지는 이벤트 수. 데모 방문 = 앱 화면(demo.qstory.ai.kr 등)에 닿은 세션."
+      description = "QR 코드(utm_source=qr, utm_medium=offline, qr-main)로 시작한 세션. 방문·데모 방문은 세션 수, 나머지는 이벤트 수. 데모 방문 = 앱 화면(demo.qstory.ai.kr 등)에 닿은 세션. 랜딩(속성 558917997)과 웹·앱(555537619)은 GA 속성이 달라 세션이 이어지지 않는다 - 데모 쪽 단계는 데모 주소에 utm이 실려 넘어간 경우만 QR로 잡힌다."
       type        = "barchart"
       format      = "table"
       sql         = <<-SQL
@@ -177,7 +179,7 @@ locals {
       description = "백엔드 GA 가져오기(매일 04:40·07:40 KST, 부팅 2분 뒤 한 번) 최근 10회. FAILED면 error 열의 사유를 본다."
       type        = "table"
       format      = "table"
-      sql         = "select started_at as \"시작\", status as \"결과\", start_date || ' ~ ' || end_date as \"받은 기간\", event_rows as \"이벤트 행\", traffic_rows as \"방문 행\", error as \"오류\" from grafana.ga_import_runs order by started_at desc limit 10"
+      sql         = "select case property_id when '558917997' then '랜딩' when '555537619' then '웹·앱' else property_id end as \"속성\", started_at as \"시작\", status as \"결과\", start_date || ' ~ ' || end_date as \"받은 기간\", event_rows as \"이벤트 행\", traffic_rows as \"방문 행\", error as \"오류\" from grafana.ga_import_runs order by started_at desc limit 10"
       pos         = { x = 0, y = 44, w = 24, h = 6 }
     }
   }
