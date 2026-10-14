@@ -176,6 +176,73 @@ locals {
           queryType    = "range"
         }]
       },
+      # 리전 이전 판단용(docs/dev-log/구조-점검.md 5장). 백엔드(암스테르담) ↔ Supabase(서울) 한 왕복과, 요청 하나를
+      # 백엔드 안에서 처리하는 시간. 이용자가 느끼는 시간 = 이 처리 시간 + 바깥 왕복(프록시 elapsedMs - duration_ms).
+      {
+        id          = 25
+        type        = "timeseries"
+        title       = "DB 왕복 ms (백엔드 → Supabase)"
+        description = "app.heartbeat가 5분마다 SELECT 1을 3번 보낸 결과(HeartbeatLogger). 가장 짧은 값 = 순수 네트워크 왕복에 가까움, 첫 값 = 풀에서 연결 꺼내기 포함. 쿼리 N개짜리 요청은 대략 N배가 든다. -1은 DB 응답 없음."
+        datasource  = local.loki
+        gridPos     = { x = 0, y = 44, w = 12, h = 8 }
+        fieldConfig = {
+          defaults  = { unit = "ms", min = 0, custom = { fillOpacity = 10, lineWidth = 2 } }
+          overrides = []
+        }
+        options = { legend = { displayMode = "list", placement = "bottom", calcs = ["mean", "min", "max"] } }
+        targets = [
+          {
+            refId        = "A"
+            datasource   = local.loki
+            expr         = "min(min_over_time(${local.logsel} |= \"app.heartbeat\" | regexp \"db_ping_min_ms=(?P<v>[0-9]+)\" | unwrap v [10m]))"
+            legendFormat = "가장 짧은 왕복"
+            queryType    = "range"
+          },
+          {
+            refId        = "B"
+            datasource   = local.loki
+            expr         = "max(max_over_time(${local.logsel} |= \"app.heartbeat\" | regexp \"db_ping_ms=(?P<v>[0-9]+)\" | unwrap v [10m]))"
+            legendFormat = "첫 왕복(연결 꺼내기 포함)"
+            queryType    = "range"
+          },
+        ]
+      },
+      {
+        id          = 26
+        type        = "timeseries"
+        title       = "백엔드 처리 시간 duration_ms (프록시 elapsedMs와 비교용)"
+        description = "http.request의 duration_ms - 백엔드 안에서 걸린 시간(DB 왕복 포함, 바깥 네트워크 제외). 웹 프록시(Vercel 서울)의 elapsedMs는 Vercel 로그([qstory-proxy])에만 있어 여기 없다 - 같은 x-qstory-request-id로 맞춰 보면 elapsedMs - duration_ms가 Vercel ↔ Railway 왕복이다. /health는 요청 로그를 남기지 않는다."
+        datasource  = local.loki
+        gridPos     = { x = 12, y = 44, w = 12, h = 8 }
+        fieldConfig = {
+          defaults  = { unit = "ms", min = 0, custom = { fillOpacity = 10, lineWidth = 2 } }
+          overrides = []
+        }
+        options = { legend = { displayMode = "list", placement = "bottom", calcs = ["mean", "max"] } }
+        targets = [
+          {
+            refId        = "A"
+            datasource   = local.loki
+            expr         = "quantile_over_time(0.5, ${local.logsel} |= \"http.request\" | regexp \"duration_ms=(?P<d>[0-9]+)\" | unwrap d [10m]) by (app)"
+            legendFormat = "전체 p50"
+            queryType    = "range"
+          },
+          {
+            refId        = "B"
+            datasource   = local.loki
+            expr         = "quantile_over_time(0.95, ${local.logsel} |= \"http.request\" | regexp \"duration_ms=(?P<d>[0-9]+)\" | unwrap d [10m]) by (app)"
+            legendFormat = "전체 p95"
+            queryType    = "range"
+          },
+          {
+            refId        = "C"
+            datasource   = local.loki
+            expr         = "quantile_over_time(0.5, ${local.logsel} |= \"http.request\" |= \"route=/v1/stories \" | regexp \"duration_ms=(?P<d>[0-9]+)\" | unwrap d [10m]) by (app)"
+            legendFormat = "GET /v1/stories p50 (공개 목록, DB 사용)"
+            queryType    = "range"
+          },
+        ]
+      },
     ],
     # 운영 DB 연결이 있을 때만 - 오늘(한국 시간) 실제 이용자(BETA) 활동.
     local.postgres_enabled ? [{
