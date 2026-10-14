@@ -60,6 +60,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             new Route("POST", "^/v1/client-errors$", RateLimitRule.CLIENT_ERRORS),
             new Route("POST", "^/v1/(recording-consents|me/recording-consent)$", RateLimitRule.RECORDING_CONSENTS),
             new Route("POST", "^/v1/launch-notifications$", RateLimitRule.LAUNCH_NOTIFICATIONS),
+            new Route("POST", "^/v1/partnership-inquiries$", RateLimitRule.PARTNERSHIP_INQUIRIES),
             new Route("POST", "^/v1/completion-surveys$", RateLimitRule.COMPLETION_SURVEYS),
             new Route("POST", "^/v1/voice-research(/withdraw)?$", RateLimitRule.VOICE_RESEARCH),
             new Route("POST", "^/v1/feedback$", RateLimitRule.FEEDBACK),

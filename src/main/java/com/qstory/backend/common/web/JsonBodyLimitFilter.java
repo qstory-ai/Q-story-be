@@ -43,6 +43,7 @@ public class JsonBodyLimitFilter extends OncePerRequestFilter {
             new Rule(Pattern.compile("^/v1/recording-consents$"), SMALL),
             new Rule(Pattern.compile("^/v1/me/recording-consent$"), SMALL),
             new Rule(Pattern.compile("^/v1/launch-notifications$"), SMALL),
+            new Rule(Pattern.compile("^/v1/partnership-inquiries$"), SMALL),
             new Rule(Pattern.compile("^/v1/stt/stream-tickets$"), SMALL),
             new Rule(Pattern.compile("^/v1/completion-surveys$"), SMALL),
             new Rule(Pattern.compile("^/v1/me/push-tokens(/remove)?$"), SMALL),

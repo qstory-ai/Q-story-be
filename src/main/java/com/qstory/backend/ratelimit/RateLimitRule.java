@@ -52,6 +52,7 @@ public enum RateLimitRule {
     CLIENT_ERRORS("client-errors", 120, Duration.ofMinutes(1), Scope.PER_CLIENT),
     RECORDING_CONSENTS("recording-consents", 30, Duration.ofHours(1), Scope.PER_CLIENT),
     LAUNCH_NOTIFICATIONS("launch-notifications", 10, Duration.ofHours(1), Scope.PER_CLIENT),
+    PARTNERSHIP_INQUIRIES("partnership-inquiries", 5, Duration.ofHours(1), Scope.PER_CLIENT),
     COMPLETION_SURVEYS("completion-surveys", 10, Duration.ofHours(1), Scope.PER_CLIENT),
     VOICE_RESEARCH("voice-research", 30, Duration.ofHours(1), Scope.PER_CLIENT),
     FEEDBACK("feedback", 20, Duration.ofHours(1), Scope.PER_CLIENT),
