@@ -10,6 +10,9 @@ logging:
   level:
     root: WARN
     com.qstory.backend: INFO
+    # 요청 로그(common/web/RequestIdFilter)는 로거 이름이 패키지가 아니라 "http.request"라 위 줄에 안 걸린다 - 빠지면
+    # Grafana의 요청 수·5xx 비율·p95 패널과 server-5xx-ratio·slow-requests 알림이 데이터 없이 조용해진다.
+    http.request: INFO
 
 # Railway 프록시가 붙여 주는 X-Forwarded-Proto/For를 따른다(보안 점검 L6) - https 요청으로 알아봐야 Spring Security가 HSTS
 # 헤더를 붙인다. request.getRemoteAddr()도 X-Forwarded-For의 첫 값이 된다(ClientErrorController의 주소별 상한).

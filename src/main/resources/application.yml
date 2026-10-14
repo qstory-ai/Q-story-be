@@ -191,6 +191,16 @@ qstory:
     service-account-json: ${QSTORY_FCM_SERVICE_ACCOUNT_JSON:}
     # 비우면 서비스 계정 JSON의 project_id를 쓴다.
     project-id: ${QSTORY_FCM_PROJECT_ID:}
+  ga:
+    # GA4 일일 집계 가져오기(analytics/service/GaImportService) - Grafana "Q-Story 유입 → 전환" 대시보드용.
+    # 서비스 계정 키 JSON 원문 또는 그 base64(GA 속성에 '뷰어' 이상 권한). 키나 속성 ID가 비어 있으면 조용히 꺼진다.
+    service-account-json: ${GA_SERVICE_ACCOUNT_JSON:}
+    property-id: ${GA_PROPERTY_ID:}
+    # 킬스위치 - false면 키가 있어도 가져오지 않는다.
+    import-enabled: ${QSTORY_GA_IMPORT_ENABLED:true}
+    # 매번 오늘 포함 며칠을 다시 받는지(GA 처리 지연 반영). 테이블이 비어 있을 때 첫 실행은 initial-backfill-days만큼.
+    lookback-days: ${QSTORY_GA_LOOKBACK_DAYS:3}
+    initial-backfill-days: ${QSTORY_GA_INITIAL_BACKFILL_DAYS:30}
   payments:
     toss:
       secret-key: ${TOSS_SECRET_KEY:}

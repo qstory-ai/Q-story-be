@@ -58,8 +58,15 @@ Discord 메시지에는 firing/resolved 요약, description, Grafana Explore 링
 
 `Dashboards > qstory-backend` 폴더.
 
-- **Q-Story 백엔드 상태**: 분당 요청 수, 5xx 비율, 경로별 응답 시간 p95, 외부 AI·음성 실패, 브라우저
-  에러(종류별), 서버 메모리, 최근 24시간 Gemini TTS 사용량(한도 `tts_daily_limit` 대비 색), 최근 에러 로그.
+- **Q-Story 백엔드 상태**(운영 개요, 조직 홈 대시보드 - `preferences.tf`): 분당 요청 수, 5xx 비율, 경로별 응답
+  시간 p95, 외부 AI·음성 실패, 브라우저 에러(종류별), 서버 메모리, 최근 24시간 Gemini TTS 호출(성공 + 한도를 쓴
+  실패, 한도 `tts_daily_limit` 대비 색), 최근 15분 heartbeat, 요청 상한(429) 차단(상한별), 오늘 이용(방문 세션·
+  이야기 시작·완주·그레텔 대화, Postgres 연결이 있을 때), 최근 에러 로그.
+- **Q-Story 유입 → 전환**(`dashboards_growth.tf`): GA4 일일 집계(백엔드가 매일 04:40·07:40 KST에 최근 3일을
+  운영 DB로 다시 받는다 - `analytics/service/GaImportService`, `db/schema/085`)와 우리 DB 베타 퍼널. 기간 합계,
+  하루 방문자·세션, 핵심 이벤트, 유입 경로별·상세(소스/매체/캠페인), QR 퍼널(방문 → CTA → 데모 → 이야기 시작 →
+  완주 → 가입), 우리 DB 퍼널(랜딩 방문 → 데모 시작 → 그레텔 대화 → 완주 → 리포트 열기)과 utm별, 플랫폼별,
+  랜딩 vs 앱, GA 가져오기 기록. Postgres 연결이 있을 때만.
 - **Q-Story 대화 품질**: 그레텔 대화(Q-31)와 이야기 진행. 하루 대화 열림(진입 방식별), 질문 초대별 결과
   (초대·아이 말·도움 요청·행동 실행·예시 후 선택·실행률), 도움 단계 분포, 그레텔 답 종류, 대화 오류율,
   대화당 평균 왕복, 하루 이야기 시작·완주. 상단 `트래픽` 변수로 BETA/QA/DEV를 고른다(기본 BETA).
@@ -263,6 +270,6 @@ Explore 링크로 원본 로그를 연다.
   너무 자주/드물게 온다면 조정한다.
 - critical과 warning이 같은 Discord 채널로 간다(critical만 `@here`). 채널을 나누려면 critical용 웹후크를
   하나 더 만들어 `contact_points.tf`의 `discord_critical`에 넣는다.
-- "오늘 TTS 사용량"은 최근 24시간 기준이라 Gemini의 하루 한도 초기화 시각과 정확히 맞지는 않는다.
+- "Gemini TTS 호출"은 최근 24시간 기준이라 Gemini의 하루 한도 초기화 시각(태평양 시간 자정)과 정확히 맞지는 않는다.
 - 앱 배포 파이프라인(Railway)과 완전히 별개 — 알림 규칙이 바뀌어도 Spring Boot 앱은 재배포되지 않고,
   반대도 마찬가지. `.github/workflows/grafana-alerting.yml`의 `paths:` 필터로 이 격리를 보장한다.
