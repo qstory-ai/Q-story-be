@@ -94,9 +94,9 @@ class CompanionChatPipelineDeferAudioTest {
                 RequestDeadline.startingNow(30_000), mock(ConversationAttribution.class));
 
         verify(openRouter).generateCompanionReply(sent.capture(), any());
-        // 값이 없으면 켜진 것으로 본다(QSTORY_TRY_AND_FAIL_ENABLED 기본 true), 질문 지점당 2회, 장면 안 말은 설정값.
+        // 값이 없으면 켜진 것으로 본다(QSTORY_TRY_AND_FAIL_ENABLED 기본 true), 질문 지점당 1회, 장면 안 말은 설정값.
         assertThat(sent.getValue().attemptPolicy())
-                .isEqualTo(new OpenRouterClient.AttemptPolicy(true, 2, 3, "HG-SPK-NARRATOR"));
+                .isEqualTo(new OpenRouterClient.AttemptPolicy(true, 1, 3, "HG-SPK-NARRATOR"));
         @SuppressWarnings("unchecked")
         Map<String, Object> dialogue = (Map<String, Object>) result.get("dialogue");
         assertThat(dialogue.get("replyKind")).isEqualTo("TRY_FAIL");
