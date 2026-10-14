@@ -51,7 +51,7 @@ class AuthServiceTokenRevocationTest {
     private final JwtService jwt = jwtService();
     private final AuthService service = new AuthService(
             users, resetTokens, null, mock(AuthValidator.class), passwords, jwt, null, null, tokenGenerator, null, null,
-            mock(UserSummaryFactory.class), null, null, mock(ConsentService.class), tokenVersions);
+            mock(UserSummaryFactory.class), null, null, mock(ConsentService.class), tokenVersions, null);
 
     private static JwtService jwtService() {
         AppProperties config = mock(AppProperties.class);

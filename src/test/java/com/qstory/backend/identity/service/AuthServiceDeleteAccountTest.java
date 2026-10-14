@@ -27,7 +27,7 @@ class AuthServiceDeleteAccountTest {
     private final AccountErasureService erasure = mock(AccountErasureService.class);
     private final AuthService service = new AuthService(
             users, null, feedback, null, null, null, null, null, null, null, null,
-            null, voice, erasure, null, null);
+            null, voice, erasure, null, null, null);
 
     private AppUser stub(Role role) {
         AppUser user = AppUser.builder().id(UUID.randomUUID()).role(role).loginId("a").displayName("a").build();

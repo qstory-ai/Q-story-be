@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * 디스코드 알림용 집계·확인 작업을 돌리는 전용 스레드 하나. @Scheduled 스레드는 앱 전체가 하나를 같이 쓰므로
+ * 디스코드 알림용 집계·확인 작업을 돌리는 전용 스레드 하나. @Scheduled 스레드는 앱 전체가 몇 개(spring.task.scheduling)를 같이 쓰므로
  * (app.heartbeat 포함) DB 집계나 OpenRouter 잔액 조회를 기다리느라 다른 정기 작업이 밀리지 않게 넘기기만 한다.
  * TTS 호출 수 세기도 여기서 해서 음성 응답 경로가 DB 쓰기를 기다리지 않게 한다. 실패는 로그 한 줄.
  */

@@ -106,6 +106,13 @@ public class PaymentService {
         return PaymentOrderResponse.of(order);
     }
 
+    /**
+     * 토스 승인 호출(최대 20초)을 일부러 주문 행 잠금(SELECT ... FOR UPDATE)과 트랜잭션 안에 둔다. 같은 주문의 확인
+     * 요청이 두 번 오면(성공 화면 새로 고침, 두 탭) 두 번째는 첫 번째가 끝날 때까지 기다렸다가 PAID를 보고 그대로
+     * 돌려준다 - 승인과 이용 기간 연장이 한 번만 일어난다. 대신 승인을 기다리는 동안 DB 연결 하나를 쥔다. 결제는 드물어
+     * 그 비용을 받아들인다. 잠금을 풀고 밖에서 승인하려면 READY → CONFIRMING 같은 중간 상태와 실패 복구가 먼저 필요하다
+     * (업로드는 이 방식이 아니라 "업로드 먼저 → 짧은 트랜잭션"으로 바꿨다 - VoiceResearchService.upload 참고).
+     */
     @Transactional
     public PaymentOrderResponse confirm(CurrentUser caller, ConfirmPaymentRequest request) {
         if (request == null || isBlank(request.paymentKey()) || isBlank(request.orderId()) || request.amount() <= 0) {

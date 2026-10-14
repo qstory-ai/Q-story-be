@@ -46,6 +46,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
@@ -87,6 +88,7 @@ public class AuthService {
     private final UserSummaryFactory userSummaryFactory;
     private final ConsentService consentService;
     private final TokenVersionCheck tokenVersionCheck;
+    private final TransactionTemplate transactionTemplate;
 
     public AuthService(
             AppUserRepository userRepository, PasswordResetTokenRepository passwordResetTokenRepository,
@@ -96,7 +98,8 @@ public class AuthService {
             SecureTokenGenerator tokenGenerator, SupabaseStorageClient storageClient, AppProperties config,
             UserSummaryFactory userSummaryFactory, VoiceResearchService voiceResearchService,
             AccountErasureService accountErasureService, ConsentService consentService,
-            TokenVersionCheck tokenVersionCheck) {
+            TokenVersionCheck tokenVersionCheck, TransactionTemplate transactionTemplate) {
+        this.transactionTemplate = transactionTemplate;
         this.consentService = consentService;
         this.tokenVersionCheck = tokenVersionCheck;
         this.userRepository = userRepository;
@@ -289,8 +292,13 @@ public class AuthService {
         return userSummaryFactory.of(user);
     }
 
-    /** Teacher profile photos are validated by content as well as MIME type before server-only storage upload. */
-    @Transactional
+    /**
+     * Teacher profile photos are validated by content as well as MIME type before server-only storage upload.
+     *
+     * <p>Storage 업로드(최대 30초)는 트랜잭션 밖에서 먼저 하고, 계정 행은 그 뒤 짧은 트랜잭션에서 다시 읽어 바꾼다 -
+     * 올리는 동안 DB 연결을 쥐고 있지 않게. 그 트랜잭션이 실패하면 방금 올린 파일을 지우고(고아 파일 방지), 이전 사진은
+     * 커밋된 뒤에만 지운다.
+     */
     public UserSummary uploadProfileImage(CurrentUser caller, MultipartFile image) {
         AppUser user = requireActiveUser(caller.userId());
         if (user.getRole() != Role.TUTOR) {
@@ -330,15 +338,28 @@ public class AuthService {
             throw ApiException.contractError(ErrorCode.STORAGE_FAILED, "프로필 이미지를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.", 502);
         }
 
-        String previousObjectName = user.getProfileImageObjectName();
-        user.setProfileImageObjectName(objectName);
-        user.setProfileImageUrl(storageClient.publicObjectUrl(bucket, objectName));
-        userRepository.save(user);
+        ProfileImageSwap swap;
+        try {
+            swap = transactionTemplate.execute(status -> {
+                AppUser current = requireActiveUser(caller.userId());
+                String previousObjectName = current.getProfileImageObjectName();
+                current.setProfileImageObjectName(objectName);
+                current.setProfileImageUrl(storageClient.publicObjectUrl(bucket, objectName));
+                userRepository.save(current);
+                return new ProfileImageSwap(previousObjectName, userSummaryFactory.of(current));
+            });
+        } catch (RuntimeException persistError) {
+            storageClient.delete(bucket, objectName);
+            throw persistError;
+        }
+        String previousObjectName = swap.previousObjectName();
         if (previousObjectName != null && previousObjectName.startsWith("profiles/" + user.getId() + "/")) {
             storageClient.delete(bucket, previousObjectName);
         }
-        return userSummaryFactory.of(user);
+        return swap.summary();
     }
+
+    private record ProfileImageSwap(String previousObjectName, UserSummary summary) {}
 
     /** 비밀번호를 바꾸면 이 계정에 발급된 토큰(다른 기기)은 모두 무효가 된다 - 지금 기기는 돌려주는 새 토큰으로 이어 쓴다. */
     @Transactional

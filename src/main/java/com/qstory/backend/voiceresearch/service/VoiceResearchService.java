@@ -24,6 +24,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 음성 연구 녹음의 동의 확인·Storage 업로드·철회·보존 만료 정리.
@@ -50,11 +51,13 @@ public class VoiceResearchService {
     private final SupabaseStorageClient storageClient;
     private final String bucket;
     private final ConsentService consentService;
+    private final TransactionTemplate transactionTemplate;
 
     public VoiceResearchService(
             VoiceResearchValidator validator, VoiceResearchRepository repository,
             SupabaseStorageClient storageClient, AppProperties config,
-            ConsentService consentService) {
+            ConsentService consentService, TransactionTemplate transactionTemplate) {
+        this.transactionTemplate = transactionTemplate;
         this.consentService = consentService;
         this.validator = validator;
         this.repository = repository;
@@ -62,8 +65,13 @@ public class VoiceResearchService {
         this.bucket = config.supabase().voiceResearchBucket();
     }
 
-    /** 현재 약관 버전으로 명시 동의한 보호자 계정만 허용한다(비로그인·선생님·지난 버전 동의는 403) - 요청 검증보다 먼저. 세션 동의에 계정을 남긴다. */
-    @Transactional
+    /**
+     * 현재 약관 버전으로 명시 동의한 보호자 계정만 허용한다(비로그인·선생님·지난 버전 동의는 403) - 요청 검증보다 먼저. 세션 동의에 계정을 남긴다.
+     *
+     * <p>Storage 업로드(최대 30초)는 트랜잭션 밖에서 먼저 한다 - 올리는 동안 DB 연결(풀 10개)을 쥐고 있지 않게.
+     * 업로드 전에 같은 확인을 쓰기 없이 한 번 하고(거절될 요청은 파일을 올리지 않는다), 업로드가 끝나면 짧은 트랜잭션
+     * 하나에서 다시 확인하며 세션 동의와 녹음 기록을 저장한다. 그 트랜잭션이 실패하면 방금 올린 파일을 지운다(고아 파일 방지).
+     */
     public void upload(UploadRequest request, CurrentUser caller) {
         if (caller == null || caller.role() != Role.PARENT) {
             throw ApiException.contractError(
@@ -77,7 +85,10 @@ public class VoiceResearchService {
         }
         validator.validate(request);
         String deletionTokenHash = DigestUtil.sha256Hex(request.deletionToken());
-        VoiceResearchConsent consent = ensureConsent(request, deletionTokenHash, accountId);
+        VoiceResearchConsent existing = repository.findConsent(request.consentId());
+        if (existing != null) {
+            checkConsent(existing, deletionTokenHash, accountId);
+        }
 
         String extension = extensionFor(request.audio().getContentType());
         String objectName = request.consentId() + "/" + request.sampleId() + "." + extension;
@@ -92,25 +103,32 @@ public class VoiceResearchService {
         }
 
         try {
-            repository.saveSample(VoiceResearchSample.builder()
-                    .id(request.sampleId())
-                    .consent(consent)
-                    .storageObjectName(objectName)
-                    .storyId(request.storyId())
-                    .sceneId(request.sceneId())
-                    .anchorId(request.anchorId())
-                    .questionRound(request.questionRound())
-                    .mimeType(request.audio().getContentType())
-                    .byteSize(audioBytes.length)
-                    .durationMillis(request.durationMillis())
-                    .sttDraft(ContactInfoMasker.mask(request.sttDraft()))
-                    .confirmedTranscript(ContactInfoMasker.mask(request.confirmedTranscript()))
-                    .coverageStatus(request.coverageStatus())
-                    .routedFamilyId(request.familyId())
-                    .intentSummary(ContactInfoMasker.mask(request.intentSummary()))
-                    .outcomeRecordedAt(request.hasRouteOutcome() ? Instant.now() : null)
-                    .createdAt(Instant.now())
-                    .build());
+            transactionTemplate.executeWithoutResult(status -> {
+                VoiceResearchConsent consent = ensureConsent(request, deletionTokenHash, accountId);
+                repository.saveSample(VoiceResearchSample.builder()
+                        .id(request.sampleId())
+                        .consent(consent)
+                        .storageObjectName(objectName)
+                        .storyId(request.storyId())
+                        .sceneId(request.sceneId())
+                        .anchorId(request.anchorId())
+                        .questionRound(request.questionRound())
+                        .mimeType(request.audio().getContentType())
+                        .byteSize(audioBytes.length)
+                        .durationMillis(request.durationMillis())
+                        .sttDraft(ContactInfoMasker.mask(request.sttDraft()))
+                        .confirmedTranscript(ContactInfoMasker.mask(request.confirmedTranscript()))
+                        .coverageStatus(request.coverageStatus())
+                        .routedFamilyId(request.familyId())
+                        .intentSummary(ContactInfoMasker.mask(request.intentSummary()))
+                        .outcomeRecordedAt(request.hasRouteOutcome() ? Instant.now() : null)
+                        .createdAt(Instant.now())
+                        .build());
+            });
+        } catch (ApiException rejected) {
+            // 올리는 사이 동의가 바뀐 경우 등 - 기록 없이 남을 파일을 지운다.
+            storageClient.delete(bucket, objectName);
+            throw rejected;
         } catch (RuntimeException persistError) {
             storageClient.delete(bucket, objectName);
             throw ApiException.contractError(ErrorCode.STORAGE_FAILED, "녹음을 저장하지 못했어요.", 500);
@@ -131,19 +149,26 @@ public class VoiceResearchService {
                     .userId(accountId)
                     .build());
         }
+        checkConsent(consent, deletionTokenHash, accountId);
+        // 비로그인으로 시작했다가 로그인한 세션 등 - 토큰으로 소유가 확인된 뒤에만 계정을 남긴다.
+        if (accountId != null && consent.getUserId() == null) {
+            consent.setUserId(accountId);
+        }
+        return consent;
+    }
+
+    /** 세션 동의를 바꾸지 않고 확인만 한다 - 업로드 전 확인과 저장 트랜잭션 안 확인이 같이 쓴다. */
+    private static void checkConsent(VoiceResearchConsent consent, String deletionTokenHash, UUID accountId) {
         if (!CONSENT_VERSION.equals(consent.getConsentVersion())
                 || !DigestUtil.constantTimeEquals(consent.getDeletionTokenHash(), deletionTokenHash)
                 || consent.getExpiresAt().isBefore(Instant.now())) {
             throw ApiException.contractError(ErrorCode.CONSENT_INVALID, "동의 정보가 올바르지 않아요.", 403);
         }
-        // 비로그인으로 시작했다가 로그인한 세션 등 - 토큰으로 소유가 확인된 뒤에만 계정을 남긴다. 이미 다른 계정에
-        // 연결된 세션 동의로는 올리지 못한다(공용 기기에서 다른 계정의 동의 아래 녹음이 쌓이면 철회로 지워지지 않는다).
-        if (accountId != null && consent.getUserId() == null) {
-            consent.setUserId(accountId);
-        } else if (accountId != null && !accountId.equals(consent.getUserId())) {
+        // 이미 다른 계정에 연결된 세션 동의로는 올리지 못한다(공용 기기에서 다른 계정의 동의 아래 녹음이 쌓이면
+        // 철회로 지워지지 않는다).
+        if (accountId != null && consent.getUserId() != null && !accountId.equals(consent.getUserId())) {
             throw ApiException.contractError(ErrorCode.CONSENT_INVALID, "다른 계정의 동의로는 녹음을 저장할 수 없어요.", 403);
         }
-        return consent;
     }
 
     @Transactional

@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
@@ -21,7 +22,7 @@ import org.springframework.web.socket.server.standard.ServletServerContainerFact
  */
 @Configuration
 @EnableWebSocket
-public class SttStreamWebSocketConfig implements WebSocketConfigurer {
+public class SttStreamWebSocketConfig implements WebSocketConfigurer, DisposableBean {
 
     /**
      * 웹 배포 출처 - REST는 같은 출처 프록시를 거쳐 ALLOWED_ORIGINS(배포 환경변수)에 웹 출처가 없어도 되지만, 이 소켓은
@@ -69,20 +70,26 @@ public class SttStreamWebSocketConfig implements WebSocketConfigurer {
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         List<String> origins = streamOrigins(config);
         registry.addHandler(
-                        new SttStreamWebSocketHandler(ticketService, rtzr, conversationRecordService, sttStreamScheduler()),
+                        new SttStreamWebSocketHandler(ticketService, rtzr, conversationRecordService, sttStreamScheduler),
                         STREAM_PATH)
                 .addInterceptors(new SttStreamHandshakeInterceptor(ticketService, origins))
                 .setAllowedOrigins(origins.toArray(String[]::new));
     }
 
-    /** 끝 요청 대기·최대 길이·닫기 유예 타이머와 대화 원장 쓰기. */
-    @Bean(destroyMethod = "shutdownNow")
-    public ScheduledExecutorService sttStreamScheduler() {
-        return Executors.newScheduledThreadPool(2, runnable -> {
-            Thread thread = new Thread(runnable, "stt-stream");
-            thread.setDaemon(true);
-            return thread;
-        });
+    /**
+     * 끝 요청 대기·최대 길이·닫기 유예 타이머와 대화 원장 쓰기. 빈으로 두지 않는다 - ScheduledExecutorService 빈이
+     * 하나 있으면 Spring이 그것을 모든 @Scheduled 작업의 실행기로 쓰고(스케줄러 자동 설정은 물러난다), 리포트 분석의
+     * LLM 호출·보존 정리가 이 두 스레드에서 돌며 받아 적기 타이머를 밀어냈다. @Scheduled는 spring.task.scheduling 풀.
+     */
+    private final ScheduledExecutorService sttStreamScheduler = Executors.newScheduledThreadPool(2, runnable -> {
+        Thread thread = new Thread(runnable, "stt-stream");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    @Override
+    public void destroy() {
+        sttStreamScheduler.shutdownNow();
     }
 
     /** PCM 조각(100ms = 3.2KB)이 Tomcat 기본 버퍼(8KB)를 넘지 않지만 여유를 둔다. 60초 동안 아무것도 없으면 닫는다. */

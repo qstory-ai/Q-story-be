@@ -45,7 +45,7 @@ class AuthServiceRememberMeTest {
     private final AuthService service = new AuthService(
             users, null, null, mock(AuthValidator.class), passwords, jwt,
             google, null, null, null, null, mock(UserSummaryFactory.class), null, null, mock(ConsentService.class),
-            mock(com.qstory.backend.identity.security.TokenVersionCheck.class));
+            mock(com.qstory.backend.identity.security.TokenVersionCheck.class), null);
 
     private static JwtService jwtService() {
         AppProperties config = mock(AppProperties.class);

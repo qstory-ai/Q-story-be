@@ -38,7 +38,7 @@ class AuthServiceConsentTest {
     private final AuthService service = new AuthService(
             users, null, null, mock(AuthValidator.class), mock(PasswordEncoder.class), mock(JwtService.class),
             google, null, null, null, null, mock(UserSummaryFactory.class), null, null, consents,
-            mock(com.qstory.backend.identity.security.TokenVersionCheck.class));
+            mock(com.qstory.backend.identity.security.TokenVersionCheck.class), null);
 
     private SignupOrganizationOwnerRequest signup(ConsentPayload consent) {
         return new SignupOrganizationOwnerRequest("loginid", "a@b.co", "password1", "이름", consent);
