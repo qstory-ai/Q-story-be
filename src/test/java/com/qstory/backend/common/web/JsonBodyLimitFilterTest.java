@@ -36,6 +36,7 @@ class JsonBodyLimitFilterTest {
         assertThat(JsonBodyLimitFilter.limitFor(post("/v1/play-sessions/" + java.util.UUID.randomUUID() + "/turns", 1)))
                 .isEqualTo(JsonBodyLimitFilter.PLAY_TURNS);
         assertThat(JsonBodyLimitFilter.limitFor(post("/v1/launch-notifications", 1))).isEqualTo(JsonBodyLimitFilter.SMALL);
+        assertThat(JsonBodyLimitFilter.limitFor(post("/v1/partnership-inquiries", 1))).isEqualTo(JsonBodyLimitFilter.SMALL);
         assertThat(JsonBodyLimitFilter.limitFor(post("/v1/completion-surveys", 1))).isEqualTo(JsonBodyLimitFilter.SMALL);
         assertThat(JsonBodyLimitFilter.limitFor(post("/v1/stories", 1))).isEqualTo(-1);
         assertThat(JsonBodyLimitFilter.limitFor(new MockHttpServletRequest("GET", "/v1/recording-consents"))).isEqualTo(-1);
