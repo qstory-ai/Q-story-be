@@ -57,5 +57,13 @@ class BetaEventValidatorUtTest {
                 .isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> validator.parse(event("intro_circle_drag", "landing", "{\"x\":12}")))
                 .isInstanceOf(ApiException.class);
+        for (String name : new String[] {"express", "explore"}) {
+            assertThat(validator.parse(event("intro_circle_drag", "landing", "{\"circle\":\"" + name + "\"}"))
+                    .metadata()).containsEntry("circle", name);
+        }
+        for (String bad : new String[] {"{\"circle\":\"other\"}", "{\"circle\":\"DISCOVER\"}", "{\"circle\":1}", "{}"}) {
+            assertThatThrownBy(() -> validator.parse(event("intro_circle_drag", "landing", bad)))
+                    .isInstanceOf(ApiException.class);
+        }
     }
 }

@@ -22,6 +22,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class BetaEventValidator {
 
+    /** INTRO_CIRCLE_DRAG의 circle - 발견·표현·탐색 원 이름만. */
+    static final Set<String> INTRO_CIRCLES = Set.of("discover", "express", "explore");
+
     private static final Set<String> TOP_LEVEL_KEYS =
             Set.of("event_id", "session_id", "event_name", "source", "occurred_at", "metadata", "schema_version");
 
@@ -72,6 +75,9 @@ public class BetaEventValidator {
 
     private Map<String, Object> parseMetadata(JsonNode node, EventName eventName) {
         if (node == null || node.isMissingNode()) {
+            if (eventName == EventName.INTRO_CIRCLE_DRAG) {
+                throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
+            }
             return Map.of();
         }
         if (!node.isObject()) {
@@ -90,6 +96,10 @@ public class BetaEventValidator {
             JsonNode value = node.get(key);
             boolean isLongText = LONG_TEXT_KEYS.contains(key);
             metadata.put(key, validatedValue(value, isLongText));
+        }
+        // 랜딩 소개 원 끌기는 원 이름 셋 중 하나가 꼭 있어야 한다.
+        if (eventName == EventName.INTRO_CIRCLE_DRAG && !(metadata.get("circle") instanceof String circle && INTRO_CIRCLES.contains(circle))) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
         return metadata;
     }
