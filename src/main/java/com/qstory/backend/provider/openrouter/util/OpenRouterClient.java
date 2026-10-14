@@ -312,11 +312,23 @@ public class OpenRouterClient {
             /** 질문 초대 중이면 그 앵커 - 실행 가능한 행동 제안을 고를 수 있는 범위. 상시 대화면 null. */
             com.qstory.backend.story.Anchor inviteAnchor,
             /** 장면에 맞는 호칭(노파 → 할머니/마녀). AI에게 보내는 글과 AI가 만든 글에 모두 적용한다. */
-            ChildFacingTerms terms) {
+            ChildFacingTerms terms,
+            /** 질문 초대의 시도 장면(replyKind TRY_FAIL) 스위치·상한과 내레이터 - 질문 초대에서만 쓰인다. */
+            AttemptPolicy attemptPolicy) {
 
         public CompanionRequest {
             dialogue = dialogue == null ? com.qstory.backend.companionchat.DialogueInput.empty() : dialogue;
             terms = terms == null ? ChildFacingTerms.none() : terms;
+            attemptPolicy = attemptPolicy == null ? AttemptPolicy.OFF : attemptPolicy;
+        }
+
+        public CompanionRequest(
+                String transcript, String promptVersion, String storyTitle, String primarySpeakerId,
+                List<String> allowedSpeakerIds, List<String> forbiddenKnowledge, CompanionPersona persona,
+                com.qstory.backend.companionchat.DialogueInput dialogue, com.qstory.backend.story.Anchor inviteAnchor,
+                ChildFacingTerms terms) {
+            this(transcript, promptVersion, storyTitle, primarySpeakerId, allowedSpeakerIds, forbiddenKnowledge,
+                    persona, dialogue, inviteAnchor, terms, AttemptPolicy.OFF);
         }
 
         public CompanionRequest(
@@ -324,12 +336,41 @@ public class OpenRouterClient {
                 List<String> allowedSpeakerIds, List<String> forbiddenKnowledge, CompanionPersona persona,
                 com.qstory.backend.companionchat.DialogueInput dialogue, com.qstory.backend.story.Anchor inviteAnchor) {
             this(transcript, promptVersion, storyTitle, primarySpeakerId, allowedSpeakerIds, forbiddenKnowledge,
-                    persona, dialogue, inviteAnchor, null);
+                    persona, dialogue, inviteAnchor, null, AttemptPolicy.OFF);
         }
 
         /** 도움 요청은 질문 초대 안에서만 받는다. */
         boolean helpRequested() {
             return inviteAnchor != null && dialogue.isHelp();
+        }
+
+        /** 시도 장면 규칙이 이번 답에 들어가는지 - 스위치가 켜져 있고, 질문 초대 중이고, 도움 버튼 답이 아닐 때만. */
+        public boolean attemptRulesApply() {
+            return attemptPolicy.enabled() && inviteAnchor != null && !helpRequested();
+        }
+
+        /** 이번 답에서 새 시도 장면(TRY_FAIL)을 만들 수 있는지 - 시도 장면 밖이고, 이 질문 지점의 상한이 남았을 때만. */
+        public boolean canStartAttempt() {
+            return attemptRulesApply() && dialogue.attempt().active() == null
+                    && dialogue.attempt().tried() < attemptPolicy.maxPerAnchor();
+        }
+
+        /** 지금 시도 장면 안인지. */
+        public boolean attemptActive() {
+            return attemptRulesApply() && dialogue.attempt().active() != null;
+        }
+
+        /** 시도 장면의 마지막 아이 말인지 - 이 답에서 원래 질문 지점으로 돌아온다. */
+        public boolean attemptLastTurn() {
+            return attemptActive() && dialogue.attempt().active().turn() >= attemptPolicy.maxTurns();
+        }
+
+        /** 시도 장면 줄에 쓸 수 있는 화자 - 내레이터와 이 대화의 화자(그레텔). 마녀 등은 내레이터가 묘사만 한다. */
+        public List<String> sceneSpeakerIds() {
+            List<String> ids = new ArrayList<>();
+            if (attemptPolicy.narratorSpeakerId() != null) ids.add(attemptPolicy.narratorSpeakerId());
+            allowedSpeakerIds.stream().filter(id -> !ids.contains(id)).forEach(ids::add);
+            return List.copyOf(ids);
         }
 
         List<String> inviteFamilyIds() {
@@ -338,8 +379,29 @@ public class OpenRouterClient {
     }
 
     /**
+     * 질문 초대 시도 장면 설정.
+     *
+     * @param enabled           스위치(QSTORY_TRY_AND_FAIL_ENABLED)
+     * @param maxPerAnchor      질문 지점 하나의 시도 장면 상한(TTS 하루 한도 보호)
+     * @param maxTurns          시도 장면 안에서 아이가 말할 수 있는 횟수
+     * @param narratorSpeakerId 시도 장면 내레이션 화자(이 이야기 캐스트의 내레이터). 없으면 그레텔 줄만 쓴다.
+     */
+    public record AttemptPolicy(boolean enabled, int maxPerAnchor, int maxTurns, String narratorSpeakerId) {
+        public static final AttemptPolicy OFF = new AttemptPolicy(false, 0, 0, null);
+    }
+
+    /** 시도 장면 한 줄 - 내레이터 줄은 내레이터 목소리, 인물 줄은 그 인물 목소리로 읽는다(라이브 분기 대사와 같다). */
+    public record SceneLine(String speakerId, String text) {}
+
+    /** 시도 장면 줄 수·길이 상한. 줄마다 TTS를 한 번 부르므로 짧게 둔다. */
+    static final int MAX_SCENE_LINES = 3;
+    static final int MAX_SCENE_LINE_LENGTH = 80;
+
+    /**
      * @param replyKind              ANSWER(물은 것에 답함) / EMPATHY(감정·경험을 받아줌) / WAIT(공감하고 기다림)
      *                               / CLOSE(마무리 인사) / REDIRECT(안전 규칙으로 돌림)
+     *                               / TRY_FAIL(질문 초대에서 아이가 낸 준비되지 않은 행동을 해 보는 시도 장면을 시작함 - attemptScene)
+     *                               / ATTEMPT_END(시도 장면을 마치고 원래 질문 지점으로 돌아옴)
      * @param childWantsToEnd        아이가 그만 이야기하고 싶다고 분명히 말했는지
      * @param childMeaning           아이 말의 뜻을 짧게 - 리포트·기록용, 확대 해석하지 않는다
      * @param asksForHelp            "모르겠어"·"도와줘"처럼 도움을 바라는지
@@ -349,15 +411,60 @@ public class OpenRouterClient {
             String interactionMode, String responseText, String speakerId,
             String topicTag, String toneTag, String valueTag,
             String replyKind, boolean childWantsToEnd, String childMeaning, boolean asksForHelp,
-            String proposedActionFamilyId) {}
+            String proposedActionFamilyId,
+            /** TRY_FAIL일 때만 - 시도 장면 줄(내레이터·인물). 그 밖에는 빈 목록. responseText는 이 장면 뒤 그레텔이 묻는 말이다. */
+            List<SceneLine> attemptScene) {
+
+        public CompanionReply {
+            attemptScene = attemptScene == null ? List.of() : List.copyOf(attemptScene);
+        }
+
+        public CompanionReply(
+                String interactionMode, String responseText, String speakerId,
+                String topicTag, String toneTag, String valueTag,
+                String replyKind, boolean childWantsToEnd, String childMeaning, boolean asksForHelp,
+                String proposedActionFamilyId) {
+            this(interactionMode, responseText, speakerId, topicTag, toneTag, valueTag, replyKind, childWantsToEnd,
+                    childMeaning, asksForHelp, proposedActionFamilyId, List.of());
+        }
+    }
 
     static final List<String> REPLY_KINDS = List.of("ANSWER", "EMPATHY", "WAIT", "CLOSE", "REDIRECT");
+
+    /**
+     * 시도 장면 시작 - 아이가 낸 준비되지 않은 행동(창문으로 나가자, 몰래 가져가자 등)을 거절하지 않고 이야기 속에서 해 보다가
+     * 막히는 짧은 장면(attemptScene)을 보여 주고, 그 상황에서 그레텔이 아이에게 묻는다. 이야기 주 흐름은 바뀌지 않는다.
+     */
+    public static final String TRY_FAIL = "TRY_FAIL";
+
+    /** 시도 장면을 마치고 "다른 방법을 찾아보자"며 원래 질문 지점으로 돌아온다. */
+    public static final String ATTEMPT_END = "ATTEMPT_END";
+
+    /** 이 요청에서 고를 수 있는 replyKind - TRY_FAIL은 새 시도 장면을 만들 수 있을 때만, ATTEMPT_END는 시도 장면 안에서만. */
+    static List<String> replyKinds(CompanionRequest request) {
+        List<String> kinds = new ArrayList<>(REPLY_KINDS);
+        if (request.canStartAttempt()) {
+            kinds.add(TRY_FAIL);
+        }
+        if (request.attemptActive()) {
+            kinds.add(ATTEMPT_END);
+        }
+        return List.copyOf(kinds);
+    }
 
     /**
      * 그레텔 대화 시스템 프롬프트(companionSystemPrompt) 버전 - 지시 문장을 바꾸면 올린다. 대화 원장에는 라우팅
      * 프롬프트 버전과 함께 남는다(ConversationRecordService.recordCompanionTurn).
      */
     public static final String COMPANION_PROMPT_VERSION = "GRETEL_DIALOGUE_V2";
+
+    /** V2 + 질문 초대의 시도 장면(TRY_FAIL·ATTEMPT_END) 지시. 스위치(QSTORY_TRY_AND_FAIL_ENABLED)를 끄면 V2 그대로다. */
+    public static final String TRY_AND_FAIL_PROMPT_VERSION = "GRETEL_DIALOGUE_V3";
+
+    /** 대화 원장에 남길 그레텔 대화 지시 버전. */
+    public static String companionPromptVersion(boolean tryAndFail) {
+        return tryAndFail ? TRY_AND_FAIL_PROMPT_VERSION : COMPANION_PROMPT_VERSION;
+    }
 
     /**
      * 앵커에 독립적인 companion-chat 표면을 위한 형제 메서드: LLM 호출은 한 번뿐이며,
@@ -470,6 +577,11 @@ public class OpenRouterClient {
                         textSent = true;
                         responseTextMs = (System.nanoTime() - startedAt) / 1_000_000;
                         String early = earlyResponseText(objectMapper.readValue(token, String.class), request);
+                        // 시도 장면이 있으면 답 문장을 먼저 보내지 않는다 - 장면 줄(내레이터·인물)을 먼저 들려준 뒤 그레텔이
+                        // 묻는 말이 나와야 한다. attemptScene은 스키마에서 responseText보다 앞이라 이미 다 와 있다.
+                        if (early != null && request.canStartAttempt() && !EMPTY_ATTEMPT_SCENE.matcher(content).find()) {
+                            early = null;
+                        }
                         if (early != null) {
                             onResponseText.accept(early);
                         }
@@ -576,6 +688,10 @@ public class OpenRouterClient {
         }
     }
 
+    /** 스트리밍 중인 답 앞부분에서 시도 장면이 비어 있음("attemptScene":[])을 찾는다. */
+    static final java.util.regex.Pattern EMPTY_ATTEMPT_SCENE =
+            java.util.regex.Pattern.compile("\"attemptScene\"\\s*:\\s*\\[\\s*\\]");
+
     private static String truncate(String value) {
         return value.length() > FAILURE_BODY_LOG_LIMIT ? value.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)" : value;
     }
@@ -603,8 +719,14 @@ public class OpenRouterClient {
         String valueTag = nullableEnumLabel(value.get("valueTag"),
                 com.qstory.backend.common.enums.CompanionValueTag.ALL_LABELS);
         String replyKind = value.path("replyKind").asText("").trim();
-        if (!REPLY_KINDS.contains(replyKind)) {
+        if (!replyKinds(request).contains(replyKind)) {
             return null;
+        }
+        boolean startsAttempt = TRY_FAIL.equals(replyKind);
+        if ((startsAttempt || ATTEMPT_END.equals(replyKind)) && "GENTLE_REDIRECT".equals(interactionMode)) {
+            // 안전 규칙으로 막았다면 시도 장면이 아니다 - 안전 쪽(REDIRECT)으로 읽는다.
+            replyKind = "REDIRECT";
+            startsAttempt = false;
         }
         String childMeaning = value.path("childMeaning").isTextual() ? value.get("childMeaning").asText().trim() : "";
         if (childMeaning.length() > 80) {
@@ -617,14 +739,50 @@ public class OpenRouterClient {
         if (proposed != null && !request.inviteFamilyIds().contains(proposed)) {
             proposed = null;
         }
+        // 시도 장면 시작·끝은 준비된 행동 제안이 아니다 - 실행 확인을 띄우지 않고, 대화를 끝내지도 않는다.
+        boolean attemptTurn = startsAttempt || ATTEMPT_END.equals(replyKind);
+        if (attemptTurn) {
+            proposed = null;
+        }
+        // 시도 장면의 마지막 아이 말인데 모델이 장면 안 대화를 이어 갔으면, 그 답으로 원래 질문 지점에 돌아온다.
+        if (request.attemptLastTurn() && proposed == null && List.of("ANSWER", "EMPATHY", "WAIT").contains(replyKind)) {
+            replyKind = ATTEMPT_END;
+            attemptTurn = true;
+        }
+        List<SceneLine> scene = startsAttempt ? sceneLines(value.path("attemptScene"), request) : List.of();
         // 도움 버튼으로 온 요청은 그 자체가 도움이다 - 다시 "도와줄까?"를 띄우지 않는다.
-        boolean asksForHelp = !request.helpRequested() && value.path("asksForHelp").asBoolean(false);
+        boolean asksForHelp = !attemptTurn && !request.helpRequested() && value.path("asksForHelp").asBoolean(false);
+        boolean triedAndFailed = attemptTurn;
         ChildFacingTerms terms = request.terms();
         return new CompanionReply(
                 interactionMode, terms.apply(routeResultValidator.normalizeKoreanResponseText(responseText)), speakerId,
                 topicTag, toneTag, valueTag,
-                replyKind, value.path("childWantsToEnd").asBoolean(false), terms.apply(childMeaning),
-                asksForHelp, proposed);
+                replyKind, !triedAndFailed && value.path("childWantsToEnd").asBoolean(false), terms.apply(childMeaning),
+                asksForHelp, proposed, scene);
+    }
+
+    /**
+     * 시도 장면 줄을 읽는다. 허용된 화자(내레이터·그레텔)가 아니거나 빈 줄은 버리고, 길이를 자르고, 호칭·맞춤법 정리를
+     * 답과 똑같이 한다. 쓸 줄이 하나도 없으면 빈 목록 - 그래도 시도 장면은 시작하고 그레텔 말(responseText)로 이어 간다.
+     */
+    List<SceneLine> sceneLines(JsonNode node, CompanionRequest request) {
+        List<String> speakers = request.sceneSpeakerIds();
+        List<SceneLine> lines = new ArrayList<>();
+        for (JsonNode line : node) {
+            String speaker = line.path("speakerId").asText("").trim();
+            String text = line.path("text").asText("").trim();
+            if (!speakers.contains(speaker) || text.isEmpty()) {
+                continue;
+            }
+            if (text.length() > MAX_SCENE_LINE_LENGTH) {
+                text = text.substring(0, MAX_SCENE_LINE_LENGTH);
+            }
+            lines.add(new SceneLine(speaker, request.terms().apply(routeResultValidator.normalizeKoreanResponseText(text))));
+            if (lines.size() == MAX_SCENE_LINES) {
+                break;
+            }
+        }
+        return List.copyOf(lines);
     }
 
     /** JSON null/누락 노드면 null을, 인식된 enum 값이면 그 라벨을, 그 외에는 NOT_FOUND를 반환한다(아래에서 거부됨). */
@@ -660,7 +818,9 @@ public class OpenRouterClient {
         ObjectNode jsonSchema = responseFormat.putObject("json_schema");
         jsonSchema.put("name", "q_story_companion_v2");
         jsonSchema.put("strict", true);
-        jsonSchema.set("schema", companionSchema(request.allowedSpeakerIds(), request.inviteFamilyIds()));
+        jsonSchema.set("schema", companionSchema(
+                request.allowedSpeakerIds(), request.inviteFamilyIds(), replyKinds(request),
+                request.canStartAttempt() ? request.sceneSpeakerIds() : List.of()));
 
         root.putObject("provider").put("require_parameters", true);
         ObjectNode reasoning = root.putObject("reasoning");
@@ -713,6 +873,26 @@ public class OpenRouterClient {
             }
         }
         payload.put("wrapUp", dialogue.wrapUp());
+        if (request.attemptRulesApply()) {
+            ObjectNode attempts = payload.putObject("attempts");
+            attempts.put("triedAtThisQuestion", dialogue.attempt().tried());
+            attempts.put("maxAtThisQuestion", request.attemptPolicy().maxPerAnchor());
+            attempts.put("canStartNew", request.canStartAttempt());
+            if (request.canStartAttempt()) {
+                ArrayNode speakers = attempts.putArray("sceneSpeakerIds");
+                request.sceneSpeakerIds().forEach(speakers::add);
+                attempts.put("narratorSpeakerId", request.attemptPolicy().narratorSpeakerId());
+            }
+            var active = dialogue.attempt().active();
+            if (active != null) {
+                ObjectNode inProgress = payload.putObject("attemptInProgress");
+                inProgress.put("whatWasTried", active.tried());
+                inProgress.put("sceneSoFar", active.scene());
+                inProgress.put("turn", active.turn());
+                inProgress.put("maxTurns", request.attemptPolicy().maxTurns());
+                inProgress.put("lastTurn", request.attemptLastTurn());
+            }
+        }
         if (request.helpRequested()) {
             ObjectNode help = payload.putObject("helpRequest");
             help.put("step", dialogue.help().step());
@@ -722,7 +902,13 @@ public class OpenRouterClient {
         return payload;
     }
 
-    private ObjectNode companionSchema(List<String> allowedSpeakerIds, List<String> inviteFamilyIds) {
+    /**
+     * @param sceneSpeakerIds 비어 있지 않으면 시도 장면(attemptScene)을 만들 수 있다 - responseText보다 앞에 둔다. 스트리밍에서
+     *                        답 문장을 먼저 보낼 때 장면이 있는지 이미 알아야(장면을 먼저 들려줘야) 하기 때문이다.
+     */
+    ObjectNode companionSchema(
+            List<String> allowedSpeakerIds, List<String> inviteFamilyIds, List<String> replyKinds,
+            List<String> sceneSpeakerIds) {
         ObjectNode schema = objectMapper.createObjectNode();
         schema.put("type", "object");
         ObjectNode properties = schema.putObject("properties");
@@ -731,6 +917,23 @@ public class OpenRouterClient {
         interactionMode.put("type", "string");
         ArrayNode modeEnum = interactionMode.putArray("enum");
         com.qstory.backend.common.enums.CompanionInteractionMode.ALL_NAMES.forEach(modeEnum::add);
+
+        if (!sceneSpeakerIds.isEmpty()) {
+            ObjectNode attemptScene = properties.putObject("attemptScene");
+            attemptScene.put("type", "array");
+            attemptScene.put("maxItems", MAX_SCENE_LINES);
+            attemptScene.put("description", "replyKind가 TRY_FAIL일 때만 2~3줄, 그 밖에는 반드시 빈 배열.");
+            ObjectNode item = attemptScene.putObject("items");
+            item.put("type", "object");
+            ObjectNode itemProperties = item.putObject("properties");
+            ObjectNode lineSpeaker = itemProperties.putObject("speakerId");
+            lineSpeaker.put("type", "string");
+            ArrayNode lineSpeakerEnum = lineSpeaker.putArray("enum");
+            sceneSpeakerIds.forEach(lineSpeakerEnum::add);
+            addStringProperty(itemProperties, "text", 1, MAX_SCENE_LINE_LENGTH);
+            item.putArray("required").add("speakerId").add("text");
+            item.put("additionalProperties", false);
+        }
 
         addStringProperty(properties, "responseText", 1, 160);
 
@@ -746,7 +949,7 @@ public class OpenRouterClient {
         ObjectNode replyKind = properties.putObject("replyKind");
         replyKind.put("type", "string");
         ArrayNode replyKindEnum = replyKind.putArray("enum");
-        REPLY_KINDS.forEach(replyKindEnum::add);
+        replyKinds.forEach(replyKindEnum::add);
         properties.putObject("childWantsToEnd").put("type", "boolean");
         addStringProperty(properties, "childMeaning", 0, 80);
         properties.putObject("asksForHelp").put("type", "boolean");
@@ -754,7 +957,11 @@ public class OpenRouterClient {
         addNullableLabelEnum(properties, "proposedActionFamilyId", inviteFamilyIds);
 
         ArrayNode required = schema.putArray("required");
-        required.add("interactionMode").add("responseText").add("speakerId")
+        required.add("interactionMode");
+        if (!sceneSpeakerIds.isEmpty()) {
+            required.add("attemptScene");
+        }
+        required.add("responseText").add("speakerId")
                 .add("topicTag").add("toneTag").add("valueTag")
                 .add("replyKind").add("childWantsToEnd").add("childMeaning").add("asksForHelp")
                 .add("proposedActionFamilyId");
@@ -825,11 +1032,21 @@ public class OpenRouterClient {
             lines.add("질문(예: 열쇠는 어디 있어?)은 행동 제안이 아니다. 아는 범위에서 답하고 proposedActionFamilyId는 null이다.");
             // V2(PM 피드백 - "그럼 살펴보자"에 동의했는데 이야기에서 그 행동이 나오지 않음).
             lines.add("앞에서 네가 preparedActions 중 하나와 뜻이 같은 행동을 말했고 아이가 그것에 동의하면(예: 네가 '새가 어디로 가는지 지켜볼까?'라고 한 뒤 아이가 '그래', '그럼 살펴보자', '좋아 그렇게 하자'), 아이가 그 행동을 제안한 것으로 보고 proposedActionFamilyId에 그 id를 넣고 뜻을 한 번 확인한다.");
-            lines.add("preparedActions에 없는 행동을 제안하면 그 생각을 받아주되, 이야기 속에서 실행했다고 꾸미거나 하겠다고 약속하지 않는다. proposedActionFamilyId는 null이다.");
+            if (request.attemptRulesApply()) {
+                lines.addAll(attemptLines(request));
+            } else {
+                lines.add("preparedActions에 없는 행동을 제안하면 그 생각을 받아주되, 이야기 속에서 실행했다고 꾸미거나 하겠다고 약속하지 않는다. proposedActionFamilyId는 null이다.");
+            }
             lines.add("네가 먼저 '~해 볼까?'처럼 할 일을 제안할 때는 preparedActions에 있는 행동만 제안한다. preparedActions에 없는 행동(예: 집 주변을 살펴보자, 창문을 들여다보자)은 이야기가 보여 줄 수 없으니 할 일로 제안하지 않고, 대신 아이 생각을 묻는다.");
+            if (request.attemptRulesApply()) {
+                // 지난 평가에서 "그럼 어떻게 해?"에 준비된 두 방법을 바로 나열한 답이 나왔다 - 정답을 먼저 주지 않는다.
+                lines.add("아이가 '그럼 어떻게 해?', '어떻게 하면 돼?'처럼 방법을 물어도 preparedActions의 방법을 바로 알려 주거나 둘 이상 나열하지 않는다. 지금 장면에 보이는 단서 하나만 짚고 아이 생각을 묻는다. 아이가 앞에서 이미 두 번 넘게 모르겠다고 했을 때만 한 가지를 '~해 볼까?'로 조심스럽게 제안한다.");
+            }
             if (request.inviteAnchor().actionFamilies().isEmpty()) {
                 lines.add("이 질문 지점에는 preparedActions가 없다 - 대화만 하는 곳이다. '집 주변을 살펴보면 어떨까?', '창문을 보자' 같은 할 일을 절대 제안하지 않는다. 아이가 뭘 해야 하냐고 물으면 할 일 대신 무엇이 궁금한지, 이 장면의 인물에게 무엇을 물어보고 싶은지 아이 생각을 묻는다.");
-                lines.add("아이가 무언가를 하자고 하거나 동의하면 좋은 생각이라고 받아 주되 '남매가 어떻게 하는지 이야기에서 같이 보자'처럼 이야기에서 보게 된다고 말한다.");
+                lines.add(request.attemptRulesApply()
+                        ? "아이가 무언가를 하자고 하면 위의 시도 장면 규칙을 따른다. 시도 장면을 더 만들 수 없으면 좋은 생각이라고 받아 주되 '남매가 어떻게 하는지 이야기에서 같이 보자'처럼 이야기에서 보게 된다고 말한다."
+                        : "아이가 무언가를 하자고 하거나 동의하면 좋은 생각이라고 받아 주되 '남매가 어떻게 하는지 이야기에서 같이 보자'처럼 이야기에서 보게 된다고 말한다.");
             }
         } else {
             lines.add("새로운 분기나 선택지를 만들지 않는다. 대화일 뿐, 이야기 진행에는 영향을 주지 않는다. proposedActionFamilyId는 항상 null이다.");
@@ -841,6 +1058,9 @@ public class OpenRouterClient {
         }
         lines.add("위 안전 규칙에 해당하면 interactionMode를 GENTLE_REDIRECT, replyKind를 REDIRECT로 하고, 위험을 짧게 막은 뒤 안전한 화제로 부드럽게 돌아온다.");
         lines.add("그 외에는 interactionMode를 ANSWER로 하고, replyKind는 질문에 답했으면 ANSWER, 감정·경험을 받아줬으면 EMPATHY, 공감하고 기다리면 WAIT, 마무리 인사면 CLOSE로 한다.");
+        if (request.attemptRulesApply()) {
+            lines.add("시도 장면을 시작했으면 interactionMode는 ANSWER, replyKind는 TRY_FAIL이고, 시도 장면을 마치고 원래 질문으로 돌아오면 replyKind는 ATTEMPT_END다. 창문·굴뚝으로 나가기, 마녀에게 부탁하기, 새를 부르기, 몰래 가져가기, 거짓말, 혼자 도망치기는 위 안전 규칙의 위험·폭력이 아니므로 GENTLE_REDIRECT로 막지 않는다.");
+        }
         lines.add("childMeaning에는 아이 말의 뜻을 30자 안팎으로 적는다. 확대 해석하지 않는다.");
         lines.add("topicTag/toneTag/valueTag는 아이의 말에서 뚜렷하게 드러날 때만 고르고, 확신이 없으면 null로 둔다.");
         lines.add("응답을 반환하기 전에 한국어 맞춤법·띄어쓰기와 캐릭터 말투 일치를 한 번 확인한다.");
@@ -848,6 +1068,35 @@ public class OpenRouterClient {
         String prompt = request.terms().apply(String.join(" ", lines));
         String namingRule = request.terms().promptRule();
         return namingRule == null ? prompt : prompt + " " + namingRule;
+    }
+
+    /**
+     * 질문 초대의 시도 장면 지시(CTO 결정 - PM 피드백 "해 보고 실패하는 모습을 보여 주자"를 넓힘): 다치거나 남을 해치는 행동만
+     * 그대로 막고(GENTLE_REDIRECT), 그 밖에 준비되지 않은 행동은 해 보다가 막히는 짧은 장면을 만든다. 그 장면 안에서 아이와
+     * 몇 번 더 이야기한 뒤 원래 질문 지점으로 돌아온다. 무섭지 않게, 처벌·들킴 없이, 이야기 주 흐름(열쇠·탈출·결말)은 바꾸지 않는다.
+     */
+    static List<String> attemptLines(CompanionRequest request) {
+        List<String> lines = new ArrayList<>();
+        lines.add("시도 장면 공통: 장면은 무섭지 않게 쓴다. 놀람·두려움은 '깜짝 놀랐지만 괜찮아' 수준까지만 쓰고, 붙잡히거나 혼나거나 벌을 받거나 다치는 모습, 누가 화내거나 위협하는 모습은 쓰지 않는다. 상대(마녀 등)는 남매가 무엇을 하려 했는지 알아채지 못한다 - 들켰다, 알아챘다, 거짓말인 걸 알았다, 의심한다처럼 쓰지 않는다. 막힌 이유는 높이·좁음·무게·소리 같은 장면 속 사정이나 작은 우연, 그레텔 자신의 마음이다.");
+        lines.add("시도 장면에서 성공해 탈출하거나 열쇠를 얻거나 문을 여는 등 이야기 주 흐름(열쇠·탈출·결말)을 바꾸지 않는다. storySoFar에 없는 미래 사건·결말을 암시하지 않는다. 아이나 아이 생각을 탓하거나 나쁜 생각이라고 하지 않고, 교훈을 길게 설명하지 않는다.");
+        lines.add("때리기·밀기·불이나 칼 쓰기·오븐에 넣기·가두기·높은 곳에서 뛰어내리기처럼 다치거나 남을 해치는 행동은 시도 장면이 아니다 - 아래 안전 규칙대로 막는다(GENTLE_REDIRECT, replyKind REDIRECT).");
+        var dialogue = request.dialogue();
+        if (dialogue.attempt().active() != null) {
+            lines.add("지금은 attemptInProgress 시도 장면 안이다(whatWasTried를 해 보다가 sceneSoFar처럼 막힌 상황). 이 장면 상황을 기준으로 아이와 이야기한다. 아이 생각대로 장면을 조금 이어 가도 되지만(그레텔이 겪은 일처럼 1~2문장, 예: 의자를 끌어와 올라가 봤는데 그래도 창문 손잡이에 손이 안 닿아) 새 방법도 아쉽게 잘 안 되거나 아직 막혀 있다. 그다음 아이 생각을 묻는 짧은 질문 하나로 끝낸다. replyKind는 보통 ANSWER다.");
+            lines.add("아이가 그만하자, 다른 방법 하자, 돌아가자처럼 이 시도를 그만두고 싶어 하거나 lastTurn이 true이면 replyKind를 ATTEMPT_END로 한다: 장면을 한 문장으로 짧게 마무리하고 '다른 방법을 찾아보자'며 원래 질문 상황(questionInvite.situation)으로 돌아와 아이 생각을 묻는다. 이때도 preparedActions의 방법을 먼저 알려 주지 않는다.");
+            lines.add("시도 장면 안에서도 아이가 preparedActions 중 하나와 뜻이 같은 행동을 말하면 바로 proposedActionFamilyId에 그 id를 넣고 뜻을 한 번 확인한다(그 행동으로 이어진다). 아이가 이야기 자체를 그만하고 싶다고 하면 CLOSE 규칙을 따른다.");
+            return lines;
+        }
+        if (request.canStartAttempt()) {
+            lines.add("시도 장면 시작: 아이가 preparedActions와 뜻이 같지 않은 행동(예: 창문으로 나가자, 굴뚝으로 나가자, 마녀에게 부탁하자, 새를 불러 도와달라고 하자, 몰래 가져가자, 거짓말하자, 헨젤을 두고 혼자 도망가자, 마녀가 잘 때 가져가자)을 분명히 제안하면, 다치거나 남을 해치는 행동이 아닌 한 거절하거나 말리지 말고 그 행동을 이야기 속에서 해 보는 짧은 장면을 만든다. replyKind는 TRY_FAIL, proposedActionFamilyId는 null이다. 아이 제안이 preparedActions 중 하나와 뜻이 같으면 시도 장면이 아니라 위의 행동 제안 규칙을 따른다. 질문·감정·동의만 한 말은 시도 장면이 아니다.");
+            lines.add("TRY_FAIL의 attemptScene은 2~3줄이다. narratorSpeakerId 줄은 그림책 내레이터처럼 3인칭으로 무슨 일이 있었는지 쓰고(예: 그레텔은 살금살금 창문 아래로 가서 발끝을 들어 보았어요.), 그레텔 줄은 짧은 혼잣말 한 마디로 쓰고 질문을 넣지 않는다(아이에게 묻는 말은 responseText에만). 장면은 해 보다가 막히거나 잘 안 되는 데서 멈춘다(예: 하지만 창문은 너무 높아서 손이 닿지 않았어요.). 마녀 같은 다른 인물은 내레이터가 묘사만 하고 대사를 주지 않는다.");
+            lines.add("TRY_FAIL의 responseText는 그 막힌 상황에서 그레텔이 아이에게 묻는 한두 문장이다(예: 창문이 너무 높아… 뭘 밟고 올라가면 좋을까?). 장면 줄을 되풀이하지 않는다. 거짓말은 말을 꺼내 보다가 말이 꼬이거나 상대가 대꾸 없이 하던 일을 계속하는 장면으로, 혼자 도망치기는 혼자 몇 걸음 가 보다가 남겨진 헨젤이 마음에 걸려 멈추는 장면으로, 부탁하기는 상대가 들은 체 만 체 하던 일을 계속하는 장면으로 쓴다.");
+            lines.add("TRY_FAIL이 아니면 attemptScene은 반드시 빈 배열이다.");
+        } else {
+            lines.add("이 질문 지점에서는 시도 장면을 이미 " + dialogue.attempt().tried() + "번 해 봤다(더 만들 수 없다). preparedActions에 없는 행동을 제안하면 그 생각을 받아 주되 이야기 속에서 해 봤다고 꾸미지 않고, 같이 다른 방법을 생각해 보자며 아이 생각을 묻는다. proposedActionFamilyId는 null이다.");
+        }
+        lines.add("앞에서 해 본 시도 장면(conversationSoFar)은 지나간 시도다. 장면 상태(물건이 있는 곳, 등장인물이 아는 것, 마녀가 남매를 의심하는지)는 바뀌지 않았다.");
+        return lines;
     }
 
     /**

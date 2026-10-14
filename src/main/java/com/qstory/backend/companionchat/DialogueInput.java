@@ -20,6 +20,8 @@ import java.util.Set;
  * @param wrapUp        긴 대화 정리 신호 - NONE / SUGGEST_RETURN(이야기로 돌아가자고 제안) / CLOSE(마무리 인사).
  * @param help          아이가 "도와줘"를 눌렀을 때만 - 지금 도움 단계와 그 단계의 미리 쓴 도움 대사(방향).
  *                      그레텔은 이 방향을 따르되 앞 대화에서 이미 한 말은 되풀이하지 않고 대화에 맞춰 말한다.
+ * @param attempt       질문 초대의 시도 장면 상태(클라이언트가 들고 있다) - 이 질문 지점에서 이미 만든 시도 장면 수와,
+ *                      지금 시도 장면 안이면 그 장면. 없으면 시도 장면을 한 번도 안 한 것이다.
  */
 public record DialogueInput(
         List<Turn> history,
@@ -27,7 +29,32 @@ public record DialogueInput(
         List<String> executedActions,
         String anchorId,
         String wrapUp,
-        Help help) {
+        Help help,
+        Attempt attempt) {
+
+    /**
+     * @param tried  이 질문 지점에서 이미 만든 시도 장면 수
+     * @param active 지금 시도 장면 안이면 그 장면, 아니면 null
+     */
+    public record Attempt(int tried, Active active) {
+        public static final Attempt NONE = new Attempt(0, null);
+    }
+
+    /**
+     * @param tried 아이가 해 보자고 한 것(뜻)
+     * @param scene 시도 장면 글(내레이터·인물 줄과 그레텔이 물은 말)
+     * @param turn  이번 아이 말이 장면 안에서 몇 번째인지(1부터)
+     */
+    public record Active(String tried, String scene, int turn) {}
+
+    public DialogueInput {
+        attempt = attempt == null ? Attempt.NONE : attempt;
+    }
+
+    public DialogueInput(
+            List<Turn> history, Scene scene, List<String> executedActions, String anchorId, String wrapUp, Help help) {
+        this(history, scene, executedActions, anchorId, wrapUp, help, Attempt.NONE);
+    }
 
     /**
      * @param step  이번에 주는 도움 단계(1부터)
@@ -37,7 +64,7 @@ public record DialogueInput(
     public record Help(int step, int total, String hint) {}
 
     public DialogueInput(List<Turn> history, Scene scene, List<String> executedActions, String anchorId, String wrapUp) {
-        this(history, scene, executedActions, anchorId, wrapUp, null);
+        this(history, scene, executedActions, anchorId, wrapUp, null, Attempt.NONE);
     }
 
     public static final int MAX_HISTORY_TURNS = 12;
@@ -55,7 +82,7 @@ public record DialogueInput(
     public record Scene(String title, List<String> storySoFar, List<String> recentLines, String visual) {}
 
     public static DialogueInput empty() {
-        return new DialogueInput(List.of(), null, List.of(), null, "NONE", null);
+        return new DialogueInput(List.of(), null, List.of(), null, "NONE", null, Attempt.NONE);
     }
 
     public boolean isInvite() {
@@ -96,7 +123,24 @@ public record DialogueInput(
         String wrapUp = body.path("wrapUp").asText("NONE");
         return new DialogueInput(
                 List.copyOf(history), scene, texts(body.path("executedActions"), 6), anchorId,
-                WRAP_UPS.contains(wrapUp) ? wrapUp : "NONE", help(body.path("help")));
+                WRAP_UPS.contains(wrapUp) ? wrapUp : "NONE", help(body.path("help")), attempt(body.path("attempt")));
+    }
+
+    /** 시도 장면 상태 - 형식이 어긋나면 시도 장면이 없는 것으로 본다(장면을 지어내지 않는다). */
+    private static Attempt attempt(JsonNode node) {
+        if (!node.isObject()) return Attempt.NONE;
+        int tried = Math.max(0, Math.min(node.path("tried").asInt(0), 20));
+        JsonNode active = node.path("active");
+        Active current = null;
+        if (active.isObject()) {
+            String what = clip(active.path("tried").asText(""));
+            String scene = clip(active.path("scene").asText(""), 600);
+            int turn = active.path("turn").asInt(0);
+            if (!what.isBlank() && !scene.isBlank() && turn >= 1 && turn <= 20) {
+                current = new Active(what, scene, turn);
+            }
+        }
+        return new Attempt(tried, current);
     }
 
     /** 도움 요청은 질문 초대 안에서만 의미가 있다 - 단계·대사가 어긋나면 도움 요청이 아닌 것으로 본다. */
@@ -119,7 +163,11 @@ public record DialogueInput(
     }
 
     private static String clip(String value) {
+        return clip(value, MAX_TEXT);
+    }
+
+    private static String clip(String value, int max) {
         String trimmed = value == null ? "" : value.trim();
-        return trimmed.length() > MAX_TEXT ? trimmed.substring(0, MAX_TEXT) : trimmed;
+        return trimmed.length() > max ? trimmed.substring(0, max) : trimmed;
     }
 }

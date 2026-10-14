@@ -90,7 +90,7 @@ public class ConversationRecord {
     @Column(name = "speaker_id")
     private String speakerId;
 
-    /** 질문: route(DIRECT_ACTION 등). 상시대화: interactionMode(ANSWER/GENTLE_REDIRECT). */
+    /** 질문: route(DIRECT_ACTION 등). 상시대화: interactionMode(ANSWER/GENTLE_REDIRECT), 실패해 보기 장면이면 TRY_AND_FAIL. */
     @Column(length = 64)
     private String route;
 
