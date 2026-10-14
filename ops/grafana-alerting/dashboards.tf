@@ -1,6 +1,7 @@
-# 알림 말고 한눈에 보는 화면 두 개. 알림 규칙과 같은 로그 태그·같은 폴더를 쓴다.
+# 알림 말고 한눈에 보는 화면. 알림 규칙과 같은 로그 태그·같은 폴더를 쓴다. 유입 → 전환은 dashboards_growth.tf.
 #
-#   백엔드 상태   - Loki 로그로 요청량·5xx 비율·응답 시간·외부 AI/음성 실패·오늘 TTS 사용량·브라우저 에러
+#   백엔드 상태   - 운영 개요. Loki 로그로 요청량·5xx 비율·응답 시간·외부 AI/음성 실패·TTS 사용량·브라우저 에러·
+#                   heartbeat·요청 상한 차단, 운영 DB로 오늘 이용(Postgres 연결이 있을 때)
 #   대화 품질     - 운영 DB의 grafana 스키마 뷰로 그레텔 대화(Q-31)와 이야기 진행 지표. Postgres 연결이 있을 때만.
 
 locals {
@@ -87,13 +88,14 @@ locals {
       {
         id          = 20
         type        = "stat"
-        title       = "오늘 Gemini TTS 사용량 (한도 ${var.tts_daily_limit}회)"
-        description = "gemini-tts.ok 로그 수(한국 시간 자정부터가 아니라 최근 24시간). 한도에 가까우면 등급 상향 또는 키 분리."
+        title       = "최근 24시간 Gemini TTS 호출 (하루 한도 ${var.tts_daily_limit}회)"
+        description = "GeminiTtsClient 로그로 센 실제 호출 수 - 성공(gemini-tts.ok)과 한도를 쓴 실패(빈 오디오·스트림 끊김·HTTP 실패, 429 제외). 한도는 태평양 시간 자정(한국 16~17시)에 풀리므로 최근 24시간으로 근사한다. 같은 키를 데모 실시간 음성과 함께 쓴다 - 대량 생성에 쓰지 말 것. 한도에 가까우면 등급 상향 또는 키 분리."
         datasource  = local.loki
         gridPos     = { x = 0, y = 24, w = 8, h = 6 }
         fieldConfig = {
           defaults = {
-            unit = "short"
+            unit    = "short"
+            noValue = "0"
             thresholds = {
               mode = "absolute"
               steps = [
@@ -109,7 +111,7 @@ locals {
         targets = [{
           refId      = "A"
           datasource = local.loki
-          expr       = "sum(count_over_time(${local.logsel} |= \"gemini-tts.ok\" [24h]))"
+          expr       = "sum(count_over_time(${local.logsel} |~ \"gemini-tts[.](ok|empty-audio|stream-failed)|gemini-http[.]failed\" !~ \"status=429\" [24h]))"
           queryType  = "instant"
         }]
       },
@@ -128,7 +130,80 @@ locals {
           queryType  = "range"
         }]
       },
+      {
+        id          = 22
+        type        = "stat"
+        title       = "최근 15분 heartbeat"
+        description = "app.heartbeat는 요청이 없어도 5분마다 찍힌다(health/service/HeartbeatLogger). 0이면 서버가 멈췄거나 로그 전송이 끊긴 것 - backend-silent 알림과 같은 기준."
+        datasource  = local.loki
+        gridPos     = { x = 0, y = 30, w = 8, h = 6 }
+        fieldConfig = {
+          defaults = {
+            unit    = "short"
+            noValue = "0"
+            thresholds = {
+              mode  = "absolute"
+              steps = [{ color = "red", value = null }, { color = "green", value = 1 }]
+            }
+          }
+          overrides = []
+        }
+        options = { reduceOptions = { calcs = ["lastNotNull"], fields = "", values = false }, colorMode = "background" }
+        targets = [{
+          refId      = "A"
+          datasource = local.loki
+          expr       = "sum(count_over_time(${local.logsel} |= \"app.heartbeat\" [15m]))"
+          queryType  = "instant"
+        }]
+      },
+      {
+        id          = 23
+        type        = "timeseries"
+        title       = "요청 상한(429) 차단 (상한별, 5분)"
+        description = "rate-limit.blocked(ratelimit/RateLimitService). group=tts-anonymous-daily면 오늘 익명 실시간 음성이 다 쓰였다는 뜻. rate-limit-spike 알림과 같은 태그."
+        datasource  = local.loki
+        gridPos     = { x = 0, y = 36, w = 12, h = 8 }
+        fieldConfig = {
+          defaults  = { unit = "short", custom = { fillOpacity = 10, lineWidth = 2 } }
+          overrides = []
+        }
+        options = { legend = { displayMode = "list", placement = "bottom" } }
+        targets = [{
+          refId        = "A"
+          datasource   = local.loki
+          expr         = "sum by (group) (count_over_time(${local.logsel} |= \"rate-limit.blocked\" | regexp \"group=(?P<group>[^ ]+)\" [5m]))"
+          legendFormat = "{{group}}"
+          queryType    = "range"
+        }]
+      },
     ],
+    # 운영 DB 연결이 있을 때만 - 오늘(한국 시간) 실제 이용자(BETA) 활동.
+    local.postgres_enabled ? [{
+      id          = 24
+      type        = "stat"
+      title       = "오늘 이용 (한국 시간, BETA)"
+      description = "운영 DB 베타 이벤트 기준 오늘 0시부터. 방문 세션 = 이벤트가 하나라도 있는 세션, 그레텔 대화 = 대화가 열린 횟수(turn_kind=OPEN)."
+      datasource  = local.pg
+      gridPos     = { x = 12, y = 36, w = 12, h = 8 }
+      fieldConfig = { defaults = { unit = "short", noValue = "0" }, overrides = [] }
+      targets = [{
+        refId      = "A"
+        datasource = local.pg
+        rawQuery   = true
+        editorMode = "code"
+        format     = "table"
+        rawSql     = <<-SQL
+          select count(distinct session_id) as "방문 세션",
+                 count(distinct session_id) filter (where event_name = 'STORY_STARTED') as "이야기 시작",
+                 count(distinct session_id) filter (where event_name = 'STORY_COMPLETED') as "완주",
+                 (select count(*) from grafana.dialogue_steps
+                   where turn_kind = 'OPEN' and traffic_type = 'BETA'
+                     and occurred_at >= date_trunc('day', now() at time zone 'Asia/Seoul') at time zone 'Asia/Seoul') as "그레텔 대화"
+          from grafana.story_events
+          where traffic_type = 'BETA' and occurred_at >= date_trunc('day', now() at time zone 'Asia/Seoul') at time zone 'Asia/Seoul'
+        SQL
+      }]
+    }] : [],
   )
 }
 
