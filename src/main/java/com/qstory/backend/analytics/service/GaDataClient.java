@@ -78,10 +78,29 @@ public class GaDataClient {
         if (!enabled() || !propertyIds.contains(propertyId)) {
             throw new GaApiException("disabled");
         }
+        try {
+            return fetchPages(propertyId, report, report.dimensions(), start, end, parse);
+        } catch (GaApiException error) {
+            // 맞춤 측정기준(customUser:qs_platform 등)을 아직 등록하지 않은 속성(랜딩 속성)은 400 INVALID_ARGUMENT로
+            // 거절된다 - 그 열만 빼고 다시 받는다. 빠진 열은 파서가 '(not set)'으로 채운다.
+            if (!error.getMessage().startsWith("http-400") || !error.getMessage().contains("customUser:")) {
+                throw error;
+            }
+            log.info("ga-import.custom-dimensions-missing property={} report={}", propertyId, report);
+            List<String> standard = report.dimensions().stream().filter(name -> !name.startsWith("custom")).toList();
+            return fetchPages(propertyId, report, standard, start, end, parse);
+        }
+    }
+
+    private <T> List<T> fetchPages(
+            String propertyId, GaReport report, List<String> dimensionNames, LocalDate start, LocalDate end,
+            Function<JsonNode, GaReportParser.Page<T>> parse)
+            throws GaApiException {
         List<T> all = new ArrayList<>();
         int offset = 0;
         for (int page = 0; page < MAX_PAGES; page++) {
-            GaReportParser.Page<T> result = parse.apply(call(propertyId, requestBody(report, start, end, offset)));
+            GaReportParser.Page<T> result =
+                    parse.apply(call(propertyId, requestBody(report, dimensionNames, start, end, offset)));
             all.addAll(result.rows());
             offset += result.rawRows();
             if (result.rawRows() == 0 || offset >= result.rowCount()) {
@@ -92,12 +111,16 @@ public class GaDataClient {
     }
 
     ObjectNode requestBody(GaReport report, LocalDate start, LocalDate end, int offset) {
+        return requestBody(report, report.dimensions(), start, end, offset);
+    }
+
+    ObjectNode requestBody(GaReport report, List<String> dimensionNames, LocalDate start, LocalDate end, int offset) {
         ObjectNode body = objectMapper.createObjectNode();
         ObjectNode range = body.putArray("dateRanges").addObject();
         range.put("startDate", start.toString());
         range.put("endDate", end.toString());
         ArrayNode dimensions = body.putArray("dimensions");
-        report.dimensions().forEach(name -> dimensions.addObject().put("name", name));
+        dimensionNames.forEach(name -> dimensions.addObject().put("name", name));
         ArrayNode metrics = body.putArray("metrics");
         report.metrics().forEach(name -> metrics.addObject().put("name", name));
         body.put("limit", PAGE_SIZE);

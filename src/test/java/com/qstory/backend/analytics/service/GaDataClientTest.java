@@ -125,6 +125,33 @@ class GaDataClientTest {
     }
 
     @Test
+    void propertyWithoutCustomDimensionsIsRetriedWithStandardOnes() throws Exception {
+        HttpResponse<byte[]> invalid = response(400, "{\"error\":{\"code\":400,\"status\":\"INVALID_ARGUMENT\","
+                + "\"message\":\"Did you mean firstUserSourcePlatform? Field customUser:qs_platform is not a valid dimension.\"}}");
+        HttpResponse<byte[]> ok = response(200, """
+                {"dimensionHeaders": [{"name": "date"}, {"name": "hostName"}, {"name": "sessionSource"},
+                   {"name": "sessionMedium"}, {"name": "sessionCampaignName"}],
+                 "metricHeaders": [{"name": "totalUsers"}, {"name": "newUsers"}, {"name": "sessions"},
+                   {"name": "engagedSessions"}, {"name": "screenPageViews"}],
+                 "rows": [{"dimensionValues": [{"value": "20261014"}, {"value": "qstory.ai.kr"}, {"value": "qr"},
+                   {"value": "offline"}, {"value": "qr-main"}],
+                   "metricValues": [{"value": "2"}, {"value": "2"}, {"value": "2"}, {"value": "1"}, {"value": "2"}]}],
+                 "rowCount": 1}
+                """);
+        doReturn(invalid).doReturn(ok).when(http).send(any(HttpRequest.class), any());
+
+        List<GaRows.TrafficRow> rows = client.traffic("555537619", LocalDate.of(2026, 10, 14), LocalDate.of(2026, 10, 14));
+
+        assertEquals(1, rows.size());
+        assertEquals("qr", rows.get(0).key().source());
+        assertEquals(GaReportParser.NOT_SET, rows.get(0).key().platform());
+        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(http, times(2)).send(captor.capture(), any());
+        JsonNode retried = objectMapper.readTree(bodyOf(captor.getAllValues().get(1)));
+        assertEquals(5, retried.path("dimensions").size());
+    }
+
+    @Test
     void unknownPropertyIsRefusedWithoutCalling() {
         assertThrows(GaDataClient.GaApiException.class,
                 () -> client.events("999", LocalDate.of(2026, 10, 12), LocalDate.of(2026, 10, 14)));
