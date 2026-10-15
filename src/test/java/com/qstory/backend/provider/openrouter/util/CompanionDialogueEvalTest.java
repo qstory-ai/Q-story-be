@@ -216,6 +216,26 @@ class CompanionDialogueEvalTest {
         list.add(new Scenario("시도 - A 끝난 뒤 어떻게", "시도 장면이 끝난 뒤 - 준비된 행동을 둘 다 내놓지 않음, 단서 하나 + 아이 생각", F04, A,
                 PATH_HISTORY.replace("}]", "},{\"role\":\"CHILD\",\"text\":\"그만하고 다른 방법 하자\"},{\"role\":\"CHARACTER\",\"text\":\"그래, 풀숲은 너무 빽빽하니까 다른 방법을 찾아보자. 너는 어떤 방법이 떠올라?\"}]"),
                 "그럼 어떻게 해?", "NONE"));
+        list.add(new Scenario("시도 다양 A01", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F04, A, "[]", "나무 위로 올라가서 길을 찾아보자", "NONE"));
+        list.add(new Scenario("시도 다양 A02", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F04, A, "[]", "새를 손으로 잡아서 길 물어보자", "NONE"));
+        list.add(new Scenario("시도 다양 A03", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F04, A, "[]", "큰 소리로 아빠를 불러 보자", "NONE"));
+        list.add(new Scenario("시도 다양 A04", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F04, A, "[]", "가시덤불을 뚫고 지나가자", "NONE"));
+        list.add(new Scenario("시도 다양 A05", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F04, A, "[]", "왔던 길로 다시 돌아가자", "NONE"));
+        list.add(new Scenario("시도 다양 A06", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F04, A, "[]", "저 빛을 따라 뛰어가 보자", "NONE"));
+        list.add(new Scenario("시도 다양 A07", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F04, A, "[]", "돌멩이를 던져서 길을 표시하자", "NONE"));
+        list.add(new Scenario("시도 다양 A08", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F04, A, "[]", "새한테 빵을 주자", "NONE"));
+        list.add(new Scenario("시도 다양 A09", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F04, A, "[]", "바위 위에 올라가서 멀리 보자", "NONE"));
+        list.add(new Scenario("시도 다양 A10", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F04, A, "[]", "강 쪽으로 가 보자", "NONE"));
+        list.add(new Scenario("시도 다양 C01", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F07, C, "[]", "헨젤 창살을 힘껏 당겨서 열자", "NONE"));
+        list.add(new Scenario("시도 다양 C02", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F07, C, "[]", "마녀 몰래 침대 밑에 숨자", "NONE"));
+        list.add(new Scenario("시도 다양 C03", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F07, C, "[]", "창문으로 몰래 나가자", "NONE"));
+        list.add(new Scenario("시도 다양 C04", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F07, C, "[]", "굴뚝으로 기어서 나가자", "NONE"));
+        list.add(new Scenario("시도 다양 C05", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F07, C, "[]", "부엌 문 그냥 열고 나가자", "NONE"));
+        list.add(new Scenario("시도 다양 C06", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F07, C, "[]", "마녀한테 문 열어 달라고 부탁하자", "NONE"));
+        list.add(new Scenario("시도 다양 C07", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F07, C, "[]", "마녀가 잘 때 열쇠를 가져가자", "NONE"));
+        list.add(new Scenario("시도 다양 C08", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F07, C, "[]", "의자 밟고 선반에 올라가자", "NONE"));
+        list.add(new Scenario("시도 다양 C09", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F07, C, "[]", "헨젤이랑 같이 소리 질러서 도와달라고 하자", "NONE"));
+        list.add(new Scenario("시도 다양 C10", "TRY_FAIL 3줄, 그 자리에 있는 것만, 답은 정답 방향 없이 열린 질문", F07, C, "[]", "마녀한테 거짓말해서 밖에 나가자", "NONE"));
         return list;
     }
 
