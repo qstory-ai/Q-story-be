@@ -237,6 +237,23 @@ qstory:
     gemini-tts-warn-at: ${QSTORY_DISCORD_GEMINI_TTS_WARN_AT:80,95}
     # OpenRouter 잔액(달러)이 이 아래면 경고. 0 이하 = 확인 안 함.
     openrouter-low-balance-usd: ${QSTORY_DISCORD_OPENROUTER_LOW_BALANCE_USD:5}
+  bot-dispatch:
+    # 팀 봇 워크플로 정시 실행 요청(botdispatch/). GitHub Actions schedule은 몇 시간씩 밀릴 수 있어 정시에 workflow_dispatch를
+    # 부른다(봇 쪽 schedule은 예비). 토큰이 비어 있으면 조용히 끈다. 킬스위치 - false면 토큰이 있어도 부르지 않는다.
+    enabled: ${QSTORY_BOT_DISPATCH_ENABLED:true}
+    token: ${GITHUB_DISPATCH_TOKEN:}
+    repo: ${QSTORY_BOT_DISPATCH_REPO:qstory-ai/Q-story-bot}
+    ref: ${QSTORY_BOT_DISPATCH_REF:main}
+    # Spring cron 6칸(초 분 시 일 월 요일), 한국 시간. "-"면 그 작업만 끈다.
+    jobs:
+      - workflow: linear-notion-sync.yml
+        cron: ${QSTORY_BOT_DISPATCH_SYNC_CRON:0 5 * * * *}
+      - workflow: daily-scrum.yml
+        cron: ${QSTORY_BOT_DISPATCH_DAILY_SCRUM_CRON:0 0 9 * * MON-FRI}
+      - workflow: auto-dev-scrum.yml
+        cron: ${QSTORY_BOT_DISPATCH_AUTO_DEV_SCRUM_CRON:0 30 21 * * MON-FRI}
+      - workflow: scrum-remind.yml
+        cron: ${QSTORY_BOT_DISPATCH_SCRUM_REMIND_CRON:0 0 22 * * MON-FRI}
   payments:
     toss:
       secret-key: ${TOSS_SECRET_KEY:}
