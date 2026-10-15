@@ -434,9 +434,18 @@ class CompanionTryAndFailTest {
         assertThat(DialogueInput.fromBody(objectMapper.readTree("{\"attempt\":{\"tried\":1}}")).attempt().backdrops()).isEmpty();
     }
 
+    /** 검증 40회: 답이 열쇠 쪽 정답 방향을 먼저 꺼내고, 장면이 그 자리에 없는 장소·물건을 지어내고, 답의 막힌 까닭이 그림과 달랐다. */
+    @Test
+    void attemptStaysInPlaceAndLeavesTheAnswerToTheChild() {
+        String prompt = client.companionSystemPrompt(request("부엌 문 그냥 열고 나가자", anchorC(), ON, withAttempt(0, null)));
+        assertThat(prompt).contains("질문 초대의 답에 가까운 방향", "열쇠를 얻어서 문으로 나가는 건 어떨까?");
+        assertThat(prompt).contains("이미 있는 장소·물건·인물만 쓴다", "부엌에는 침대가 없었어요", "두꺼운 벽 밖으로는 소리가 나가지 않았고");
+        assertThat(prompt).contains("답에서 말하는 막힌 까닭은 3번째 줄(그리고 고른 그림)과 같아야 한다");
+    }
+
     @Test
     void ledgerVersionFollowsTheSwitch() {
-        assertThat(OpenRouterClient.companionPromptVersion(true)).isEqualTo("GRETEL_DIALOGUE_V7");
+        assertThat(OpenRouterClient.companionPromptVersion(true)).isEqualTo("GRETEL_DIALOGUE_V8");
         assertThat(OpenRouterClient.COMPANION_PROMPT_VERSION).isEqualTo("GRETEL_DIALOGUE_V2_1");
         assertThat(OpenRouterClient.companionPromptVersion(false)).isEqualTo(OpenRouterClient.COMPANION_PROMPT_VERSION);
     }
