@@ -244,6 +244,8 @@ public class CompanionChatPipelineService {
                     .map(line -> Map.of("speakerId", line.speakerId(), "text", line.text()))
                     .toList());
             attempt.put("maxTurns", dialogueProperties.maxAttemptTurns());
+            // 막힌 줄(3번째 줄)에서 배경으로 보여 줄 그림 - 요청의 후보 중 하나, 맞는 그림이 없으면 null(앱은 지금 그림으로 연출한다).
+            attempt.put("backdropAssetId", reply.attemptBackdropId());
             dialogueResult.put("attempt", attempt);
         }
         result.put("dialogue", dialogueResult);

@@ -376,6 +376,15 @@ public class OpenRouterClient {
         List<String> inviteFamilyIds() {
             return inviteAnchor == null ? List.of() : inviteAnchor.actionFamilies().stream().map(ActionFamily::id).toList();
         }
+
+        /** 새 시도 장면에 고를 수 있는 배경 그림 후보 - 새 시도 장면을 만들 수 있을 때만, 없으면 빈 목록(그림을 고르지 않는다). */
+        public List<com.qstory.backend.companionchat.DialogueInput.Backdrop> attemptBackdrops() {
+            return canStartAttempt() ? dialogue.attempt().backdrops() : List.of();
+        }
+
+        List<String> attemptBackdropIds() {
+            return attemptBackdrops().stream().map(com.qstory.backend.companionchat.DialogueInput.Backdrop::id).toList();
+        }
     }
 
     /**
@@ -413,10 +422,21 @@ public class OpenRouterClient {
             String replyKind, boolean childWantsToEnd, String childMeaning, boolean asksForHelp,
             String proposedActionFamilyId,
             /** TRY_FAIL일 때만 - 시도 장면 줄(내레이터·인물). 그 밖에는 빈 목록. responseText는 이 장면 뒤 그레텔이 묻는 말이다. */
-            List<SceneLine> attemptScene) {
+            List<SceneLine> attemptScene,
+            /** TRY_FAIL일 때만 - 막힌 줄(3번째 줄)과 같은 모습의 배경 그림 id(요청의 후보 중 하나). 맞는 그림이 없으면 null. */
+            String attemptBackdropId) {
 
         public CompanionReply {
             attemptScene = attemptScene == null ? List.of() : List.copyOf(attemptScene);
+        }
+
+        public CompanionReply(
+                String interactionMode, String responseText, String speakerId,
+                String topicTag, String toneTag, String valueTag,
+                String replyKind, boolean childWantsToEnd, String childMeaning, boolean asksForHelp,
+                String proposedActionFamilyId, List<SceneLine> attemptScene) {
+            this(interactionMode, responseText, speakerId, topicTag, toneTag, valueTag, replyKind, childWantsToEnd,
+                    childMeaning, asksForHelp, proposedActionFamilyId, attemptScene, null);
         }
 
         public CompanionReply(
@@ -466,8 +486,9 @@ public class OpenRouterClient {
      * V5: 시도 장면의 그레텔 답(TRY_FAIL·장면 안·ATTEMPT_END)도 준비된 행동을 둘 이상 내놓지 않고, 장면 줄에 대화하는 아이를
      *     인물로 넣지 않는다(검증에서도 걸러 낸다). 스위치를 끈 쪽(V2_1)은 그대로다.
      * V6: TRY_FAIL 장면은 3줄 순서(가서 시작하기 → 그레텔이 애써 해 보는 혼잣말 → 몸으로 해 본 일과 막힌 결과)로, 결과부터 말하지 않는다.
+     * V7: 질문 지점에 시도 장면 배경 그림 후보가 있으면 TRY_FAIL에서 3번째 줄의 막힌 모습과 같은 그림(attemptBackdropId)을 고르고, 없으면 NONE.
      */
-    public static final String TRY_AND_FAIL_PROMPT_VERSION = "GRETEL_DIALOGUE_V6";
+    public static final String TRY_AND_FAIL_PROMPT_VERSION = "GRETEL_DIALOGUE_V7";
 
     /** 대화 원장에 남길 그레텔 대화 지시 버전. */
     public static String companionPromptVersion(boolean tryAndFail) {
@@ -696,6 +717,9 @@ public class OpenRouterClient {
         }
     }
 
+    /** 시도 장면 배경 그림 후보 중 맞는 것이 없다는 값(attemptBackdropId). */
+    static final String NO_BACKDROP = "NONE";
+
     /** 스트리밍 중인 답 앞부분에서 시도 장면이 비어 있음("attemptScene":[])을 찾는다. */
     static final java.util.regex.Pattern EMPTY_ATTEMPT_SCENE =
             java.util.regex.Pattern.compile("\"attemptScene\"\\s*:\\s*\\[\\s*\\]");
@@ -758,6 +782,7 @@ public class OpenRouterClient {
             attemptTurn = true;
         }
         List<SceneLine> scene = startsAttempt ? sceneLines(value.path("attemptScene"), request) : List.of();
+        String backdropId = startsAttempt ? attemptBackdropId(value.path("attemptBackdropId"), request) : null;
         // 도움 버튼으로 온 요청은 그 자체가 도움이다 - 다시 "도와줄까?"를 띄우지 않는다.
         boolean asksForHelp = !attemptTurn && !request.helpRequested() && value.path("asksForHelp").asBoolean(false);
         boolean triedAndFailed = attemptTurn;
@@ -766,7 +791,14 @@ public class OpenRouterClient {
                 interactionMode, terms.apply(routeResultValidator.normalizeKoreanResponseText(responseText)), speakerId,
                 topicTag, toneTag, valueTag,
                 replyKind, !triedAndFailed && value.path("childWantsToEnd").asBoolean(false), terms.apply(childMeaning),
-                asksForHelp, proposed, scene);
+                asksForHelp, proposed, scene, backdropId);
+    }
+
+    /** 시도 장면 배경 그림 - 요청의 후보 중 하나일 때만 받는다. NONE·후보 밖·형식이 어긋나면 null(지금 그림 그대로). */
+    static String attemptBackdropId(JsonNode node, CompanionRequest request) {
+        if (node == null || !node.isTextual()) return null;
+        String id = node.asText().trim();
+        return request.attemptBackdropIds().contains(id) ? id : null;
     }
 
     /**
@@ -893,7 +925,7 @@ public class OpenRouterClient {
         jsonSchema.put("strict", true);
         jsonSchema.set("schema", companionSchema(
                 request.allowedSpeakerIds(), request.inviteFamilyIds(), replyKinds(request),
-                request.canStartAttempt() ? request.sceneSpeakerIds() : List.of()));
+                request.canStartAttempt() ? request.sceneSpeakerIds() : List.of(), request.attemptBackdropIds()));
 
         root.putObject("provider").put("require_parameters", true);
         ObjectNode reasoning = root.putObject("reasoning");
@@ -955,6 +987,12 @@ public class OpenRouterClient {
                 ArrayNode speakers = attempts.putArray("sceneSpeakerIds");
                 request.sceneSpeakerIds().forEach(speakers::add);
                 attempts.put("narratorSpeakerId", request.attemptPolicy().narratorSpeakerId());
+                if (!request.attemptBackdrops().isEmpty()) {
+                    ArrayNode backdrops = attempts.putArray("backdrops");
+                    for (var backdrop : request.attemptBackdrops()) {
+                        backdrops.addObject().put("id", backdrop.id()).put("shows", backdrop.shows());
+                    }
+                }
             }
             var active = dialogue.attempt().active();
             if (active != null) {
@@ -982,6 +1020,17 @@ public class OpenRouterClient {
     ObjectNode companionSchema(
             List<String> allowedSpeakerIds, List<String> inviteFamilyIds, List<String> replyKinds,
             List<String> sceneSpeakerIds) {
+        return companionSchema(allowedSpeakerIds, inviteFamilyIds, replyKinds, sceneSpeakerIds, List.of());
+    }
+
+    /**
+     * @param backdropIds 시도 장면 배경 그림 후보 id - 비어 있지 않고 시도 장면을 만들 수 있으면 attemptBackdropId(후보 + NONE)를
+     *                    attemptScene보다도 앞에 둔다(스트리밍에서 "attemptScene":[]로 장면 유무를 보는 순서는 그대로다).
+     */
+    ObjectNode companionSchema(
+            List<String> allowedSpeakerIds, List<String> inviteFamilyIds, List<String> replyKinds,
+            List<String> sceneSpeakerIds, List<String> backdropIds) {
+        boolean withBackdrop = !sceneSpeakerIds.isEmpty() && !backdropIds.isEmpty();
         ObjectNode schema = objectMapper.createObjectNode();
         schema.put("type", "object");
         ObjectNode properties = schema.putObject("properties");
@@ -991,6 +1040,14 @@ public class OpenRouterClient {
         ArrayNode modeEnum = interactionMode.putArray("enum");
         com.qstory.backend.common.enums.CompanionInteractionMode.ALL_NAMES.forEach(modeEnum::add);
 
+        if (withBackdrop) {
+            ObjectNode backdrop = properties.putObject("attemptBackdropId");
+            backdrop.put("type", "string");
+            backdrop.put("description", "replyKind가 TRY_FAIL일 때만 attempts.backdrops 중 attemptScene 3번째 줄의 막힌 모습과 같은 그림 id. 맞는 그림이 없거나 TRY_FAIL이 아니면 NONE.");
+            ArrayNode backdropEnum = backdrop.putArray("enum");
+            backdropIds.forEach(backdropEnum::add);
+            backdropEnum.add(NO_BACKDROP);
+        }
         if (!sceneSpeakerIds.isEmpty()) {
             ObjectNode attemptScene = properties.putObject("attemptScene");
             attemptScene.put("type", "array");
@@ -1031,6 +1088,9 @@ public class OpenRouterClient {
 
         ArrayNode required = schema.putArray("required");
         required.add("interactionMode");
+        if (withBackdrop) {
+            required.add("attemptBackdropId");
+        }
         if (!sceneSpeakerIds.isEmpty()) {
             required.add("attemptScene");
         }
@@ -1159,6 +1219,9 @@ public class OpenRouterClient {
      * 그대로 막고(GENTLE_REDIRECT), 그 밖에 준비되지 않은 행동은 해 보다가 막히는 짧은 장면을 만든다. 그 장면 안에서 아이와
      * 몇 번 더 이야기한 뒤 원래 질문 지점으로 돌아온다. 무섭지 않게, 처벌·들킴 없이, 이야기 주 흐름(열쇠·탈출·결말)은 바꾸지 않는다.
      */
+    /** V7: 시도 장면 배경 그림 고르기 - 3번째 줄의 막힌 모습과 같은 그림만, 맞는 게 없으면 NONE. */
+    static final String ATTEMPT_BACKDROP_RULE = "attempts.backdrops는 이 질문 지점에 미리 그려 둔 시도 장면 그림이다(shows = 그림에 보이는 막힌 모습). 앱은 attemptScene 3번째 줄을 읽을 때 배경을 그 그림으로 바꾼다. TRY_FAIL이면 3번째 줄에서 그레텔이 몸으로 해 본 일과 막힌 까닭이 어느 그림의 shows와 같을 때만 그 id를 attemptBackdropId에 넣고, 3번째 줄도 그 그림과 같은 모습으로 쓴다. 아이 생각이 어느 그림의 장소·막힌 까닭과도 맞지 않으면(예: 하늘로 날아가기, 마녀에게 부탁하기) 그림에 맞추려고 아이 생각을 바꾸지 말고 attemptBackdropId를 NONE으로 한다. 비슷해 보여도 장소나 막힌 까닭이 다르면 NONE이다. TRY_FAIL이 아니면 NONE이다.";
+
     static List<String> attemptLines(CompanionRequest request) {
         List<String> lines = new ArrayList<>();
         lines.add("시도 장면 공통: 장면은 무섭지 않게 쓴다. 놀람·두려움은 '깜짝 놀랐지만 괜찮아' 수준까지만 쓰고, 붙잡히거나 혼나거나 벌을 받거나 다치는 모습, 누가 화내거나 위협하는 모습은 쓰지 않는다. 상대(마녀 등)는 남매가 무엇을 하려 했는지 알아채지 못한다 - 들켰다, 알아챘다, 거짓말인 걸 알았다, 의심한다처럼 쓰지 않는다. 막힌 이유는 높이·좁음·무게·소리 같은 장면 속 사정이나 작은 우연, 그레텔 자신의 마음이다.");
@@ -1183,6 +1246,10 @@ public class OpenRouterClient {
             lines.add("TRY_FAIL의 responseText는 그 막힌 상황에서 그레텔이 아이에게 묻는 한두 문장이다(예: 창문이 너무 높아… 뭘 밟고 올라가면 좋을까?). 장면 줄을 되풀이하지 않는다. 거짓말은 말을 꺼내 보다가 말이 꼬이거나 상대가 대꾸 없이 하던 일을 계속하는 장면으로, 혼자 도망치기는 혼자 몇 걸음 가 보다가 남겨진 헨젤이 마음에 걸려 멈추는 장면으로, 부탁하기는 상대가 들은 체 만 체 하던 일을 계속하는 장면으로 쓴다.");
             lines.add(ATTEMPT_REPLY_ONE_ACTION);
             lines.add("TRY_FAIL이 아니면 attemptScene은 반드시 빈 배열이다.");
+            if (!request.attemptBackdrops().isEmpty()) {
+                // V7: 시도 장면의 막힌 줄에서 배경을 그 그림으로 바꿔 보여 준다 - 그림과 3번째 줄이 어긋나면 안 된다.
+                lines.add(ATTEMPT_BACKDROP_RULE);
+            }
         } else {
             lines.add("이 질문 지점에서는 시도 장면을 이미 " + dialogue.attempt().tried() + "번 해 봤다(더 만들 수 없다). preparedActions에 없는 행동을 제안하면 그 생각을 받아 주되 이야기 속에서 해 봤다고 꾸미지 않고, 같이 다른 방법을 생각해 보자며 아이 생각을 묻는다. proposedActionFamilyId는 null이다.");
         }

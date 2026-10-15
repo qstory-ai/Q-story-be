@@ -85,7 +85,8 @@ class CompanionChatPipelineDeferAudioTest {
         when(openRouter.generateCompanionReply(any(), any())).thenReturn(new OpenRouterClient.CompanionReply(
                 "ANSWER", "창문이 너무 높아… 뭘 밟고 올라갈까?", "HG-SPK-GRETEL",
                 null, null, null, OpenRouterClient.TRY_FAIL, false, "창문으로 나가고 싶음", false, null,
-                List.of(new OpenRouterClient.SceneLine("HG-SPK-NARRATOR", "그레텔은 창문 아래로 가 보았어요."))));
+                List.of(new OpenRouterClient.SceneLine("HG-SPK-NARRATOR", "그레텔은 창문 아래로 가 보았어요.")),
+                "c-try-high-window"));
         org.mockito.ArgumentCaptor<OpenRouterClient.CompanionRequest> sent =
                 org.mockito.ArgumentCaptor.forClass(OpenRouterClient.CompanionRequest.class);
 
@@ -104,6 +105,8 @@ class CompanionChatPipelineDeferAudioTest {
         Map<String, Object> attempt = (Map<String, Object>) dialogue.get("attempt");
         assertThat(attempt.get("maxTurns")).isEqualTo(3);
         assertThat((List<?>) attempt.get("scene")).hasSize(1);
+        // 막힌 줄에서 보여 줄 배경 그림 - 예전 앱은 모르는 필드라 무시한다.
+        assertThat(attempt.get("backdropAssetId")).isEqualTo("c-try-high-window");
         verify(records).recordCompanionTurn(
                 any(), any(), any(), any(), any(),
                 org.mockito.ArgumentMatchers.eq("QSTORY_ROUTE_PROMPT_V7_COVERAGE+" + OpenRouterClient.TRY_AND_FAIL_PROMPT_VERSION),

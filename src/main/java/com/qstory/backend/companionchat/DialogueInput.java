@@ -21,7 +21,7 @@ import java.util.Set;
  * @param help          아이가 "도와줘"를 눌렀을 때만 - 지금 도움 단계와 그 단계의 미리 쓴 도움 대사(방향).
  *                      그레텔은 이 방향을 따르되 앞 대화에서 이미 한 말은 되풀이하지 않고 대화에 맞춰 말한다.
  * @param attempt       질문 초대의 시도 장면 상태(클라이언트가 들고 있다) - 이 질문 지점에서 이미 만든 시도 장면 수와,
- *                      지금 시도 장면 안이면 그 장면. 없으면 시도 장면을 한 번도 안 한 것이다.
+ *                      지금 시도 장면 안이면 그 장면, 이 질문 지점의 시도 장면 배경 그림 후보. 없으면 시도 장면을 한 번도 안 한 것이다.
  */
 public record DialogueInput(
         List<Turn> history,
@@ -33,12 +33,35 @@ public record DialogueInput(
         Attempt attempt) {
 
     /**
-     * @param tried  이 질문 지점에서 이미 만든 시도 장면 수
-     * @param active 지금 시도 장면 안이면 그 장면, 아니면 null
+     * @param tried     이 질문 지점에서 이미 만든 시도 장면 수
+     * @param active    지금 시도 장면 안이면 그 장면, 아니면 null
+     * @param backdrops 이 질문 지점에 준비된 시도 장면 배경 그림 후보(콘텐츠 story.yaml attemptBackdrops). 새 시도 장면을
+     *                  만들 때 막힌 모습과 같은 그림을 하나 고르는 데만 쓴다 - 그림을 보여 주는 것 말고는 아무것도 바꾸지 않는다.
      */
-    public record Attempt(int tried, Active active) {
+    public record Attempt(int tried, Active active, List<Backdrop> backdrops) {
         public static final Attempt NONE = new Attempt(0, null);
+
+        public Attempt {
+            backdrops = backdrops == null ? List.of() : List.copyOf(backdrops);
+        }
+
+        public Attempt(int tried, Active active) {
+            this(tried, active, List.of());
+        }
     }
+
+    /**
+     * 시도 장면 배경 그림 후보 하나.
+     *
+     * @param id    그림 asset id(콘텐츠 assets.json의 slug)
+     * @param shows 그림에 무엇이 막혀 있는지 짧게(예: 빽빽한 덤불을 두 손으로 헤쳐 보지만 더 못 감)
+     */
+    public record Backdrop(String id, String shows) {}
+
+    /** 배경 후보 수·설명 길이 상한 - 프롬프트와 스키마 enum에 그대로 들어가므로 작게 둔다. */
+    public static final int MAX_BACKDROPS = 8;
+    public static final int MAX_BACKDROP_TEXT = 120;
+    private static final java.util.regex.Pattern BACKDROP_ID = java.util.regex.Pattern.compile("[a-z0-9][a-z0-9-]{0,63}");
 
     /**
      * @param tried 아이가 해 보자고 한 것(뜻)
@@ -140,7 +163,21 @@ public record DialogueInput(
                 current = new Active(what, scene, turn);
             }
         }
-        return new Attempt(tried, current);
+        return new Attempt(tried, current, backdrops(node.path("backdrops")));
+    }
+
+    /** 배경 후보 - id 형식이 어긋나거나 설명이 없거나 겹치는 항목은 버린다. "NONE"은 "맞는 그림 없음"이라 id로 받지 않는다. */
+    private static List<Backdrop> backdrops(JsonNode array) {
+        List<Backdrop> values = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (JsonNode node : array) {
+            String id = node.path("id").asText("").trim();
+            String shows = clip(node.path("description").asText(""), MAX_BACKDROP_TEXT);
+            if (!BACKDROP_ID.matcher(id).matches() || shows.isBlank() || !seen.add(id)) continue;
+            values.add(new Backdrop(id, shows));
+            if (values.size() == MAX_BACKDROPS) break;
+        }
+        return List.copyOf(values);
     }
 
     /** 도움 요청은 질문 초대 안에서만 의미가 있다 - 단계·대사가 어긋나면 도움 요청이 아닌 것으로 본다. */
