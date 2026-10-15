@@ -338,6 +338,17 @@ class CompanionTryAndFailTest {
         assertThat(prompt).doesNotContain("attemptScene은 2~3줄");
     }
 
+    /** 운영 평가: 그레텔 장면 줄이 "조금만 더 가 볼까?"처럼 물었다 - 장면 줄의 물음표는 혼잣말 말줄임표로 바꾼다. */
+    @Test
+    void sceneLinesNeverAsk() {
+        assertThat(OpenRouterClient.withoutQuestion("영차, 영차… 조금만 더 가 볼까?")).isEqualTo("영차, 영차… 조금만 더 가 볼까…");
+        assertThat(OpenRouterClient.withoutQuestion("저쪽에 뭐가 있을까? 조금만 더 가서 봐야지."))
+                .isEqualTo("저쪽에 뭐가 있을까… 조금만 더 가서 봐야지.");
+        assertThat(OpenRouterClient.withoutQuestion("으차, 조금만 더 가면 나오겠지…?")).isEqualTo("으차, 조금만 더 가면 나오겠지…");
+        assertThat(OpenRouterClient.withoutQuestion("언제 잠들지?!")).isEqualTo("언제 잠들지…");
+        assertThat(OpenRouterClient.withoutQuestion("영차, 영차… 풀을 헤치고 조금만 더!")).isEqualTo("영차, 영차… 풀을 헤치고 조금만 더!");
+    }
+
     @Test
     void ledgerVersionFollowsTheSwitch() {
         assertThat(OpenRouterClient.companionPromptVersion(true)).isEqualTo("GRETEL_DIALOGUE_V6");
