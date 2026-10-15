@@ -139,12 +139,60 @@ class StoryCompletionRecordTest {
         assertEquals(1, summary.participantCount());
     }
 
+    @Test
+    void classLessonPlayedIndividuallyIsThatStudentsRecord() {
+        // 수업은 모두 반에 속한다(1:1도 한 명짜리 반). 선생님이 진행 형태로 "개별"을 골랐으면 반 수업이 아니라 그 아이의 기록이다.
+        ClassGroup sunClass = ClassGroup.builder().id(UUID.randomUUID()).name("햇살반").build();
+        TutorStudent hayoon = student("하윤", parent());
+        Lesson lesson = lesson(sunClass, hayoon);
+
+        StoryCompletionSummary summary = service.record(caller, request(lesson.getId(), hayoon.getId(), null, "INDIVIDUAL"));
+
+        ArgumentCaptor<StoryCompletion> saved = ArgumentCaptor.forClass(StoryCompletion.class);
+        verify(repository).save(saved.capture());
+        assertFalse(saved.getValue().isGroupSession());
+        assertSame(hayoon, saved.getValue().getTutorStudent());
+        assertSame(sunClass, saved.getValue().getClassGroup());
+        assertEquals("TUTOR", summary.sessionKind());
+        assertEquals(1, summary.participantCount());
+    }
+
+    @Test
+    void individualSettingFallsBackToThePlaySessionsRecordedSetting() {
+        // 진행 형태를 싣지 않는 예전 클라이언트 - 회차 시작 때 저장된 play_session.play_setting을 쓴다.
+        ClassGroup sunClass = ClassGroup.builder().id(UUID.randomUUID()).name("햇살반").build();
+        TutorStudent hayoon = student("하윤", parent());
+        Lesson lesson = lesson(sunClass, hayoon);
+        UUID sessionId = UUID.randomUUID();
+        when(playSessionService.linkForCompletion(sessionId, tutor.getId(), null)).thenReturn(sessionId);
+        when(playSessionService.playSettingOf(sessionId)).thenReturn("INDIVIDUAL");
+
+        StoryCompletionSummary summary = service.record(caller, request(lesson.getId(), hayoon.getId(), sessionId, null));
+
+        assertEquals("TUTOR", summary.sessionKind());
+    }
+
+    @Test
+    void individualSettingWithSeveralStudentsStaysAClassRecord() {
+        // 여러 아이가 담긴 수업에서 "개별"을 골라도 누구의 기록인지 정할 수 없으니 반 기록으로 남긴다.
+        ClassGroup sunClass = ClassGroup.builder().id(UUID.randomUUID()).name("햇살반").build();
+        TutorStudent minseo = student("민서", parent());
+        Lesson lesson = lesson(sunClass, minseo, student("지호", parent()));
+
+        StoryCompletionSummary summary = service.record(caller, request(lesson.getId(), minseo.getId(), null, "INDIVIDUAL"));
+
+        assertEquals("CLASS", summary.sessionKind());
+    }
+
     private AppUser parent() {
         return AppUser.builder().id(UUID.randomUUID()).displayName("부모").build();
     }
 
     private TutorStudent student(String name, AppUser linkedParent) {
-        return TutorStudent.builder().id(UUID.randomUUID()).name(name).linkedParentUser(linkedParent).build();
+        TutorStudent student = TutorStudent.builder().id(UUID.randomUUID()).name(name).linkedParentUser(linkedParent).build();
+        when(tutorStudentRepository.findByIdAndTutor_IdAndDeletedAtIsNull(student.getId(), tutor.getId()))
+                .thenReturn(Optional.of(student));
+        return student;
     }
 
     private Lesson lesson(ClassGroup classGroup, TutorStudent... students) {
@@ -162,5 +210,10 @@ class StoryCompletionRecordTest {
 
     private static RecordStoryCompletionRequest request(UUID lessonId) {
         return new RecordStoryCompletionRequest("HG", 600, List.of(), null, null, null, lessonId);
+    }
+
+    private static RecordStoryCompletionRequest request(UUID lessonId, UUID tutorStudentId, UUID sessionId, String playSetting) {
+        return new RecordStoryCompletionRequest("HG", 600, List.of(), tutorStudentId, null, sessionId, lessonId,
+                null, null, null, null, null, playSetting);
     }
 }
