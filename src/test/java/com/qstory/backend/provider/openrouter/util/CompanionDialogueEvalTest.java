@@ -123,6 +123,22 @@ class CompanionDialogueEvalTest {
         return "{\"tried\":0}";
     }
 
+    /** 앱이 질문 초대마다 함께 보내는 시도 장면 배경 그림 후보(콘텐츠 story.yaml attemptBackdrops와 같은 글). */
+    private static final String A_BACKDROPS = "[{\"id\":\"a-try-thick-bushes\",\"description\":\"빛나는 길 쪽 빽빽한 덤불을 그레텔이 두 손으로 헤쳐 보지만 더 나아갈 수 없음\"},"
+            + "{\"id\":\"a-try-thorn-brambles\",\"description\":\"가시덤불이 벽처럼 길을 막아 그레텔이 손을 뻗다가 조심히 멈춤\"},"
+            + "{\"id\":\"a-try-back-to-start\",\"description\":\"여러 갈래로 꼬인 길을 따라가다 제자리로 돌아와 남매가 두리번거림\"}]";
+    private static final String C_BACKDROPS = "[{\"id\":\"c-try-high-window\",\"description\":\"까치발로 팔을 뻗어도 높은 창문에 손이 닿지 않음\"},"
+            + "{\"id\":\"c-try-locked-door\",\"description\":\"부엌 문손잡이를 두 손으로 당겨 보지만 잠겨 있어 열리지 않음\"},"
+            + "{\"id\":\"c-try-narrow-chimney\",\"description\":\"좁은 굴뚝 구멍에 머리를 넣어 보지만 어깨가 들어가지 않음\"}]";
+
+    /** 시도 장면 상태에 그 질문 지점의 배경 후보를 붙인다(A·C만). DIALOGUE_EVAL_BACKDROPS=0이면 예전 앱처럼 보내지 않는다. */
+    private static String withBackdrops(String attempt, Anchor invite) {
+        if (invite == null || "0".equals(System.getenv("DIALOGUE_EVAL_BACKDROPS"))) return attempt;
+        String backdrops = "A".equals(invite.slot()) ? A_BACKDROPS : "C".equals(invite.slot()) ? C_BACKDROPS : null;
+        if (backdrops == null) return attempt;
+        return attempt.substring(0, attempt.length() - 1) + ",\"backdrops\":" + backdrops + "}";
+    }
+
     private static String help(int step, int total, String hint) {
         return "{\"step\":" + step + ",\"total\":" + total + ",\"hint\":\"" + hint + "\"}";
     }
@@ -181,6 +197,12 @@ class CompanionDialogueEvalTest {
         list.add(new Scenario("시도 - 마지막 말", "ATTEMPT_END(lastTurn), 원래 질문으로 돌아온다", F07, C, ATTEMPT_HISTORY, "선반 위에 올라가 보자", "NONE"));
         list.add(new Scenario("시도 - 끝난 뒤 정답 먼저 말하지 않기", "준비된 방법을 바로 알려 주거나 나열하지 않고 단서 하나 + 아이 생각", F07, C, ATTEMPT_ENDED_HISTORY, "그럼 어떻게 해?", "NONE"));
         // ── 운영 재현(HG-F04): 준비되지 않은 이동("빛나는 길로 가 보자")에 말로만 동의하고 이야기가 안 움직였다 ──
+        // ── 시도 장면 배경 그림(V7): 3번째 줄의 막힌 모습과 같은 그림만, 맞는 게 없으면 NONE ──
+        list.add(new Scenario("시도 - 그림 C 굴뚝", "TRY_FAIL, 그림 c-try-narrow-chimney, 3번째 줄이 좁은 굴뚝에 어깨가 안 들어감", F07, C, "[]", "굴뚝으로 기어서 나가자", "NONE"));
+        list.add(new Scenario("시도 - 그림 C 부엌 문", "TRY_FAIL, 그림 c-try-locked-door, 3번째 줄이 문손잡이를 당겨 봐도 잠겨 있음", F07, C, "[]", "부엌 문 그냥 열고 나가자", "NONE"));
+        list.add(new Scenario("시도 - 그림 C 하늘", "TRY_FAIL, 그림 없음(NONE) - 하늘로 날아가기는 어느 그림과도 맞지 않음", F07, C, "[]", "하늘로 날아서 도망가자", "NONE"));
+        list.add(new Scenario("시도 - 그림 A 하늘", "TRY_FAIL, 그림 없음(NONE) - 새처럼 날아가기", F04, A, "[]", "우리도 새처럼 하늘로 날아가자", "NONE"));
+        list.add(new Scenario("시도 - 그림 A 숲 밖", "TRY_FAIL, 그림 a-try-back-to-start 또는 덤불류 - 3번째 줄과 그림이 같은 모습", F04, A, "[]", "다른 길로 숲 밖으로 나가 보자", "NONE"));
         list.add(new Scenario("시도 - A 빛나는 길 바람", "TRY_FAIL - '~로 가 보고 싶어'도 행동 제안이다. 길로 가 보다가 막힘, 같이 가자고 약속하지 않음", F04, A, "[]", "새 뒤쪽의 빛나는 길로 가보고 싶어", "NONE"));
         list.add(new Scenario("시도 - A 빛나는 길 다시 말함", "TRY_FAIL - 앞에서 말한 준비 안 된 이동을 다시 하자고 함('응'으로 시작해도 동의만이 아니다)", F04, A, "[{\"role\":\"CHILD\",\"text\":\"새 뒤쪽의 빛나는 길로 가보고 싶어\"},{\"role\":\"CHARACTER\",\"text\":\"응, 그쪽 길이 환하게 빛나고 있네! 저 길 끝에는 뭐가 있을까?\"}]", "응 빛나는 길로 가보자", "NONE"));
         list.add(new Scenario("시도 - A 그레텔이 꺼낸 이동에 동의", "TRY_FAIL - 그레텔이 앞에서 꺼낸 준비 안 된 이동에 아이가 동의, 같이 걸어가자고 약속만 하지 않음", F04, A, "[{\"role\":\"CHILD\",\"text\":\"새 뒤쪽의 빛나는 길로 가보고 싶어\"},{\"role\":\"CHARACTER\",\"text\":\"우리 같이 저 빛나는 길을 따라 걸어가 볼까?\"}]", "응 좋아", "NONE"));
@@ -245,7 +267,7 @@ class CompanionDialogueEvalTest {
                     + (scenario.invite() == null ? "" : ",\"anchorId\":\"HG-Q-" + scenario.invite().slot() + "\"")
                     + ",\"wrapUp\":\"" + scenario.wrapUp() + "\""
                     + (scenario.helpJson() == null ? "" : ",\"help\":" + scenario.helpJson())
-                    + ",\"attempt\":" + attemptJson(scenario.name()) + "}";
+                    + ",\"attempt\":" + withBackdrops(attemptJson(scenario.name()), scenario.invite()) + "}";
             DialogueInput dialogue = DialogueInput.fromBody(objectMapper.readTree(body));
             var request = new OpenRouterClient.CompanionRequest(
                     scenario.child(), "v6", "헨젤과 그레텔", "HG-SPK-GRETEL", List.of("HG-SPK-GRETEL"),
@@ -265,7 +287,9 @@ class CompanionDialogueEvalTest {
                         (reply.attemptScene().isEmpty() ? "" : reply.attemptScene().stream()
                                 .map(line -> (line.speakerId().endsWith("NARRATOR") ? "내레이터" : "그레텔") + ": " + line.text())
                                 .collect(java.util.stream.Collectors.joining(" / ")) + " → ")
-                                + reply.responseText(), reply.replyKind(), reply.childWantsToEnd(), reply.asksForHelp(),
+                                + reply.responseText()
+                                + (reply.attemptBackdropId() == null ? "" : " [그림 " + reply.attemptBackdropId() + "]"),
+                        reply.replyKind(), reply.childWantsToEnd(), reply.asksForHelp(),
                         reply.proposedActionFamilyId(), ms, flags(reply), scenario.expect());
             } catch (Exception error) {
                 row = String.format("| %d | %s | %s | (실패: %s) | | | | | | | %s |", index, scenario.name(), scenario.child(), error.getMessage(), scenario.expect());

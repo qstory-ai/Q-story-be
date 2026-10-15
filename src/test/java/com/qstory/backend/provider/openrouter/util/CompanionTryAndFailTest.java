@@ -349,9 +349,94 @@ class CompanionTryAndFailTest {
         assertThat(OpenRouterClient.withoutQuestion("영차, 영차… 풀을 헤치고 조금만 더!")).isEqualTo("영차, 영차… 풀을 헤치고 조금만 더!");
     }
 
+    private static final List<DialogueInput.Backdrop> C_BACKDROPS = List.of(
+            new DialogueInput.Backdrop("c-try-high-window", "까치발로 팔을 뻗어도 높은 창문에 손이 닿지 않음"),
+            new DialogueInput.Backdrop("c-try-narrow-chimney", "좁은 굴뚝 구멍에 머리를 넣어 보지만 어깨가 들어가지 않음"));
+
+    private OpenRouterClient.CompanionRequest backdropRequest(String child, DialogueInput.Active active, int tried) {
+        return request(child, anchorC(), ON, new DialogueInput(
+                List.of(), null, List.of(), "HG-Q-C", "NONE", null, new DialogueInput.Attempt(tried, active, C_BACKDROPS)));
+    }
+
+    private ObjectNode attemptStartWithBackdrop(String backdropId) {
+        ObjectNode node = attemptStart();
+        if (backdropId == null) {
+            node.remove("attemptBackdropId");
+        } else {
+            node.put("attemptBackdropId", backdropId);
+        }
+        return node;
+    }
+
+    /** 시도 장면 배경: 후보 중 하나만 받고, NONE·후보 밖·TRY_FAIL이 아닌 답은 그림 없음(null)이다. */
+    @Test
+    void attemptBackdropIsOneOfTheOfferedPicturesOrNone() {
+        var request = backdropRequest("창문으로 도망가자", null, 0);
+        assertThat(client.validateCompanionReply(attemptStartWithBackdrop("c-try-high-window"), request).attemptBackdropId())
+                .isEqualTo("c-try-high-window");
+        assertThat(client.validateCompanionReply(attemptStartWithBackdrop("NONE"), request).attemptBackdropId()).isNull();
+        assertThat(client.validateCompanionReply(attemptStartWithBackdrop("a-try-thick-bushes"), request).attemptBackdropId())
+                .isNull();
+        assertThat(client.validateCompanionReply(attemptStartWithBackdrop(null), request).attemptBackdropId()).isNull();
+
+        ObjectNode answer = reply("ANSWER", "창문이 높아 보이네. 어떻게 하면 좋을까?", "ANSWER", null, false, false);
+        answer.put("attemptBackdropId", "c-try-high-window");
+        assertThat(client.validateCompanionReply(answer, request).attemptBackdropId()).isNull();
+        // 후보를 보내지 않는 예전 앱이면 그림을 고르지 않는다.
+        assertThat(client.validateCompanionReply(attemptStartWithBackdrop("c-try-high-window"), request("창문으로 도망가자", ON))
+                .attemptBackdropId()).isNull();
+    }
+
+    /** 스키마: 배경 그림(후보 + NONE)은 시도 장면 줄보다 앞, 시도 장면 줄은 답 문장보다 앞 - 새 시도 장면을 만들 수 있을 때만. */
+    @Test
+    void attemptBackdropComesFirstInTheSchemaOnlyWhenOffered() {
+        var request = backdropRequest("창문으로 도망가자", null, 0);
+        JsonNode schema = client.companionSchema(
+                List.of(GRETEL), request.inviteFamilyIds(), OpenRouterClient.replyKinds(request), request.sceneSpeakerIds(),
+                request.attemptBackdropIds());
+        List<String> order = new java.util.ArrayList<>();
+        schema.path("properties").fieldNames().forEachRemaining(order::add);
+        assertThat(order.indexOf("attemptBackdropId")).isGreaterThan(-1).isLessThan(order.indexOf("attemptScene"));
+        assertThat(order.indexOf("attemptScene")).isLessThan(order.indexOf("responseText"));
+        assertThat(schema.path("properties").path("attemptBackdropId").path("enum").toString())
+                .isEqualTo("[\"c-try-high-window\",\"c-try-narrow-chimney\",\"NONE\"]");
+        assertThat(schema.path("required").toString()).contains("attemptBackdropId");
+
+        // 후보가 없거나, 이미 시도 장면 안이거나, 상한을 다 썼으면 배경을 고르지 않는다.
+        assertThat(client.companionSchema(List.of(GRETEL), List.of(), List.of("ANSWER"), List.of(NARRATOR, GRETEL), List.of())
+                .path("properties").has("attemptBackdropId")).isFalse();
+        assertThat(backdropRequest("의자 밟고 올라가자", IN_SCENE, 1).attemptBackdropIds()).isEmpty();
+        assertThat(backdropRequest("창문으로 도망가자", null, 2).attemptBackdropIds()).isEmpty();
+    }
+
+    @Test
+    void attemptBackdropsReachThePromptAndPayloadOnlyWhenOffered() {
+        var request = backdropRequest("창문으로 도망가자", null, 0);
+        assertThat(client.companionSystemPrompt(request)).contains(OpenRouterClient.ATTEMPT_BACKDROP_RULE);
+        JsonNode backdrops = client.companionUserPayload(request).path("attempts").path("backdrops");
+        assertThat(backdrops).hasSize(2);
+        assertThat(backdrops.path(0).path("id").asText()).isEqualTo("c-try-high-window");
+        assertThat(backdrops.path(0).path("shows").asText()).contains("높은 창문");
+
+        var withoutBackdrops = request("창문으로 도망가자", ON);
+        assertThat(client.companionSystemPrompt(withoutBackdrops)).doesNotContain(OpenRouterClient.ATTEMPT_BACKDROP_RULE);
+        assertThat(client.companionUserPayload(withoutBackdrops).path("attempts").has("backdrops")).isFalse();
+    }
+
+    @Test
+    void dialogueInputReadsBackdropCandidatesAndDropsMalformedOnes() throws Exception {
+        DialogueInput input = DialogueInput.fromBody(objectMapper.readTree("{\"anchorId\":\"HG-Q-C\",\"attempt\":{\"tried\":0,"
+                + "\"backdrops\":[{\"id\":\"c-try-high-window\",\"description\":\"높은 창문\"},"
+                + "{\"id\":\"c-try-high-window\",\"description\":\"겹침\"},{\"id\":\"Bad Id\",\"description\":\"x\"},"
+                + "{\"id\":\"c-try-locked-door\",\"description\":\" \"},{\"id\":\"c-try-narrow-chimney\",\"description\":\"좁은 굴뚝\"}]}}"));
+        assertThat(input.attempt().backdrops()).extracting(DialogueInput.Backdrop::id)
+                .containsExactly("c-try-high-window", "c-try-narrow-chimney");
+        assertThat(DialogueInput.fromBody(objectMapper.readTree("{\"attempt\":{\"tried\":1}}")).attempt().backdrops()).isEmpty();
+    }
+
     @Test
     void ledgerVersionFollowsTheSwitch() {
-        assertThat(OpenRouterClient.companionPromptVersion(true)).isEqualTo("GRETEL_DIALOGUE_V6");
+        assertThat(OpenRouterClient.companionPromptVersion(true)).isEqualTo("GRETEL_DIALOGUE_V7");
         assertThat(OpenRouterClient.COMPANION_PROMPT_VERSION).isEqualTo("GRETEL_DIALOGUE_V2_1");
         assertThat(OpenRouterClient.companionPromptVersion(false)).isEqualTo(OpenRouterClient.COMPANION_PROMPT_VERSION);
     }
