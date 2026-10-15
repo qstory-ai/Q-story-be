@@ -771,7 +771,7 @@ public class OpenRouterClient {
 
     /**
      * 시도 장면 줄을 읽는다. 허용된 화자(내레이터·그레텔)가 아니거나 빈 줄, 대화하는 아이를 장면 인물로 넣은 줄은
-     * 버리고(고칠 수 있으면 고치고), 길이를 자르고, 호칭·맞춤법 정리를 답과 똑같이 한다. 쓸 줄이 하나도 없으면 빈 목록 - 그래도 시도 장면은 시작하고 그레텔 말(responseText)로 이어 간다.
+     * 버리고(고칠 수 있으면 고치고), 물음표는 말줄임표로 바꾸고, 길이를 자르고, 호칭·맞춤법 정리를 답과 똑같이 한다. 쓸 줄이 하나도 없으면 빈 목록 - 그래도 시도 장면은 시작하고 그레텔 말(responseText)로 이어 간다.
      */
     List<SceneLine> sceneLines(JsonNode node, CompanionRequest request) {
         List<String> speakers = request.sceneSpeakerIds();
@@ -787,7 +787,7 @@ public class OpenRouterClient {
                 log.info("companion.attempt-scene line-dropped reason=child-in-scene");
                 continue;
             }
-            text = withoutChild;
+            text = withoutQuestion(withoutChild);
             if (text.length() > MAX_SCENE_LINE_LENGTH) {
                 text = text.substring(0, MAX_SCENE_LINE_LENGTH);
             }
@@ -797,6 +797,20 @@ public class OpenRouterClient {
             }
         }
         return List.copyOf(lines);
+    }
+
+    private static final java.util.regex.Pattern SCENE_QUESTION = java.util.regex.Pattern.compile("\\s*(?:…|\\.{2,})?\\s*[?？]+[!！]?");
+
+    /**
+     * 장면 줄은 묻지 않는다 - 아이에게 묻는 말은 장면 뒤 그레텔 답(responseText)에만 있다. 모델이 "조금만 더 가 볼까?"처럼
+     * 물음표를 넣으면 혼잣말로 읽히게 말줄임표로 바꾼다("조금만 더 가 볼까…").
+     */
+    static String withoutQuestion(String text) {
+        java.util.regex.Matcher matcher = SCENE_QUESTION.matcher(text);
+        if (!matcher.find()) {
+            return text;
+        }
+        return matcher.replaceAll("…").replaceAll("…(?=[^\\s….,!])", "… ").trim();
     }
 
     /** 장면 줄에서 대화하는 아이를 가리키는 말(아이·너·네가·친구). "두 아이", "아이들", "아이고", "너무"는 아니다. */
