@@ -465,8 +465,9 @@ public class OpenRouterClient {
      *     질문 초대에서 준비되지 않은 행동을 하겠다고 약속하는 답을 막는다(스위치를 끈 V2_1에도 같은 지시가 들어간다).
      * V5: 시도 장면의 그레텔 답(TRY_FAIL·장면 안·ATTEMPT_END)도 준비된 행동을 둘 이상 내놓지 않고, 장면 줄에 대화하는 아이를
      *     인물로 넣지 않는다(검증에서도 걸러 낸다). 스위치를 끈 쪽(V2_1)은 그대로다.
+     * V6: TRY_FAIL 장면은 3줄 순서(가서 시작하기 → 그레텔이 애써 해 보는 혼잣말 → 몸으로 해 본 일과 막힌 결과)로, 결과부터 말하지 않는다.
      */
-    public static final String TRY_AND_FAIL_PROMPT_VERSION = "GRETEL_DIALOGUE_V5";
+    public static final String TRY_AND_FAIL_PROMPT_VERSION = "GRETEL_DIALOGUE_V6";
 
     /** 대화 원장에 남길 그레텔 대화 지시 버전. */
     public static String companionPromptVersion(boolean tryAndFail) {
@@ -980,7 +981,7 @@ public class OpenRouterClient {
             ObjectNode attemptScene = properties.putObject("attemptScene");
             attemptScene.put("type", "array");
             attemptScene.put("maxItems", MAX_SCENE_LINES);
-            attemptScene.put("description", "replyKind가 TRY_FAIL일 때만 2~3줄, 그 밖에는 반드시 빈 배열.");
+            attemptScene.put("description", "replyKind가 TRY_FAIL일 때만 3줄(가서 시작하기 → 애써 해 보기 → 그래도 막힘), 그 밖에는 반드시 빈 배열.");
             ObjectNode item = attemptScene.putObject("items");
             item.put("type", "object");
             ObjectNode itemProperties = item.putObject("properties");
@@ -1161,7 +1162,8 @@ public class OpenRouterClient {
             lines.add("시도 장면 시작: 아이가 preparedActions와 뜻이 같지 않은 행동(예: 창문으로 나가자, 굴뚝으로 나가자, 마녀에게 부탁하자, 새를 불러 도와달라고 하자, 몰래 가져가자, 거짓말하자, 헨젤을 두고 혼자 도망가자, 마녀가 잘 때 가져가자, 저 길로 가 보자, 새를 따라 뛰어가자, 숲 밖으로 나가자)을 분명히 제안하면, 다치거나 남을 해치는 행동이 아닌 한 거절하거나 말리지 말고 그 행동을 이야기 속에서 해 보는 짧은 장면을 만든다. replyKind는 TRY_FAIL, proposedActionFamilyId는 null이다. 아이 제안이 preparedActions 중 하나와 뜻이 같으면 시도 장면이 아니라 위의 행동 제안 규칙을 따른다.");
             // V4(운영 재현 HG-F04 "새 뒤쪽의 빛나는 길로 가보고 싶어" → "응 빛나는 길로 가보자"가 ANSWER로만 갔다).
             lines.add("'~하고 싶어', '~로 가 보고 싶어', '~해 볼래'처럼 하고 싶다고 말한 것도 행동 제안이다. 어딘가로 가기·따라가기·무언가를 붙잡거나 만지기 같은 이동·행동도 preparedActions에 없으면 시도 장면이다. 앞 대화에서 아이나 네가 꺼낸 preparedActions에 없는 행동을 아이가 다시 하자고 하거나 그것에 동의하면('응 가 보자', '좋아', '그래'), 그 행동을 제안한 것으로 보고 시도 장면을 시작한다. 질문·감정만 담은 말, 어떤 행동도 가리키지 않는 맞장구는 시도 장면이 아니다.");
-            lines.add("TRY_FAIL의 attemptScene은 2~3줄이다. narratorSpeakerId 줄은 그림책 내레이터처럼 3인칭으로 무슨 일이 있었는지 쓰고(예: 그레텔은 살금살금 창문 아래로 가서 발끝을 들어 보았어요.), 그레텔 줄은 짧은 혼잣말 한 마디로 쓰고 질문을 넣지 않는다(아이에게 묻는 말은 responseText에만). 장면은 해 보다가 막히거나 잘 안 되는 데서 멈춘다(예: 하지만 창문은 너무 높아서 손이 닿지 않았어요.). 어딘가로 가 보는 시도는 새 장소에 도착하거나 storySoFar·recentLines에 없는 집·사람·물건을 발견하지 않고, 길이 막히거나 제자리로 돌아오게 되는 데서 멈춘다(예: 하지만 덤불이 빽빽해서 더 들어갈 수 없었어요.). 마녀 같은 다른 인물은 내레이터가 묘사만 하고 대사를 주지 않는다.");
+            // V6(운영 확인: "빛나는 길로 가 보고 싶어"에 "걸어갔어요" 다음 줄이 바로 "길이 막혀 있네"였다 - 해 보는 모습 없이 결과만 나왔다).
+            lines.add("TRY_FAIL의 attemptScene은 3줄이고, 아이 생각을 정말로 해 보는 장면이다. 이 순서를 지킨다. 1줄(narratorSpeakerId): 그레텔이 아이가 말한 곳으로 가거나 그 일을 시작한다. 막힌다는 말은 아직 쓰지 않는다(예: 그레텔은 반짝이는 길 쪽 풀숲으로 들어갔어요.). 2줄(그레텔): 지금 애쓰고 있는 짧은 혼잣말 한 마디. 결과를 말하지 않고 물음표(?)를 쓰지 않는다(예: 영차, 영차… 풀을 헤치고 조금만 더!). 3줄(narratorSpeakerId): 반드시 '그레텔은 (손·발·몸으로 한 일)~해 보았지만, (막힌 까닭)~'처럼 몸으로 애써 본 일을 먼저 쓰고 그래도 안 된 결과를 쓴다(예: 그레텔은 두 손으로 풀을 헤쳐 보았지만, 풀이 너무 빽빽해서 더 나아갈 수 없었어요. / 까치발을 들고 팔을 쭉 뻗어 보았지만, 창문이 너무 높았어요.). 어딘가로 가 보는 시도면 풀·덤불·가지를 헤치거나 밀어 보거나 기어 들어가 보는 일을, 부탁·기다리기면 한 번 더 말해 보거나 오래 기다려 보는 일을 쓴다. '막아서 더 갈 수 없었어요'처럼 애써 본 일 없이 결과만 쓰지 않는다. 해 보기도 전에 '막혀 있네', '안 되겠다'처럼 결과부터 말하지 않는다. 어딘가로 가 보는 시도는 새 장소에 도착하거나 storySoFar·recentLines에 없는 집·사람·물건을 발견하지 않고, 길이 막히거나 제자리로 돌아오게 되는 데서 멈춘다. 마녀 같은 다른 인물은 내레이터가 묘사만 하고 대사를 주지 않는다.");
             // V5(운영 재확인: 내레이터 줄이 "그레텔과 아이는 …"으로 아이를 장면에 넣었다).
             lines.add("attemptScene에서 움직이고 말하는 것은 이야기 속 인물(헨젤·그레텔 등)뿐이다. 대화하는 아이는 이야기 밖에서 보고 있으니, 아이가 '같이 가자', '나도 갈래'라고 해도 '아이', '너', '친구'를 장면 인물로 쓰지 않는다(예: '그레텔과 아이는 길로 걸어갔어요'가 아니라 '그레텔은 길로 걸어갔어요'). 그레텔 줄도 아이에게 말을 걸지 않는 혼잣말이다.");
             lines.add("TRY_FAIL의 responseText는 그 막힌 상황에서 그레텔이 아이에게 묻는 한두 문장이다(예: 창문이 너무 높아… 뭘 밟고 올라가면 좋을까?). 장면 줄을 되풀이하지 않는다. 거짓말은 말을 꺼내 보다가 말이 꼬이거나 상대가 대꾸 없이 하던 일을 계속하는 장면으로, 혼자 도망치기는 혼자 몇 걸음 가 보다가 남겨진 헨젤이 마음에 걸려 멈추는 장면으로, 부탁하기는 상대가 들은 체 만 체 하던 일을 계속하는 장면으로 쓴다.");

@@ -329,9 +329,18 @@ class CompanionTryAndFailTest {
         assertThat(client.companionSystemPrompt(request("그럼 어떻게 해?", OpenRouterClient.AttemptPolicy.OFF))).doesNotContain(rule);
     }
 
+    /** 운영 확인: 장면이 "걸어갔어요" → "길이 막혀 있네"로 해 보는 모습 없이 결과만 나왔다 - 가 보기·애써 해 보기·막힘 순서로 그린다. */
+    @Test
+    void attemptSceneShowsTheTryBeforeTheFailure() {
+        String prompt = client.companionSystemPrompt(request("새 뒤쪽의 빛나는 길로 가보고 싶어", ON));
+        assertThat(prompt).contains("TRY_FAIL의 attemptScene은 3줄이고, 아이 생각을 정말로 해 보는 장면이다");
+        assertThat(prompt).contains("~해 보았지만, (막힌 까닭)", "해 보기도 전에 '막혀 있네', '안 되겠다'처럼 결과부터 말하지 않는다");
+        assertThat(prompt).doesNotContain("attemptScene은 2~3줄");
+    }
+
     @Test
     void ledgerVersionFollowsTheSwitch() {
-        assertThat(OpenRouterClient.companionPromptVersion(true)).isEqualTo("GRETEL_DIALOGUE_V5");
+        assertThat(OpenRouterClient.companionPromptVersion(true)).isEqualTo("GRETEL_DIALOGUE_V6");
         assertThat(OpenRouterClient.COMPANION_PROMPT_VERSION).isEqualTo("GRETEL_DIALOGUE_V2_1");
         assertThat(OpenRouterClient.companionPromptVersion(false)).isEqualTo(OpenRouterClient.COMPANION_PROMPT_VERSION);
     }
