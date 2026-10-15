@@ -272,6 +272,14 @@ public class PlaySessionService {
         return owner.userId() == null ? sessionId : null;
     }
 
+    /** 회차 시작 때 남긴 진행 형태(HOME·INDIVIDUAL·SMALL_GROUP·WHOLE_CLASS). 회차가 없거나 값이 없으면 null. */
+    @Transactional(readOnly = true)
+    public String playSettingOf(UUID sessionId) {
+        if (sessionId == null) return null;
+        List<String> values = jdbc.queryForList("select play_setting from play_session where id = ?", String.class, sessionId);
+        return values.isEmpty() ? null : values.get(0);
+    }
+
     /**
      * 보관 기간이 지난 회차를 대화째 지운다(PlayTurnRetentionScheduler). 회차 행까지 지워야 리포트가 "원문이 지워졌다"
      * (turnsAvailable=false)를 알고 요약으로만 보여 준다.

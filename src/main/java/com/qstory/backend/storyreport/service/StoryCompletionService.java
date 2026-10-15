@@ -167,7 +167,10 @@ public class StoryCompletionService {
         }
         // 반 수업(반을 고른 수업이거나 학생이 여럿)은 한 화면으로 함께 읽은 세션 하나 - 누가 말했는지 모르는
         // 단체 발화를 아이마다 복제하지 않고 한 건으로 남긴다. 개별 수업은 그 학생·아이의 기록이다.
-        boolean groupSession = participants.size() > 1 || (lesson != null && lesson.getClassGroup() != null);
+        // 수업은 모두 반에 속하므로, 선생님이 진행 형태로 "개별"을 고르고 참여 학생이 한 명이면 반 수업이 아니라 그 아이의 기록이다.
+        boolean individual = participants.size() == 1 && "INDIVIDUAL".equals(playSetting(request, sessionId));
+        boolean groupSession = !individual
+                && (participants.size() > 1 || (lesson != null && lesson.getClassGroup() != null));
         if (groupSession) {
             StoryCompletion completion = saveCompletion(
                     user, lesson, null, null, participants, true, request, sessionId, companionChatSummary, now, endStatus);
@@ -184,6 +187,14 @@ public class StoryCompletionService {
                 now, endStatus);
         notifyLinkedParent(participant, completion);
         return StoryCompletionSummary.of(completion);
+    }
+
+    /** 요청에 실린 진행 형태 - 없으면(예전 클라이언트) 회차 시작 때 저장된 값. */
+    private String playSetting(RecordStoryCompletionRequest request, UUID sessionId) {
+        if (request.playSetting() != null && !request.playSetting().isBlank()) {
+            return request.playSetting().trim().toUpperCase(java.util.Locale.ROOT);
+        }
+        return sessionId == null ? null : playSessionService.playSettingOf(sessionId);
     }
 
     private StoryCompletion saveCompletion(
