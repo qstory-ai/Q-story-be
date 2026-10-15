@@ -106,8 +106,16 @@ class CompanionDialogueEvalTest {
             + "{\"role\":\"CHILD\",\"text\":\"그만하고 다른 방법 하자\"},"
             + "{\"role\":\"CHARACTER\",\"text\":\"좋아, 창문은 그만두고 다른 방법을 찾아보자. 너는 어떤 생각이 들어?\"}]";
 
+    private static final String PATH_SCENE = "그레텔은 새 뒤쪽의 빛나는 길로 살금살금 걸어가 보았어요. 하지만 풀숲이 빽빽해서 더 들어갈 수 없었어요. / 풀숲에 막혀서 더 갈 수가 없네… 어떻게 하면 좋을까?";
+    private static final String PATH_HISTORY = "[{\"role\":\"CHILD\",\"text\":\"새 뒤쪽의 빛나는 길로 가보고 싶어\"},"
+            + "{\"role\":\"CHARACTER\",\"text\":\"풀숲에 막혀서 더 갈 수가 없네… 어떻게 하면 좋을까?\"}]";
+
     /** 시도 장면 상태(클라이언트가 보내는 attempt) - 상황 이름별. */
     private static String attemptJson(String name) {
+        if (name.startsWith("시도 - A 끝난 뒤")) return "{\"tried\":1}";
+        if (name.startsWith("시도 - A 장면 안")) {
+            return "{\"tried\":1,\"active\":{\"tried\":\"빛나는 길로 가 보기\",\"scene\":\"" + PATH_SCENE + "\",\"turn\":1}}";
+        }
         String active = "{\"tried\":\"창문으로 나가기\",\"scene\":\"" + ATTEMPT_SCENE + "\",\"turn\":%d}";
         if (name.equals("시도 - 마지막 말")) return "{\"tried\":1,\"active\":" + String.format(active, 4) + "}";
         if (name.startsWith("시도 - 장면 안")) return "{\"tried\":1,\"active\":" + String.format(active, 1) + "}";
@@ -176,8 +184,33 @@ class CompanionDialogueEvalTest {
         list.add(new Scenario("시도 - A 빛나는 길 바람", "TRY_FAIL - '~로 가 보고 싶어'도 행동 제안이다. 길로 가 보다가 막힘, 같이 가자고 약속하지 않음", F04, A, "[]", "새 뒤쪽의 빛나는 길로 가보고 싶어", "NONE"));
         list.add(new Scenario("시도 - A 빛나는 길 다시 말함", "TRY_FAIL - 앞에서 말한 준비 안 된 이동을 다시 하자고 함('응'으로 시작해도 동의만이 아니다)", F04, A, "[{\"role\":\"CHILD\",\"text\":\"새 뒤쪽의 빛나는 길로 가보고 싶어\"},{\"role\":\"CHARACTER\",\"text\":\"응, 그쪽 길이 환하게 빛나고 있네! 저 길 끝에는 뭐가 있을까?\"}]", "응 빛나는 길로 가보자", "NONE"));
         list.add(new Scenario("시도 - A 그레텔이 꺼낸 이동에 동의", "TRY_FAIL - 그레텔이 앞에서 꺼낸 준비 안 된 이동에 아이가 동의, 같이 걸어가자고 약속만 하지 않음", F04, A, "[{\"role\":\"CHILD\",\"text\":\"새 뒤쪽의 빛나는 길로 가보고 싶어\"},{\"role\":\"CHARACTER\",\"text\":\"우리 같이 저 빛나는 길을 따라 걸어가 볼까?\"}]", "응 좋아", "NONE"));
+        // ── 운영 재확인(HG-F04, V4): 시도 장면 뒤 준비된 두 행동을 나란히 제시했고, 내레이터 줄에 아이를 장면 인물로 넣었다 ──
+        list.add(new Scenario("시도 - A 막힌 뒤 하나만", "TRY_FAIL - 장면 줄에 아이·너·우리 친구가 인물로 나오지 않음, 그레텔 답은 준비된 행동(지켜보기·말 걸기)을 둘 다 내놓지 않고 열린 질문 또는 하나만", F04, A, "[]", "새 뒤쪽의 빛나는 길로 가보고 싶어", "NONE"));
+        list.add(new Scenario("시도 - A 같이 가자", "TRY_FAIL - 아이가 '같이'라고 해도 장면 줄은 헨젤·그레텔만 행동, 답은 준비된 행동을 둘 다 내놓지 않음", F04, A, "[]", "나랑 같이 빛나는 길로 뛰어가 보자", "NONE"));
+        list.add(new Scenario("시도 - A 장면 안 그만", "ATTEMPT_END - 막힌 것을 받아 주고 원래 질문(새)으로, 준비된 행동을 둘 다 내놓지 않음", F04, A, PATH_HISTORY, "그만하고 다른 방법 하자", "NONE"));
+        list.add(new Scenario("시도 - A 나도 같이", "TRY_FAIL - 아이가 자기도 간다고 해도 장면 줄에 아이가 인물로 나오지 않음", F04, A, "[]", "나도 같이 갈래! 우리 다 같이 빛나는 길로 가자", "NONE"));
+        list.add(new Scenario("시도 - A 장면 안 모르겠어", "막힌 것을 받아 주고 열린 질문, 준비된 행동은 최대 하나만 넌지시(둘 나열·'아니면' 없음)", F04, A, PATH_HISTORY, "모르겠어", "NONE"));
+        list.add(new Scenario("시도 - A 장면 안 어떻게", "준비된 행동(지켜보기·말 걸기)을 둘 다 내놓지 않음, 열린 질문", F04, A, PATH_HISTORY, "그럼 어떻게 해?", "NONE"));
+        list.add(new Scenario("시도 - A 끝난 뒤 어떻게", "시도 장면이 끝난 뒤 - 준비된 행동을 둘 다 내놓지 않음, 단서 하나 + 아이 생각", F04, A,
+                PATH_HISTORY.replace("}]", "},{\"role\":\"CHILD\",\"text\":\"그만하고 다른 방법 하자\"},{\"role\":\"CHARACTER\",\"text\":\"그래, 풀숲은 너무 빽빽하니까 다른 방법을 찾아보자. 너는 어떤 방법이 떠올라?\"}]"),
+                "그럼 어떻게 해?", "NONE"));
         return list;
     }
+
+    /** 사람 판정을 돕는 자동 표시 - 장면 줄의 아이 등장, 그레텔 답의 준비된 행동 나열(A: 지켜보기·말 걸기 둘 다). */
+    private static String flags(OpenRouterClient.CompanionReply reply) {
+        List<String> found = new ArrayList<>();
+        if (reply.attemptScene().stream().anyMatch(line -> CHILD_IN_SCENE.matcher(line.text()).find())) found.add("장면에 아이");
+        String text = reply.responseText();
+        boolean watch = text.contains("지켜") || text.contains("살펴");
+        boolean speak = text.contains("말을 걸") || text.contains("말을 건") || text.contains("물어");
+        if ((watch && speak) || text.contains("아니면")) found.add("행동 나열");
+        if (text.chars().filter(c -> c == '?').count() > 1) found.add("질문 둘");
+        return found.isEmpty() ? "-" : String.join(",", found);
+    }
+
+    private static final java.util.regex.Pattern CHILD_IN_SCENE =
+            java.util.regex.Pattern.compile("(?<!두 )(?<![가-힣])(아이|너|우리 친구)(는|가|도|를|와|과|랑|하고|에게|의)?(?![가-힣])");
 
     @Test
     void runScenarios() throws Exception {
@@ -192,13 +225,18 @@ class CompanionDialogueEvalTest {
         OpenRouterClient client = new OpenRouterClient(
                 HttpClient.newHttpClient(), objectMapper, new RouteResultValidator(mock(ChoiceCopyService.class)), prompts, config);
 
-        StringBuilder out = new StringBuilder("# 그레텔 대화 평가 (" + model + ", " + OpenRouterClient.companionPromptVersion(!"0".equals(System.getenv("DIALOGUE_EVAL_TRY_AND_FAIL"))) + ")\n\n| # | 상황 | 아이 | 그레텔 | 종류 | 끝내기 | 도움 | 제안 | ms | 기대 |\n|---|---|---|---|---|---|---|---|---|---|\n");
+        StringBuilder out = new StringBuilder("# 그레텔 대화 평가 (" + model + ", " + OpenRouterClient.companionPromptVersion(!"0".equals(System.getenv("DIALOGUE_EVAL_TRY_AND_FAIL"))) + ")\n\n| # | 상황 | 아이 | 그레텔 | 종류 | 끝내기 | 도움 | 제안 | ms | 표시 | 기대 |\n|---|---|---|---|---|---|---|---|---|---|---|\n");
         List<Long> latencies = new ArrayList<>();
         int index = 0;
         List<String> only = java.util.Arrays.stream(System.getenv().getOrDefault("DIALOGUE_EVAL_ONLY", "").split(","))
                 .map(String::trim).filter(value -> !value.isEmpty()).toList();
         boolean tryAndFail = !"0".equals(System.getenv("DIALOGUE_EVAL_TRY_AND_FAIL"));
+        int repeat = Integer.parseInt(System.getenv().getOrDefault("DIALOGUE_EVAL_REPEAT", "1"));
+        List<Scenario> runs = new ArrayList<>();
         for (Scenario scenario : scenarios()) {
+            for (int i = 0; i < repeat; i++) runs.add(scenario);
+        }
+        for (Scenario scenario : runs) {
             if (!only.isEmpty() && only.stream().noneMatch(scenario.name()::contains)) {
                 continue;
             }
@@ -223,14 +261,14 @@ class CompanionDialogueEvalTest {
                 var reply = client.generateCompanionReply(request, RequestDeadline.startingNow(30_000));
                 long ms = (System.nanoTime() - started) / 1_000_000;
                 latencies.add(ms);
-                row = String.format("| %d | %s | %s | %s | %s | %s | %s | %s | %d | %s |", index, scenario.name(), scenario.child(),
+                row = String.format("| %d | %s | %s | %s | %s | %s | %s | %s | %d | %s | %s |", index, scenario.name(), scenario.child(),
                         (reply.attemptScene().isEmpty() ? "" : reply.attemptScene().stream()
                                 .map(line -> (line.speakerId().endsWith("NARRATOR") ? "내레이터" : "그레텔") + ": " + line.text())
                                 .collect(java.util.stream.Collectors.joining(" / ")) + " → ")
                                 + reply.responseText(), reply.replyKind(), reply.childWantsToEnd(), reply.asksForHelp(),
-                        reply.proposedActionFamilyId(), ms, scenario.expect());
+                        reply.proposedActionFamilyId(), ms, flags(reply), scenario.expect());
             } catch (Exception error) {
-                row = String.format("| %d | %s | %s | (실패: %s) | | | | | | %s |", index, scenario.name(), scenario.child(), error.getMessage(), scenario.expect());
+                row = String.format("| %d | %s | %s | (실패: %s) | | | | | | | %s |", index, scenario.name(), scenario.child(), error.getMessage(), scenario.expect());
             }
             out.append(row).append('\n');
         }
