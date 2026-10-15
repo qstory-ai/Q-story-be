@@ -196,7 +196,7 @@ public class CompanionChatPipelineService {
                 .valueTag(reply.valueTag())
                 .build());
         // 태그만 남기는 위 행과 별개로, 아이의 말과 캐릭터의 답 원문을 대화 원장에 남긴다(db/schema/052).
-        // 그레텔 대화 지시는 라우팅 프롬프트와 따로 바뀌므로 두 버전을 함께 남긴다(예: QSTORY_ROUTE_PROMPT_V7_COVERAGE+GRETEL_DIALOGUE_V3).
+        // 그레텔 대화 지시는 라우팅 프롬프트와 따로 바뀌므로 두 버전을 함께 남긴다(예: QSTORY_ROUTE_PROMPT_V7_COVERAGE+GRETEL_DIALOGUE_V4).
         // 실패해 보기(TRY_FAIL) 답은 route가 TRY_AND_FAIL로 남는다(ConversationRecordService).
         conversationRecordService.recordCompanionTurn(
                 context.story().storyId(), context.sceneId(), conversationId, transcript, reply,

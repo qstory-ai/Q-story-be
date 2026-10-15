@@ -213,6 +213,22 @@ class CompanionTryAndFailTest {
         assertThat(client.companionSystemPrompt(request("도와줘", anchorC(), ON, help))).doesNotContain("시도 장면");
     }
 
+    /**
+     * 운영 재현(HG-F04): "새 뒤쪽의 빛나는 길로 가보고 싶어" → "응 빛나는 길로 가보자"에 그레텔이 ANSWER로 말로만 동의했다.
+     * 하고 싶다는 말·준비되지 않은 이동, 앞에서 나온 준비되지 않은 행동에 대한 동의도 시도 장면을 시작하는 제안이다.
+     */
+    @Test
+    void wishesMovesAndAgreementToAnUnpreparedActionStartAnAttempt() {
+        String prompt = client.companionSystemPrompt(request("응 빛나는 길로 가보자", ON));
+        assertThat(prompt).contains("'~하고 싶어'", "'~로 가 보고 싶어'");
+        assertThat(prompt).contains("저 길로 가 보자");
+        assertThat(prompt).contains("앞 대화에서 아이나 네가 꺼낸 preparedActions에 없는 행동");
+        // 가 보는 시도가 다음 장면(과자집)을 먼저 보여 주지 않게 - 첫 평가에서 "커다란 집이 보여!"가 나왔다.
+        assertThat(prompt).contains("새 장소에 도착하거나");
+        // 예전 규칙("동의만 한 말은 시도 장면이 아니다")이 "응 ~가 보자"를 동의로 읽게 했다.
+        assertThat(prompt).doesNotContain("질문·감정·동의만 한 말은 시도 장면이 아니다");
+    }
+
     @Test
     void attemptSceneComesBeforeTheReplyInTheSchemaOnlyWhenAnAttemptCanStart() {
         JsonNode on = client.companionSchema(
@@ -256,7 +272,7 @@ class CompanionTryAndFailTest {
 
     @Test
     void ledgerVersionFollowsTheSwitch() {
-        assertThat(OpenRouterClient.companionPromptVersion(true)).isEqualTo("GRETEL_DIALOGUE_V3");
+        assertThat(OpenRouterClient.companionPromptVersion(true)).isEqualTo("GRETEL_DIALOGUE_V4");
         assertThat(OpenRouterClient.companionPromptVersion(false)).isEqualTo(OpenRouterClient.COMPANION_PROMPT_VERSION);
     }
 }
