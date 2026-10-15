@@ -463,8 +463,10 @@ public class OpenRouterClient {
      * V2 + 질문 초대의 시도 장면(TRY_FAIL·ATTEMPT_END) 지시. 스위치(QSTORY_TRY_AND_FAIL_ENABLED)를 끄면 V2_1이다.
      * V4: 하고 싶다는 말·준비되지 않은 이동, 앞에서 나온 준비되지 않은 행동에 대한 동의도 시도 장면을 시작한다.
      *     질문 초대에서 준비되지 않은 행동을 하겠다고 약속하는 답을 막는다(스위치를 끈 V2_1에도 같은 지시가 들어간다).
+     * V5: 시도 장면의 그레텔 답(TRY_FAIL·장면 안·ATTEMPT_END)도 준비된 행동을 둘 이상 내놓지 않고, 장면 줄에 대화하는 아이를
+     *     인물로 넣지 않는다(검증에서도 걸러 낸다). 스위치를 끈 쪽(V2_1)은 그대로다.
      */
-    public static final String TRY_AND_FAIL_PROMPT_VERSION = "GRETEL_DIALOGUE_V4";
+    public static final String TRY_AND_FAIL_PROMPT_VERSION = "GRETEL_DIALOGUE_V5";
 
     /** 대화 원장에 남길 그레텔 대화 지시 버전. */
     public static String companionPromptVersion(boolean tryAndFail) {
@@ -767,8 +769,8 @@ public class OpenRouterClient {
     }
 
     /**
-     * 시도 장면 줄을 읽는다. 허용된 화자(내레이터·그레텔)가 아니거나 빈 줄은 버리고, 길이를 자르고, 호칭·맞춤법 정리를
-     * 답과 똑같이 한다. 쓸 줄이 하나도 없으면 빈 목록 - 그래도 시도 장면은 시작하고 그레텔 말(responseText)로 이어 간다.
+     * 시도 장면 줄을 읽는다. 허용된 화자(내레이터·그레텔)가 아니거나 빈 줄, 대화하는 아이를 장면 인물로 넣은 줄은
+     * 버리고(고칠 수 있으면 고치고), 길이를 자르고, 호칭·맞춤법 정리를 답과 똑같이 한다. 쓸 줄이 하나도 없으면 빈 목록 - 그래도 시도 장면은 시작하고 그레텔 말(responseText)로 이어 간다.
      */
     List<SceneLine> sceneLines(JsonNode node, CompanionRequest request) {
         List<String> speakers = request.sceneSpeakerIds();
@@ -779,6 +781,12 @@ public class OpenRouterClient {
             if (!speakers.contains(speaker) || text.isEmpty()) {
                 continue;
             }
+            String withoutChild = sceneLineWithoutChild(text);
+            if (withoutChild == null) {
+                log.info("companion.attempt-scene line-dropped reason=child-in-scene");
+                continue;
+            }
+            text = withoutChild;
             if (text.length() > MAX_SCENE_LINE_LENGTH) {
                 text = text.substring(0, MAX_SCENE_LINE_LENGTH);
             }
@@ -788,6 +796,51 @@ public class OpenRouterClient {
             }
         }
         return List.copyOf(lines);
+    }
+
+    /** 장면 줄에서 대화하는 아이를 가리키는 말(아이·너·네가·친구). "두 아이", "아이들", "아이고", "너무"는 아니다. */
+    private static final String CHILD_WORD = "(?:아이|너|(?:우리 )?친구)";
+    static final java.util.regex.Pattern CHILD_IN_SCENE = java.util.regex.Pattern.compile(
+            "(?<!두 )(?<![가-힣])(?:" + CHILD_WORD + "(?:는|가|도|를|와|과|랑|이랑|하고|에게|의)?|네가)(?![가-힣])");
+    /** "그레텔과 아이는", "헨젤, 그리고 친구는" - 앞 인물만 남긴다. */
+    private static final java.util.regex.Pattern CHILD_AFTER_CAST = java.util.regex.Pattern.compile(
+            "([가-힣]+)(?:(?:과|와|이랑|랑|하고) |, 그리고 |, )(?<!두 )" + CHILD_WORD + "(는|가|도|를|의)?(?![가-힣])");
+    /** "아이와 그레텔은" - 아이 부분을 뺀다. */
+    private static final java.util.regex.Pattern CHILD_BEFORE_CAST = java.util.regex.Pattern.compile(
+            "(?<!두 )(?<![가-힣])" + CHILD_WORD + "(?:와|과|랑|이랑|하고|, 그리고|,) ");
+
+    /**
+     * 시도 장면 줄은 이야기 속 인물만 행동한다(대화하는 아이는 이야기 밖에 있다). "그레텔과 아이는"처럼 캐스트와 함께 묶인
+     * 아이는 빼고 앞 인물의 받침에 맞게 조사를 고친다. 그래도 아이·너·친구가 인물로 남으면 그 줄은 쓰지 않는다(null).
+     */
+    static String sceneLineWithoutChild(String text) {
+        if (!CHILD_IN_SCENE.matcher(text).find()) {
+            return text;
+        }
+        java.util.regex.Matcher after = CHILD_AFTER_CAST.matcher(text);
+        StringBuilder fixed = new StringBuilder();
+        while (after.find()) {
+            String name = after.group(1);
+            after.appendReplacement(fixed, java.util.regex.Matcher.quoteReplacement(name + particleAfter(name, after.group(2))));
+        }
+        after.appendTail(fixed);
+        String repaired = CHILD_BEFORE_CAST.matcher(fixed).replaceAll("");
+        return CHILD_IN_SCENE.matcher(repaired).find() ? null : repaired;
+    }
+
+    /** 아이 뒤에 붙었던 조사를 앞 인물 이름의 받침에 맞춘다(는→은, 가→이, 를→을). */
+    private static String particleAfter(String name, String particle) {
+        if (particle == null) {
+            return "";
+        }
+        char last = name.charAt(name.length() - 1);
+        boolean batchim = last >= '가' && last <= '힣' && (last - '가') % 28 != 0;
+        return switch (particle) {
+            case "는" -> batchim ? "은" : "는";
+            case "가" -> batchim ? "이" : "가";
+            case "를" -> batchim ? "을" : "를";
+            default -> particle;
+        };
     }
 
     /** JSON null/누락 노드면 null을, 인식된 enum 값이면 그 라벨을, 그 외에는 NOT_FOUND를 반환한다(아래에서 거부됨). */
@@ -1081,6 +1134,12 @@ public class OpenRouterClient {
     }
 
     /**
+     * V5(운영 재확인 HG-F04 - 시도 장면 뒤 "저 새를 그냥 가만히 지켜볼까? 아니면 말을 건네볼까?"): 시도 장면의 그레텔 답
+     * (TRY_FAIL·장면 안 대화·ATTEMPT_END)도 준비된 방법을 나란히 내놓지 않는다.
+     */
+    static final String ATTEMPT_REPLY_ONE_ACTION = "시도 장면의 그레텔 답(TRY_FAIL의 responseText, 장면 안 대화, ATTEMPT_END)에서는 막힌 것을 짧게 받아 주고 '다른 방법이 있을까?', '너는 어떻게 하면 좋을 것 같아?'처럼 아이 생각을 묻는 열린 질문 하나로 끝낸다. preparedActions의 행동을 둘 이상 늘어놓거나 '~할까? 아니면 ~할까?'처럼 고르게 하지 않는다(나쁜 예: 저 새를 가만히 지켜볼까? 아니면 말을 건네볼까? / 새를 지켜보거나 말을 걸어보면 어떨까? / 다른 길을 찾아볼까, 아니면 다른 생각이 있어?). '아니면'으로 두 갈래를 내놓지 않는다. 준비된 행동을 넌지시 꺼내더라도 하나만, 아이가 앞에서 이미 두 번 넘게 모르겠다고 했을 때만 꺼낸다.";
+
+    /**
      * 질문 초대의 시도 장면 지시(CTO 결정 - PM 피드백 "해 보고 실패하는 모습을 보여 주자"를 넓힘): 다치거나 남을 해치는 행동만
      * 그대로 막고(GENTLE_REDIRECT), 그 밖에 준비되지 않은 행동은 해 보다가 막히는 짧은 장면을 만든다. 그 장면 안에서 아이와
      * 몇 번 더 이야기한 뒤 원래 질문 지점으로 돌아온다. 무섭지 않게, 처벌·들킴 없이, 이야기 주 흐름(열쇠·탈출·결말)은 바꾸지 않는다.
@@ -1094,6 +1153,7 @@ public class OpenRouterClient {
         if (dialogue.attempt().active() != null) {
             lines.add("지금은 attemptInProgress 시도 장면 안이다(whatWasTried를 해 보다가 sceneSoFar처럼 막힌 상황). 이 장면 상황을 기준으로 아이와 이야기한다. 아이 생각대로 장면을 조금 이어 가도 되지만(그레텔이 겪은 일처럼 1~2문장, 예: 의자를 끌어와 올라가 봤는데 그래도 창문 손잡이에 손이 안 닿아) 새 방법도 아쉽게 잘 안 되거나 아직 막혀 있다. 그다음 아이 생각을 묻는 짧은 질문 하나로 끝낸다. replyKind는 보통 ANSWER다.");
             lines.add("아이가 그만하자, 다른 방법 하자, 돌아가자처럼 이 시도를 그만두고 싶어 하거나 lastTurn이 true이면 replyKind를 ATTEMPT_END로 한다: 장면을 한 문장으로 짧게 마무리하고 '다른 방법을 찾아보자'며 원래 질문 상황(questionInvite.situation)으로 돌아와 아이 생각을 묻는다. 이때도 preparedActions의 방법을 먼저 알려 주지 않는다.");
+            lines.add(ATTEMPT_REPLY_ONE_ACTION);
             lines.add("시도 장면 안에서도 아이가 preparedActions 중 하나와 뜻이 같은 행동을 말하면 바로 proposedActionFamilyId에 그 id를 넣고 뜻을 한 번 확인한다(그 행동으로 이어진다). 아이가 이야기 자체를 그만하고 싶다고 하면 CLOSE 규칙을 따른다.");
             return lines;
         }
@@ -1102,7 +1162,10 @@ public class OpenRouterClient {
             // V4(운영 재현 HG-F04 "새 뒤쪽의 빛나는 길로 가보고 싶어" → "응 빛나는 길로 가보자"가 ANSWER로만 갔다).
             lines.add("'~하고 싶어', '~로 가 보고 싶어', '~해 볼래'처럼 하고 싶다고 말한 것도 행동 제안이다. 어딘가로 가기·따라가기·무언가를 붙잡거나 만지기 같은 이동·행동도 preparedActions에 없으면 시도 장면이다. 앞 대화에서 아이나 네가 꺼낸 preparedActions에 없는 행동을 아이가 다시 하자고 하거나 그것에 동의하면('응 가 보자', '좋아', '그래'), 그 행동을 제안한 것으로 보고 시도 장면을 시작한다. 질문·감정만 담은 말, 어떤 행동도 가리키지 않는 맞장구는 시도 장면이 아니다.");
             lines.add("TRY_FAIL의 attemptScene은 2~3줄이다. narratorSpeakerId 줄은 그림책 내레이터처럼 3인칭으로 무슨 일이 있었는지 쓰고(예: 그레텔은 살금살금 창문 아래로 가서 발끝을 들어 보았어요.), 그레텔 줄은 짧은 혼잣말 한 마디로 쓰고 질문을 넣지 않는다(아이에게 묻는 말은 responseText에만). 장면은 해 보다가 막히거나 잘 안 되는 데서 멈춘다(예: 하지만 창문은 너무 높아서 손이 닿지 않았어요.). 어딘가로 가 보는 시도는 새 장소에 도착하거나 storySoFar·recentLines에 없는 집·사람·물건을 발견하지 않고, 길이 막히거나 제자리로 돌아오게 되는 데서 멈춘다(예: 하지만 덤불이 빽빽해서 더 들어갈 수 없었어요.). 마녀 같은 다른 인물은 내레이터가 묘사만 하고 대사를 주지 않는다.");
+            // V5(운영 재확인: 내레이터 줄이 "그레텔과 아이는 …"으로 아이를 장면에 넣었다).
+            lines.add("attemptScene에서 움직이고 말하는 것은 이야기 속 인물(헨젤·그레텔 등)뿐이다. 대화하는 아이는 이야기 밖에서 보고 있으니, 아이가 '같이 가자', '나도 갈래'라고 해도 '아이', '너', '친구'를 장면 인물로 쓰지 않는다(예: '그레텔과 아이는 길로 걸어갔어요'가 아니라 '그레텔은 길로 걸어갔어요'). 그레텔 줄도 아이에게 말을 걸지 않는 혼잣말이다.");
             lines.add("TRY_FAIL의 responseText는 그 막힌 상황에서 그레텔이 아이에게 묻는 한두 문장이다(예: 창문이 너무 높아… 뭘 밟고 올라가면 좋을까?). 장면 줄을 되풀이하지 않는다. 거짓말은 말을 꺼내 보다가 말이 꼬이거나 상대가 대꾸 없이 하던 일을 계속하는 장면으로, 혼자 도망치기는 혼자 몇 걸음 가 보다가 남겨진 헨젤이 마음에 걸려 멈추는 장면으로, 부탁하기는 상대가 들은 체 만 체 하던 일을 계속하는 장면으로 쓴다.");
+            lines.add(ATTEMPT_REPLY_ONE_ACTION);
             lines.add("TRY_FAIL이 아니면 attemptScene은 반드시 빈 배열이다.");
         } else {
             lines.add("이 질문 지점에서는 시도 장면을 이미 " + dialogue.attempt().tried() + "번 해 봤다(더 만들 수 없다). preparedActions에 없는 행동을 제안하면 그 생각을 받아 주되 이야기 속에서 해 봤다고 꾸미지 않고, 같이 다른 방법을 생각해 보자며 아이 생각을 묻는다. proposedActionFamilyId는 null이다.");

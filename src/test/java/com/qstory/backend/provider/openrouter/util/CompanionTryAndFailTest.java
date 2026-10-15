@@ -279,9 +279,60 @@ class CompanionTryAndFailTest {
         assertThat(DialogueInput.fromBody(objectMapper.readTree("{}")).attempt()).isEqualTo(DialogueInput.Attempt.NONE);
     }
 
+    /**
+     * 운영 재확인(HG-F04, V4): 시도 장면 내레이터 줄이 "그레텔과 아이는 …"처럼 대화하는 아이를 이야기 속 인물로 넣었다.
+     * 장면 줄은 캐스트만 행동한다 - "X와 아이는"은 X만 남기고, 그 밖에 아이·너·친구가 인물로 나오는 줄은 버린다.
+     */
+    @Test
+    void attemptSceneKeepsTheChildOutOfTheStory() {
+        ObjectNode node = reply("ANSWER", "풀숲에 막혀서 더 갈 수가 없네… 다른 방법이 있을까?", "TRY_FAIL", null, false, false);
+        ArrayNode scene = node.putArray("attemptScene");
+        scene.addObject().put("speakerId", NARRATOR).put("text", "그레텔과 아이는 새 뒤쪽의 빛나는 길로 걸어가 보았어요.");
+        scene.addObject().put("speakerId", GRETEL).put("text", "너도 같이 가자!");
+        scene.addObject().put("speakerId", NARRATOR).put("text", "하지만 풀숲이 빽빽해서 더 들어갈 수 없었어요.");
+
+        var validated = client.validateCompanionReply(node, request("나도 같이 갈래! 빛나는 길로 가자", ON));
+
+        assertThat(validated.replyKind()).isEqualTo(OpenRouterClient.TRY_FAIL);
+        assertThat(validated.attemptScene()).extracting(OpenRouterClient.SceneLine::text).containsExactly(
+                "그레텔은 새 뒤쪽의 빛나는 길로 걸어가 보았어요.", "하지만 풀숲이 빽빽해서 더 들어갈 수 없었어요.");
+
+        // 고쳐 쓰는 모양들 - 받침에 맞는 조사로 남기고, 아이를 앞에 둔 경우도 뺀다.
+        assertThat(OpenRouterClient.sceneLineWithoutChild("헨젤과 그레텔과 우리 친구는 손을 잡았어요."))
+                .isEqualTo("헨젤과 그레텔은 손을 잡았어요.");
+        assertThat(OpenRouterClient.sceneLineWithoutChild("그레텔과 헨젤, 그리고 친구는 함께 걸어갔어요."))
+                .isEqualTo("그레텔과 헨젤은 함께 걸어갔어요.");
+        assertThat(OpenRouterClient.sceneLineWithoutChild("헨젤과 아이가 덤불을 헤쳐 보았어요.")).isEqualTo("헨젤이 덤불을 헤쳐 보았어요.");
+        assertThat(OpenRouterClient.sceneLineWithoutChild("아이와 그레텔은 살금살금 다가갔어요.")).isEqualTo("그레텔은 살금살금 다가갔어요.");
+        assertThat(OpenRouterClient.sceneLineWithoutChild("아이는 그레텔 옆에 섰어요.")).isNull();
+        // 이야기 속 남매를 가리키는 말·감탄사·'너무'는 그대로 둔다.
+        assertThat(OpenRouterClient.sceneLineWithoutChild("두 아이는 손을 꼭 잡았어요.")).isEqualTo("두 아이는 손을 꼭 잡았어요.");
+        assertThat(OpenRouterClient.sceneLineWithoutChild("아이들은 덤불 앞에 멈췄어요.")).isEqualTo("아이들은 덤불 앞에 멈췄어요.");
+        assertThat(OpenRouterClient.sceneLineWithoutChild("아이고, 너무 빽빽해.")).isEqualTo("아이고, 너무 빽빽해.");
+
+        String prompt = client.companionSystemPrompt(request("나도 같이 갈래! 빛나는 길로 가자", ON));
+        assertThat(prompt).contains("'아이', '너', '친구'를 장면 인물로 쓰지 않는다");
+    }
+
+    /**
+     * 운영 재확인(HG-F04, V4): 시도 장면 뒤 그레텔이 "저 새를 그냥 가만히 지켜볼까? 아니면 말을 건네볼까?"처럼 준비된 두 행동을
+     * 나란히 내놓았다. 시도 장면 시작(TRY_FAIL)·장면 안 대화·ATTEMPT_END 답 모두 열린 질문으로, 준비된 행동은 하나까지만.
+     */
+    @Test
+    void attemptRepliesOfferAtMostOnePreparedAction() {
+        String rule = "preparedActions의 행동을 둘 이상 늘어놓거나 '~할까? 아니면 ~할까?'처럼 고르게 하지 않는다";
+        assertThat(client.companionSystemPrompt(request("새 뒤쪽의 빛나는 길로 가보고 싶어", ON))).contains(rule);
+        assertThat(client.companionSystemPrompt(request("그럼 어떻게 해?", anchorC(), ON, withAttempt(1, IN_SCENE)))).contains(rule);
+        var last = new DialogueInput.Active(IN_SCENE.tried(), IN_SCENE.scene(), 4);
+        assertThat(client.companionSystemPrompt(request("그만하자", anchorC(), ON, withAttempt(1, last)))).contains(rule);
+        // 스위치를 끈 쪽(V2_1)은 그대로다.
+        assertThat(client.companionSystemPrompt(request("그럼 어떻게 해?", OpenRouterClient.AttemptPolicy.OFF))).doesNotContain(rule);
+    }
+
     @Test
     void ledgerVersionFollowsTheSwitch() {
-        assertThat(OpenRouterClient.companionPromptVersion(true)).isEqualTo("GRETEL_DIALOGUE_V4");
+        assertThat(OpenRouterClient.companionPromptVersion(true)).isEqualTo("GRETEL_DIALOGUE_V5");
+        assertThat(OpenRouterClient.COMPANION_PROMPT_VERSION).isEqualTo("GRETEL_DIALOGUE_V2_1");
         assertThat(OpenRouterClient.companionPromptVersion(false)).isEqualTo(OpenRouterClient.COMPANION_PROMPT_VERSION);
     }
 }
