@@ -229,6 +229,15 @@ class CompanionTryAndFailTest {
         assertThat(prompt).doesNotContain("질문·감정·동의만 한 말은 시도 장면이 아니다");
     }
 
+    /** 방어: 질문 초대에서 준비되지 않은 행동에 "같이 걸어가 볼까?"처럼 하겠다고 약속하는 답을 막는다(시도 장면 켜짐·꺼짐·상한 모두). */
+    @Test
+    void inviteNeverPromisesToCarryOutAnUnpreparedAction() {
+        String rule = "하겠다고 동의·약속하거나 하는 중인 것처럼 말하지 않는다";
+        assertThat(client.companionSystemPrompt(request("응 빛나는 길로 가보자", ON))).contains(rule);
+        assertThat(client.companionSystemPrompt(request("응 빛나는 길로 가보자", OpenRouterClient.AttemptPolicy.OFF))).contains(rule);
+        assertThat(client.companionSystemPrompt(request("응 빛나는 길로 가보자", anchorC(), ON, withAttempt(2, null)))).contains(rule);
+    }
+
     @Test
     void attemptSceneComesBeforeTheReplyInTheSchemaOnlyWhenAnAttemptCanStart() {
         JsonNode on = client.companionSchema(

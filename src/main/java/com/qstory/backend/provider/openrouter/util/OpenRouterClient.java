@@ -454,13 +454,15 @@ public class OpenRouterClient {
 
     /**
      * 그레텔 대화 시스템 프롬프트(companionSystemPrompt) 버전 - 지시 문장을 바꾸면 올린다. 대화 원장에는 라우팅
-     * 프롬프트 버전과 함께 남는다(ConversationRecordService.recordCompanionTurn).
+     * 프롬프트 버전과 함께 남는다(ConversationRecordService.recordCompanionTurn). V2_1: 질문 초대에서 준비되지 않은 행동을
+     * 하겠다고 약속하는 답을 막는 지시를 더했다.
      */
-    public static final String COMPANION_PROMPT_VERSION = "GRETEL_DIALOGUE_V2";
+    public static final String COMPANION_PROMPT_VERSION = "GRETEL_DIALOGUE_V2_1";
 
     /**
-     * V2 + 질문 초대의 시도 장면(TRY_FAIL·ATTEMPT_END) 지시. 스위치(QSTORY_TRY_AND_FAIL_ENABLED)를 끄면 V2 그대로다.
+     * V2 + 질문 초대의 시도 장면(TRY_FAIL·ATTEMPT_END) 지시. 스위치(QSTORY_TRY_AND_FAIL_ENABLED)를 끄면 V2_1이다.
      * V4: 하고 싶다는 말·준비되지 않은 이동, 앞에서 나온 준비되지 않은 행동에 대한 동의도 시도 장면을 시작한다.
+     *     질문 초대에서 준비되지 않은 행동을 하겠다고 약속하는 답을 막는다(스위치를 끈 V2_1에도 같은 지시가 들어간다).
      */
     public static final String TRY_AND_FAIL_PROMPT_VERSION = "GRETEL_DIALOGUE_V4";
 
@@ -1040,6 +1042,11 @@ public class OpenRouterClient {
             } else {
                 lines.add("preparedActions에 없는 행동을 제안하면 그 생각을 받아주되, 이야기 속에서 실행했다고 꾸미거나 하겠다고 약속하지 않는다. proposedActionFamilyId는 null이다.");
             }
+            // 방어(운영 HG-F04: 시도 장면 대신 "우리 같이 저 빛나는 길을 따라 걸어가 볼까?"로 말로만 동의했다).
+            lines.add("preparedActions에 없는 행동(어딘가로 가기·따라가기·만지기 등)에 '같이 가 보자', '좋아 그렇게 하자', '~할게'처럼 하겠다고 동의·약속하거나 하는 중인 것처럼 말하지 않는다 - 이야기는 그 행동을 보여 주지 않는다. "
+                    + (request.attemptRulesApply()
+                            ? "시도 장면을 시작할 수 있으면 시도 장면으로, 아니면 그 생각을 받아 주고 아이 생각을 묻는다."
+                            : "그 생각을 받아 주고 아이 생각을 묻는다."));
             lines.add("네가 먼저 '~해 볼까?'처럼 할 일을 제안할 때는 preparedActions에 있는 행동만 제안한다. preparedActions에 없는 행동(예: 집 주변을 살펴보자, 창문을 들여다보자)은 이야기가 보여 줄 수 없으니 할 일로 제안하지 않고, 대신 아이 생각을 묻는다.");
             if (request.attemptRulesApply()) {
                 // 지난 평가에서 "그럼 어떻게 해?"에 준비된 두 방법을 바로 나열한 답이 나왔다 - 정답을 먼저 주지 않는다.
