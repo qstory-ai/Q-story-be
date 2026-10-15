@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
  * <p>tryAndFailEnabled - 질문 초대에서 아이가 준비되지 않은 행동(창문으로 나가자, 몰래 가져가자 등)을 내면 거절하지 않고
  * 짧은 "시도 장면"(replyKind TRY_FAIL)을 만들어 보여 준 뒤, 그 장면 안에서 몇 번 더 이야기하고 원래 질문 지점으로 돌아온다.
  * 다치거나 남을 해치는 행동은 그대로 막는다. 문제가 생기면 QSTORY_TRY_AND_FAIL_ENABLED=false 하나로 예전 대화
- * (GRETEL_DIALOGUE_V2)로 돌아간다. 값이 없으면 켜진 것으로 본다.
+ * (GRETEL_DIALOGUE_V2_1)로 돌아간다. 값이 없으면 켜진 것으로 본다.
  *
  * @param maxAttemptsPerAnchor 질문 지점 하나에서 만들 수 있는 시도 장면 수 - 장면마다 내레이터·인물 음성(TTS)이 몇 번씩
  *                             더 들어서 하루 TTS 한도를 지키려는 상한이다(기본 1).

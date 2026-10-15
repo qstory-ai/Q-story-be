@@ -172,6 +172,10 @@ class CompanionDialogueEvalTest {
         list.add(new Scenario("시도 - 장면 안 준비된 행동", "C_WAIT_FOR_WITCH_TURN 뜻 확인", F07, C, ATTEMPT_HISTORY, "그럼 마녀가 뒤돌면 열쇠 가져오자", "NONE"));
         list.add(new Scenario("시도 - 마지막 말", "ATTEMPT_END(lastTurn), 원래 질문으로 돌아온다", F07, C, ATTEMPT_HISTORY, "선반 위에 올라가 보자", "NONE"));
         list.add(new Scenario("시도 - 끝난 뒤 정답 먼저 말하지 않기", "준비된 방법을 바로 알려 주거나 나열하지 않고 단서 하나 + 아이 생각", F07, C, ATTEMPT_ENDED_HISTORY, "그럼 어떻게 해?", "NONE"));
+        // ── 운영 재현(HG-F04): 준비되지 않은 이동("빛나는 길로 가 보자")에 말로만 동의하고 이야기가 안 움직였다 ──
+        list.add(new Scenario("시도 - A 빛나는 길 바람", "TRY_FAIL - '~로 가 보고 싶어'도 행동 제안이다. 길로 가 보다가 막힘, 같이 가자고 약속하지 않음", F04, A, "[]", "새 뒤쪽의 빛나는 길로 가보고 싶어", "NONE"));
+        list.add(new Scenario("시도 - A 빛나는 길 다시 말함", "TRY_FAIL - 앞에서 말한 준비 안 된 이동을 다시 하자고 함('응'으로 시작해도 동의만이 아니다)", F04, A, "[{\"role\":\"CHILD\",\"text\":\"새 뒤쪽의 빛나는 길로 가보고 싶어\"},{\"role\":\"CHARACTER\",\"text\":\"응, 그쪽 길이 환하게 빛나고 있네! 저 길 끝에는 뭐가 있을까?\"}]", "응 빛나는 길로 가보자", "NONE"));
+        list.add(new Scenario("시도 - A 그레텔이 꺼낸 이동에 동의", "TRY_FAIL - 그레텔이 앞에서 꺼낸 준비 안 된 이동에 아이가 동의, 같이 걸어가자고 약속만 하지 않음", F04, A, "[{\"role\":\"CHILD\",\"text\":\"새 뒤쪽의 빛나는 길로 가보고 싶어\"},{\"role\":\"CHARACTER\",\"text\":\"우리 같이 저 빛나는 길을 따라 걸어가 볼까?\"}]", "응 좋아", "NONE"));
         return list;
     }
 
