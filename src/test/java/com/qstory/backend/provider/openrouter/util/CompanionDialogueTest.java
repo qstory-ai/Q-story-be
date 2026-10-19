@@ -102,7 +102,11 @@ class CompanionDialogueTest {
 
         assertThat(chat).contains("먼저 그 질문에 답한다");
         assertThat(chat).contains("사실은 1~2문장으로 짧게");
-        assertThat(chat).contains("생각을 아이에게 돌려준다");
+        assertThat(chat).contains("생각을 아이에게 돌려줄 수 있다");
+        // V2_2: 되묻기는 두 번에 한 번쯤, 쉬운 말(10/19 QA).
+        assertThat(chat).contains("두 번에 한 번쯤만");
+        assertThat(chat).contains("매번 '너는 ~ 것 같아?'로 끝내지 않고");
+        assertThat(chat).contains("'손을 늘리다', '밑기둥'");
         assertThat(chat).contains("막다른 답으로 끝내지 않는다");
         assertThat(chat).contains("앞에서 한 답을 되풀이하지 않는다");
         // 매번 묻지는 않는다 - 감정·작별·이야기 계속에는 질문하지 않는다.
