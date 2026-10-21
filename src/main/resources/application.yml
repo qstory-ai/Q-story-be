@@ -84,6 +84,18 @@ qstory:
     try-and-fail-enabled: ${QSTORY_TRY_AND_FAIL_ENABLED:true}
     max-attempts-per-anchor: ${QSTORY_TRY_AND_FAIL_MAX_PER_ANCHOR:1}
     max-attempt-turns: ${QSTORY_TRY_AND_FAIL_MAX_TURNS:4}
+  # 실시간 삽화(Higgsfield GPT Image 2.5 Flare, 정적 삽화와 같은 모델·공통 프롬프트·인물 시트) - 새 선택지 그림
+  # (LiveBranchExecutionWorker)과 시도 장면 막힘 그림(CompanionChatPipelineService)을 아이가 말한 내용대로 만든다.
+  # 질문 지점·읽기 세션마다 max-per-anchor-session장까지만(장당 2k·high ≈ $0.275 → 질문 지점당 1달러 안쪽). 키가 비면
+  # 새 선택지는 OpenRouter 이미지 모델로, 시도 장면은 미리 만든 막힘 그림으로 간다. 인물 시트는 버킷 <slug>/references/.
+  realtime-image:
+    enabled: ${QSTORY_REALTIME_IMAGE_ENABLED:true}
+    api-key-id: ${HIGGSFIELD_API_KEY_ID:}
+    api-key-secret: ${HIGGSFIELD_API_KEY_SECRET:}
+    resolution: ${HIGGSFIELD_RESOLUTION:2k}
+    quality: ${HIGGSFIELD_QUALITY:high}
+    max-per-anchor-session: ${QSTORY_REALTIME_IMAGE_MAX_PER_ANCHOR_SESSION:3}
+    poll-timeout-ms: ${HIGGSFIELD_POLL_TIMEOUT_MS:120000}
   stt-stream:
     enabled: ${STT_STREAM_ENABLED:true}
     # RTZR 스트리밍 동시 채널 상한(유료 20) 안에서 우리가 쓸 몫. 넘치면 표를 주지 않아 배치로 간다.

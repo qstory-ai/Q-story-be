@@ -5,9 +5,11 @@ import com.qstory.backend.common.enums.LiveBranchJobStatus;
 import com.qstory.backend.familydraft.util.FamilyDraftHarness;
 import com.qstory.backend.livebranch.entity.LiveBranchJob;
 import com.qstory.backend.livebranch.repository.LiveBranchJobRepository;
+import com.qstory.backend.realtimeimage.service.RealtimeImageService;
 import com.qstory.backend.story.StoryContext;
 import com.qstory.backend.story.repository.StoryActionFamilyRepository;
 import java.time.Instant;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -38,18 +40,26 @@ public class LiveBranchGenerationService {
     private final StoryActionFamilyRepository familyRepository;
     private final LiveBranchExecutionWorker executionWorker;
     private final FamilyDraftHarness harness;
+    private final RealtimeImageService realtimeImageService;
 
     public LiveBranchGenerationService(
             LiveBranchJobRepository jobRepository, StoryActionFamilyRepository familyRepository,
-            LiveBranchExecutionWorker executionWorker, FamilyDraftHarness harness) {
+            LiveBranchExecutionWorker executionWorker, FamilyDraftHarness harness,
+            RealtimeImageService realtimeImageService) {
         this.jobRepository = jobRepository;
         this.familyRepository = familyRepository;
         this.executionWorker = executionWorker;
         this.harness = harness;
+        this.realtimeImageService = realtimeImageService;
     }
 
-    /** 상한에 걸려 생성을 건너뛰면 null을 반환한다 - 호출자는 이 경우 decision을 그대로 둔다. */
-    public String enqueue(StoryContext storyContext, String transcript, int questionRound) {
+    /**
+     * 상한에 걸려 생성을 건너뛰면 null을 반환한다 - 호출자는 이 경우 decision을 그대로 둔다.
+     *
+     * @param sessionId 읽기 세션(ConversationAttribution.sessionId). 실시간 삽화(Higgsfield)가 켜져 있으면 이 값으로 질문 지점당
+     *                  그림 상한을 세므로, 세션이 없는 구버전 클라이언트에는 새 선택지를 만들지 않는다(그림 없는 선택지는 만들지 않는다).
+     */
+    public String enqueue(StoryContext storyContext, String transcript, int questionRound, UUID sessionId) {
         if (!storyContext.liveBranchGeneration()) {
             // QuestionRoutingService가 이미 막지만, 꺼진 질문 지점에는 어떤 경로로도 새 분기를 쌓지 않는다.
             log.info("live-branch.disabled storyId={} anchorId={}", storyContext.storyId(), storyContext.anchorId());
@@ -65,12 +75,17 @@ public class LiveBranchGenerationService {
                     storyContext.storyId(), storyContext.anchorId(), liveFamilyCount, MAX_LIVE_FAMILIES_PER_ANCHOR);
             return null;
         }
+        if (sessionId == null && realtimeImageService.enabled()) {
+            log.info("live-branch.no-session storyId={} anchorId={}", storyContext.storyId(), storyContext.anchorId());
+            return null;
+        }
         Instant now = Instant.now();
         LiveBranchJob job = jobRepository.save(LiveBranchJob.builder()
                 .storyId(storyContext.storyId())
                 .anchorId(storyContext.anchorId())
                 .childTranscriptRedacted(harness.redact(transcript, REDACTED_TRANSCRIPT_MAX_LENGTH))
                 .questionRound(questionRound)
+                .sessionId(sessionId)
                 .status(LiveBranchJobStatus.QUEUED)
                 .createdAt(now)
                 .updatedAt(now)

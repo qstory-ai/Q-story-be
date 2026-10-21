@@ -56,6 +56,10 @@ public class LiveBranchJob {
     @Column(name = "question_round", nullable = false)
     private int questionRound;
 
+    /** 어느 읽기 세션에서 왔는지(ConversationAttribution.sessionId) - 실시간 삽화 상한을 세션별로 세는 데 쓴다. 구버전 클라이언트는 null. */
+    @Column(name = "session_id")
+    private UUID sessionId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     private LiveBranchJobStatus status;
