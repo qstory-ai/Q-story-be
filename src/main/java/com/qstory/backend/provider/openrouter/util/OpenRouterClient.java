@@ -314,12 +314,23 @@ public class OpenRouterClient {
             /** 장면에 맞는 호칭(노파 → 할머니/마녀). AI에게 보내는 글과 AI가 만든 글에 모두 적용한다. */
             ChildFacingTerms terms,
             /** 질문 초대의 시도 장면(replyKind TRY_FAIL) 스위치·상한과 내레이터 - 질문 초대에서만 쓰인다. */
-            AttemptPolicy attemptPolicy) {
+            AttemptPolicy attemptPolicy,
+            /** 이 질문 지점에서 실시간 새 분기를 만들 수 있는지(켜져 있고 상한 미만) - NEW_BRANCH 답을 허용한다. */
+            boolean liveBranchAvailable) {
 
         public CompanionRequest {
             dialogue = dialogue == null ? com.qstory.backend.companionchat.DialogueInput.empty() : dialogue;
             terms = terms == null ? ChildFacingTerms.none() : terms;
             attemptPolicy = attemptPolicy == null ? AttemptPolicy.OFF : attemptPolicy;
+        }
+
+        public CompanionRequest(
+                String transcript, String promptVersion, String storyTitle, String primarySpeakerId,
+                List<String> allowedSpeakerIds, List<String> forbiddenKnowledge, CompanionPersona persona,
+                com.qstory.backend.companionchat.DialogueInput dialogue, com.qstory.backend.story.Anchor inviteAnchor,
+                ChildFacingTerms terms, AttemptPolicy attemptPolicy) {
+            this(transcript, promptVersion, storyTitle, primarySpeakerId, allowedSpeakerIds, forbiddenKnowledge,
+                    persona, dialogue, inviteAnchor, terms, attemptPolicy, false);
         }
 
         public CompanionRequest(
@@ -353,6 +364,14 @@ public class OpenRouterClient {
         public boolean canStartAttempt() {
             return attemptRulesApply() && dialogue.attempt().active() == null
                     && dialogue.attempt().tried() < attemptPolicy.maxPerAnchor();
+        }
+
+        /**
+         * 이번 답에서 새 선택지(NEW_BRANCH)를 제안할 수 있는지 - 질문 초대 중이고, 도움 버튼 답이 아니고, 시도 장면 밖이며,
+         * 이 질문 지점에 실시간 분기 생성이 켜져 있고 상한이 남았을 때(10/21 QA: "화장실 간다고 거짓말하고 갔다 오자"가 대화로만 끝났다).
+         */
+        public boolean canOfferNewBranch() {
+            return liveBranchAvailable && inviteAnchor != null && !helpRequested() && dialogue.attempt().active() == null;
         }
 
         /** 지금 시도 장면 안인지. */
@@ -460,6 +479,12 @@ public class OpenRouterClient {
     /** 시도 장면을 마치고 "다른 방법을 찾아보자"며 원래 질문 지점으로 돌아온다. */
     public static final String ATTEMPT_END = "ATTEMPT_END";
 
+    /**
+     * 새 선택지 제안 - 아이가 준비된 행동에 없는, 위험하지 않고 해 볼 만한 계획을 내면 "그럼 그렇게 해 볼까?"로 묻는다.
+     * 아이가 수락하면 프런트가 POST /v1/live-branch로 실시간 분기를 만들어 그 행동이 든 선택 화면으로 이어 간다.
+     */
+    public static final String NEW_BRANCH = "NEW_BRANCH";
+
     /** 이 요청에서 고를 수 있는 replyKind - TRY_FAIL은 새 시도 장면을 만들 수 있을 때만, ATTEMPT_END는 시도 장면 안에서만. */
     static List<String> replyKinds(CompanionRequest request) {
         List<String> kinds = new ArrayList<>(REPLY_KINDS);
@@ -468,6 +493,9 @@ public class OpenRouterClient {
         }
         if (request.attemptActive()) {
             kinds.add(ATTEMPT_END);
+        }
+        if (request.canOfferNewBranch()) {
+            kinds.add(NEW_BRANCH);
         }
         return List.copyOf(kinds);
     }
@@ -788,6 +816,13 @@ public class OpenRouterClient {
         JsonNode proposedNode = value.get("proposedActionFamilyId");
         String proposed = proposedNode == null || proposedNode.isNull() ? null : proposedNode.asText("").trim();
         if (proposed != null && !request.inviteFamilyIds().contains(proposed)) {
+            proposed = null;
+        }
+        // 새 선택지 제안이 안전 규칙에 막혔으면 제안이 아니다 - 안전 쪽(REDIRECT)으로 읽는다. 준비된 행동 제안과도 겹치지 않는다.
+        if (NEW_BRANCH.equals(replyKind) && "GENTLE_REDIRECT".equals(interactionMode)) {
+            replyKind = "REDIRECT";
+        }
+        if (NEW_BRANCH.equals(replyKind)) {
             proposed = null;
         }
         // 시도 장면 시작·끝은 준비된 행동 제안이 아니다 - 실행 확인을 띄우지 않고, 대화를 끝내지도 않는다.
@@ -1188,13 +1223,21 @@ public class OpenRouterClient {
             lines.add("질문(예: 열쇠는 어디 있어?)은 행동 제안이 아니다. 아는 범위에서 답하고 proposedActionFamilyId는 null이다.");
             // V2(PM 피드백 - "그럼 살펴보자"에 동의했는데 이야기에서 그 행동이 나오지 않음).
             lines.add("앞에서 네가 preparedActions 중 하나와 뜻이 같은 행동을 말했고 아이가 그것에 동의하면(예: 네가 '새가 어디로 가는지 지켜볼까?'라고 한 뒤 아이가 '그래', '그럼 살펴보자', '좋아 그렇게 하자'), 아이가 그 행동을 제안한 것으로 보고 proposedActionFamilyId에 그 id를 넣고 뜻을 한 번 확인한다.");
+            if (request.canOfferNewBranch()) {
+                // 10/21 QA: "화장실 간다고 거짓말하고 갔다 오자"처럼 해 볼 만한 계획이 대화로만 끝났다 - 새 선택지로 이어 준다.
+                lines.add("새 선택지(NEW_BRANCH): 아이가 preparedActions에 없지만 위험하지 않고 지금 장소에서 해 볼 만한 계획(예: 할머니에게 화장실 간다고 말하고 다녀오기, 할머니를 다른 데로 보내기, 소리를 내 눈길 돌리기)을 분명히 제안하면 replyKind를 NEW_BRANCH로 한다. responseText는 그 생각을 한 문장으로 받아 준 뒤 '그럼 그렇게 해 볼까?'로 끝낸다(다른 질문을 붙이지 않고, 아직 실행했다고 말하지 않는다). proposedActionFamilyId는 null, attemptScene은 빈 배열이다."
+                        + (request.canStartAttempt()
+                                ? " 창문·굴뚝으로 나가기처럼 지금 장소에서 몸으로 해 봐도 되지 않을 일은 NEW_BRANCH가 아니라 시도 장면(TRY_FAIL)이다."
+                                : " 준비되지 않은 행동 중 NEW_BRANCH 조건에 맞지 않는 것만 아래 규칙대로 받아 준다."));
+            }
             if (request.attemptRulesApply()) {
                 lines.addAll(attemptLines(request));
             } else {
                 lines.add("preparedActions에 없는 행동을 제안하면 그 생각을 받아주되, 이야기 속에서 실행했다고 꾸미거나 하겠다고 약속하지 않는다. proposedActionFamilyId는 null이다.");
             }
             // 방어(운영 HG-F04: 시도 장면 대신 "우리 같이 저 빛나는 길을 따라 걸어가 볼까?"로 말로만 동의했다).
-            lines.add("preparedActions에 없는 행동(어딘가로 가기·따라가기·만지기 등)에 '같이 가 보자', '좋아 그렇게 하자', '~할게'처럼 하겠다고 동의·약속하거나 하는 중인 것처럼 말하지 않는다 - 이야기는 그 행동을 보여 주지 않는다. "
+            lines.add((request.canOfferNewBranch() ? "NEW_BRANCH로 '그럼 그렇게 해 볼까?'라고 묻는 경우 말고는, " : "")
+                    + "preparedActions에 없는 행동(어딘가로 가기·따라가기·만지기 등)에 '같이 가 보자', '좋아 그렇게 하자', '~할게'처럼 하겠다고 동의·약속하거나 하는 중인 것처럼 말하지 않는다 - 이야기는 그 행동을 보여 주지 않는다. "
                     + (request.attemptRulesApply()
                             ? "시도 장면을 시작할 수 있으면 시도 장면으로, 아니면 그 생각을 받아 주고 아이 생각을 묻는다."
                             : "그 생각을 받아 주고 아이 생각을 묻는다."));

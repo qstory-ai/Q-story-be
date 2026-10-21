@@ -7,6 +7,7 @@ import com.qstory.backend.common.enums.CompanionInteractionMode;
 import com.qstory.backend.common.enums.RealtimeImageKind;
 import com.qstory.backend.realtimeimage.entity.RealtimeImage;
 import com.qstory.backend.realtimeimage.service.RealtimeImagePrompts;
+import com.qstory.backend.livebranch.service.LiveBranchGenerationService;
 import com.qstory.backend.realtimeimage.service.RealtimeImageService;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -64,14 +65,18 @@ public class CompanionChatPipelineService {
     private final DialogueProperties dialogueProperties;
     /** 시도 장면 막힘 그림을 실시간으로 만드는 서비스 - 없으면(테스트) 미리 만든 그림만 쓴다. */
     private final RealtimeImageService realtimeImageService;
+    /** 질문 초대에서 아이의 새 계획을 선택지로 만들 수 있는지(켜짐·상한) 묻는 데만 쓴다 - 생성 자체는 프런트가 수락 뒤 요청한다. */
+    private final LiveBranchGenerationService liveBranchGenerationService;
 
     public CompanionChatPipelineService(
             AppProperties config, AudioNormalizer normalizer, RtzrSttClient sttClient,
             OpenRouterClient openRouterClient, GeminiTtsClient geminiTtsClient, VoiceCastService voiceCastService,
             CompanionChatTurnRepository turnRepository, ConversationRecordService conversationRecordService,
-            DialogueProperties dialogueProperties, RealtimeImageService realtimeImageService) {
+            DialogueProperties dialogueProperties, RealtimeImageService realtimeImageService,
+            @org.springframework.lang.Nullable LiveBranchGenerationService liveBranchGenerationService) {
         this.dialogueProperties = dialogueProperties == null ? new DialogueProperties(null) : dialogueProperties;
         this.realtimeImageService = realtimeImageService;
+        this.liveBranchGenerationService = liveBranchGenerationService;
         this.config = config;
         this.normalizer = normalizer;
         this.sttClient = sttClient;
@@ -187,7 +192,7 @@ public class CompanionChatPipelineService {
         OpenRouterClient.CompanionRequest request = new OpenRouterClient.CompanionRequest(
                 transcript, context.versions().promptVersion(), context.story().title(), context.primarySpeakerId(),
                 context.allowedSpeakerIds(), context.forbiddenKnowledge(), context.persona(), dialogue, inviteAnchor,
-                terms, attemptPolicy(context));
+                terms, attemptPolicy(context), liveBranchAvailable(context, inviteAnchor));
         OpenRouterClient.CompanionReply reply = onResponseText == null
                 ? openRouterClient.generateCompanionReply(request, deadline)
                 : openRouterClient.streamCompanionReply(request, deadline, onResponseText);
@@ -246,6 +251,13 @@ public class CompanionChatPipelineService {
         dialogueResult.put("childMeaning", reply.childMeaning());
         dialogueResult.put("asksForHelp", reply.asksForHelp());
         dialogueResult.put("proposedActionFamilyId", reply.proposedActionFamilyId());
+        // 새 선택지 제안(NEW_BRANCH) - 아이가 수락하면 프런트가 이 말로 POST /v1/live-branch를 불러 분기를 만든다.
+        if (OpenRouterClient.NEW_BRANCH.equals(reply.replyKind())) {
+            Map<String, Object> newBranch = new LinkedHashMap<>();
+            newBranch.put("transcript", transcript);
+            newBranch.put("meaning", reply.childMeaning());
+            dialogueResult.put("newBranch", newBranch);
+        }
         // 시도 장면을 시작했으면 장면 줄(내레이터·인물 목소리로 먼저 들려줄 것)과 장면 안 대화 횟수 상한을 함께 내려 준다.
         if (OpenRouterClient.TRY_FAIL.equals(reply.replyKind())) {
             Map<String, Object> attempt = new LinkedHashMap<>();
@@ -325,6 +337,19 @@ public class CompanionChatPipelineService {
     }
 
     /** 시도 장면에 그릴 인물 - 남매는 늘 함께 있고, 장면 줄에 마녀·할머니·새가 나오면 더한다(내레이터는 인물이 아니다). */
+    /** 이 질문 지점에서 새 선택지를 만들 수 있는지 - 실시간 분기 생성이 켜져 있고 앵커당 상한이 남았을 때. */
+    private boolean liveBranchAvailable(ResolvedCompanionContext context, Anchor inviteAnchor) {
+        if (inviteAnchor == null || !inviteAnchor.liveBranchGeneration() || liveBranchGenerationService == null) {
+            return false;
+        }
+        String anchorId = context.story().anchors().entrySet().stream()
+                .filter(entry -> entry.getValue() == inviteAnchor)
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
+        return anchorId != null && liveBranchGenerationService.hasCapacity(anchorId);
+    }
+
     public static List<String> attemptCharacters(Anchor inviteAnchor, OpenRouterClient.CompanionReply reply) {
         LinkedHashSet<String> labels = new LinkedHashSet<>(List.of("HANSEL", "GRETEL"));
         labels.addAll(RealtimeImageService.normalizeLabels(

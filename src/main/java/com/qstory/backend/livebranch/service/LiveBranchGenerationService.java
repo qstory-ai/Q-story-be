@@ -59,6 +59,11 @@ public class LiveBranchGenerationService {
      * @param sessionId 읽기 세션(ConversationAttribution.sessionId). 실시간 삽화(Higgsfield)가 켜져 있으면 이 값으로 질문 지점당
      *                  그림 상한을 세므로, 세션이 없는 구버전 클라이언트에는 새 선택지를 만들지 않는다(그림 없는 선택지는 만들지 않는다).
      */
+    /** 이 질문 지점에 실시간 분기를 더 만들 수 있는지(앵커당 상한) - 그레텔 대화가 NEW_BRANCH를 제안해도 되는지 볼 때 쓴다. */
+    public boolean hasCapacity(String anchorId) {
+        return familyRepository.countByAnchor_IdAndOrigin(anchorId, FamilyOrigin.LIVE_GENERATED) < MAX_LIVE_FAMILIES_PER_ANCHOR;
+    }
+
     public String enqueue(StoryContext storyContext, String transcript, int questionRound, UUID sessionId) {
         if (!storyContext.liveBranchGeneration()) {
             // QuestionRoutingService가 이미 막지만, 꺼진 질문 지점에는 어떤 경로로도 새 분기를 쌓지 않는다.
