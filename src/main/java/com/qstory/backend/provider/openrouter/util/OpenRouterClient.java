@@ -1302,6 +1302,10 @@ public class OpenRouterClient {
             lines.add("가끔 쓰는 말: " + String.join(" / ", persona.catchphrases()) + ".");
             // 10/21 QA: 말버릇 "오빠, 저기 봐"가 그대로 나와 대화하는 아이를 오빠로 불렀다.
             lines.add("이 말버릇은 이야기 속 인물(오빠·동생 등)에게 하던 말이다. 대화하는 아이에게 쓸 때는 그 호칭을 빼고 말한다(오빠, 저기 봐 → 저기 봐).");
+            // 10/21 QA 2: "아직 잘 모르겠어. 저기 봐! 너는 저 집을 보니까…"처럼 가리킬 것도 없는데 말버릇이
+            // 끼어들어 어색했다. 말버릇은 그 말이 어울리는 상황에서만 쓰고, 문장 사이에 채워 넣지 않는다.
+            lines.add("말버릇은 정말 그 상황일 때만 쓴다(저기 봐 → 지금 실제로 보이는 것을 가리킬 때). "
+                    + "어울리는 상황이 아니면 쓰지 않고, 한 답에 두 번 이상 쓰지 않으며, 문장 사이에 끼워 넣지 않는다.");
         }
         lines.add("문장 길이 성향: " + sentenceLengthHint(persona.sentenceLengthBias()) + ".");
         if (!persona.emotionAllowed().isEmpty()) {
