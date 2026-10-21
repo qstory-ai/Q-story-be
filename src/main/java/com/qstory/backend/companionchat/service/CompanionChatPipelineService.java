@@ -299,9 +299,23 @@ public class CompanionChatPipelineService {
                     .filter(backdrop -> backdrop.id().equals(reply.attemptBackdropId()))
                     .map(DialogueInput.Backdrop::shows)
                     .findFirst().orElse(null);
+            // 지금 장면의 그림·줄거리를 연속성 정보로 넘긴다 - 없으면 헨젤이 쇠창살 밖에 서 있는 식으로 설정이 어긋난다(10/21 확인).
+            String background = null;
+            if (dialogue.scene() != null) {
+                List<String> parts = new ArrayList<>();
+                if (dialogue.scene().visual() != null && !dialogue.scene().visual().isBlank()) {
+                    parts.add("The current picture shows (Korean): " + dialogue.scene().visual() + ".");
+                }
+                List<String> soFar = dialogue.scene().storySoFar();
+                if (soFar != null && !soFar.isEmpty()) {
+                    parts.add("Story so far (Korean): " + String.join(" ", soFar.subList(Math.max(0, soFar.size() - 2), soFar.size())) + ".");
+                }
+                parts.add("Keep every character where the story has put them (for example a character locked in a cage stays inside it).");
+                background = String.join(" ", parts);
+            }
             String prompt = RealtimeImagePrompts.attemptPrompt(
                     inviteAnchor.summary(), sceneLines, blocked, labels,
-                    realtimeImageService.characterFacts(storyId, labels), null);
+                    realtimeImageService.characterFacts(storyId, labels), background);
             realtimeImageService.generateAsync(reservation, prompt, realtimeImageService.referenceSheetUrls(storyId, labels));
             return reservation.getId();
         } catch (Exception error) {
