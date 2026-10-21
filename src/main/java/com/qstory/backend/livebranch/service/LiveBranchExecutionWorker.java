@@ -17,7 +17,11 @@ import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.familydraft.util.FamilyDraftHarness;
 import com.qstory.backend.livebranch.entity.LiveBranchJob;
 import com.qstory.backend.livebranch.repository.LiveBranchJobRepository;
+import com.qstory.backend.common.enums.RealtimeImageKind;
 import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
+import com.qstory.backend.realtimeimage.entity.RealtimeImage;
+import com.qstory.backend.realtimeimage.service.RealtimeImagePrompts;
+import com.qstory.backend.realtimeimage.service.RealtimeImageService;
 import com.qstory.backend.story.entity.Story;
 import com.qstory.backend.story.entity.StoryActionFamily;
 import com.qstory.backend.story.entity.StoryAnchor;
@@ -101,6 +105,7 @@ public class LiveBranchExecutionWorker {
     private final Executor liveBranchSubtaskExecutor;
     private final FamilyDraftHarness harness;
     private final TransactionTemplate transactionTemplate;
+    private final RealtimeImageService realtimeImageService;
 
     public LiveBranchExecutionWorker(
             LiveBranchJobRepository jobRepository, StoryRepository storyRepository,
@@ -111,7 +116,9 @@ public class LiveBranchExecutionWorker {
             StoryRegistry storyRegistry, ChoiceCopyRegistry choiceCopyRegistry,
             StoryContentAssemblyService assemblyService,
             @Qualifier("liveBranchSubtaskExecutor") Executor liveBranchSubtaskExecutor,
-            FamilyDraftHarness harness, PlatformTransactionManager transactionManager) {
+            FamilyDraftHarness harness, PlatformTransactionManager transactionManager,
+            RealtimeImageService realtimeImageService) {
+        this.realtimeImageService = realtimeImageService;
         this.jobRepository = jobRepository;
         this.storyRepository = storyRepository;
         this.anchorRepository = anchorRepository;
@@ -239,6 +246,28 @@ public class LiveBranchExecutionWorker {
 
             String familyId = "LIVE_" + anchor.getSlot() + "_"
                     + job.getId().toString().substring(0, 8).toUpperCase(Locale.ROOT) + "_" + subIndex;
+            // 실시간 삽화(Higgsfield)가 켜져 있으면 정적 삽화와 같은 모델·공통 프롬프트·인물 시트로 만든다. 질문 지점·세션당 상한
+            // (기본 3장)이 차면 이 자리는 만들지 않고 상위(run)에서 기존 family로 padding된다 - 그림 없는 새 선택지는 만들지 않는다.
+            if (realtimeImageService.enabled()) {
+                RealtimeImage reservation = realtimeImageService.reserve(
+                        job.getSessionId(), job.getStoryId(), anchor.getId(), RealtimeImageKind.BRANCH);
+                if (reservation == null) {
+                    log.info("live-branch.sub-image-budget-exhausted jobId={} subIndex={}", job.getId(), subIndex);
+                    return null;
+                }
+                List<String> labels = RealtimeImageService.normalizeLabels(
+                        harness.toStringList(draft.path("imageBrief").path("characters")));
+                String prompt = RealtimeImagePrompts.branchPrompt(
+                        anchor.getSummary(), draft.path("imageBrief"), labels, visualFactsByLabel, null);
+                RealtimeImageService.Generated generated = realtimeImageService.generate(
+                        reservation, prompt, realtimeImageService.referenceSheetUrls(job.getStoryId(), labels));
+                if (generated == null) {
+                    return null;
+                }
+                return new GeneratedFamily(
+                        familyId, draft, generated.imageUrl(), sha256Integrity(generated.bytes()),
+                        generated.bucket(), generated.objectName());
+            }
             // 이미지 생성은 transient한 이유(OpenRouter 스로틀, 일시 네트워크 에러)로 실패하는 경우가 많아
             // 1회만 재시도한다. 그래도 실패하면 이 자리는 상위(run)에서 기존 family로 padding된다.
             OpenRouterClient.GeneratedImage image = generateImageWithOneRetry(

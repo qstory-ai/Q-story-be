@@ -47,6 +47,23 @@ public class AsyncConfig {
     }
 
     /**
+     * 시도 장면 막힘 그림(RealtimeImageService.generateAsync) 전용 풀 - Higgsfield 제출·대기·올리기가 20~50초라 아이 응답 경로 밖에서
+     * 돈다. 대기열이 차면 그 그림은 FAILED가 아니라 아예 시작하지 못하고 예외가 나므로, 호출자가 잡아서 미리 만든 그림으로 간다.
+     */
+    @Bean
+    public Executor realtimeImageExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("realtime-image-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
+
+    /**
      * 앱 푸시(FCM) 발송 전용 풀 - PushDispatcher가 알림 트랜잭션 커밋 뒤에 넘긴다. 알림을 만든 요청이 FCM 응답을
      * 기다리지 않게 한다. 대기열이 차면 그 푸시는 버리고 fcm.send-failed reason=queue-full을 남긴다(인앱 알림은 이미 저장돼 있다).
      */

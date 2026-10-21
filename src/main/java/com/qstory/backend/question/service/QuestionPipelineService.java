@@ -149,7 +149,8 @@ public class QuestionPipelineService {
             responseAttempts = attempt + 1;
             try {
                 decision = questionRoutingService.route(
-                        storyContext, transcript, context.questionRound(), context.guaranteeAgencyChoice(), deadline);
+                        storyContext, transcript, context.questionRound(), context.guaranteeAgencyChoice(), deadline,
+                        attribution == null ? null : attribution.sessionId());
                 break;
             } catch (ProviderException error) {
                 boolean shouldRetry = attempt == 0 && error.retryable();

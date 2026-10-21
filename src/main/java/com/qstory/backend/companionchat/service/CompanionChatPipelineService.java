@@ -4,6 +4,12 @@ import com.qstory.backend.companionchat.DialogueInput;
 import com.qstory.backend.story.Anchor;
 import com.qstory.backend.story.ChildFacingTerms;
 import com.qstory.backend.common.enums.CompanionInteractionMode;
+import com.qstory.backend.common.enums.RealtimeImageKind;
+import com.qstory.backend.realtimeimage.entity.RealtimeImage;
+import com.qstory.backend.realtimeimage.service.RealtimeImagePrompts;
+import com.qstory.backend.realtimeimage.service.RealtimeImageService;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
@@ -56,13 +62,16 @@ public class CompanionChatPipelineService {
     private final CompanionChatTurnRepository turnRepository;
     private final ConversationRecordService conversationRecordService;
     private final DialogueProperties dialogueProperties;
+    /** 시도 장면 막힘 그림을 실시간으로 만드는 서비스 - 없으면(테스트) 미리 만든 그림만 쓴다. */
+    private final RealtimeImageService realtimeImageService;
 
     public CompanionChatPipelineService(
             AppProperties config, AudioNormalizer normalizer, RtzrSttClient sttClient,
             OpenRouterClient openRouterClient, GeminiTtsClient geminiTtsClient, VoiceCastService voiceCastService,
             CompanionChatTurnRepository turnRepository, ConversationRecordService conversationRecordService,
-            DialogueProperties dialogueProperties) {
+            DialogueProperties dialogueProperties, RealtimeImageService realtimeImageService) {
         this.dialogueProperties = dialogueProperties == null ? new DialogueProperties(null) : dialogueProperties;
+        this.realtimeImageService = realtimeImageService;
         this.config = config;
         this.normalizer = normalizer;
         this.sttClient = sttClient;
@@ -246,6 +255,10 @@ public class CompanionChatPipelineService {
             attempt.put("maxTurns", dialogueProperties.maxAttemptTurns());
             // 막힌 줄(3번째 줄)에서 배경으로 보여 줄 그림 - 요청의 후보 중 하나, 맞는 그림이 없으면 null(앱은 지금 그림으로 연출한다).
             attempt.put("backdropAssetId", reply.attemptBackdropId());
+            // 아이가 말한 그대로의 막힌 그림을 실시간(Higgsfield)으로 만들기 시작한다 - 20~50초 걸리므로 프런트가 id로 지켜보다
+            // 완성되면 위 그림 대신 바꿔 보여 준다. 상한에 닿았거나 꺼져 있으면 null.
+            UUID imageJobId = startAttemptImage(context, inviteAnchor, dialogue, reply, attribution, conversationId);
+            attempt.put("imageJobId", imageJobId == null ? null : imageJobId.toString());
             dialogueResult.put("attempt", attempt);
         }
         result.put("dialogue", dialogueResult);
@@ -259,6 +272,56 @@ public class CompanionChatPipelineService {
             result.put("audioDeferred", true);
         }
         return result;
+    }
+
+    /**
+     * 시도 장면 막힘 그림을 실시간으로 만들기 시작한다(질문 지점·세션당 상한 안이면). 생성은 realtimeImageExecutor에서 돌고, 프런트가
+     * GET /v1/realtime-images/{id}로 받아 막힌 줄의 배경을 바꾼다. 어떤 이유로든 못 만들면 null - 미리 만든 그림 그대로 간다.
+     */
+    private UUID startAttemptImage(
+            ResolvedCompanionContext context, Anchor inviteAnchor, DialogueInput dialogue,
+            OpenRouterClient.CompanionReply reply, ConversationAttribution attribution, UUID conversationId) {
+        if (realtimeImageService == null || !realtimeImageService.enabled() || inviteAnchor == null
+                || reply.attemptScene().isEmpty()) {
+            return null;
+        }
+        try {
+            UUID sessionId = attribution != null && attribution.sessionId() != null ? attribution.sessionId() : conversationId;
+            String storyId = context.story().storyId();
+            String anchorId = storyId + "-Q-" + inviteAnchor.slot();
+            RealtimeImage reservation = realtimeImageService.reserve(sessionId, storyId, anchorId, RealtimeImageKind.ATTEMPT);
+            if (reservation == null) {
+                return null;
+            }
+            List<String> sceneLines = reply.attemptScene().stream().map(OpenRouterClient.SceneLine::text).toList();
+            List<String> labels = attemptCharacters(inviteAnchor, reply);
+            String blocked = dialogue.attempt() == null ? null : dialogue.attempt().backdrops().stream()
+                    .filter(backdrop -> backdrop.id().equals(reply.attemptBackdropId()))
+                    .map(DialogueInput.Backdrop::shows)
+                    .findFirst().orElse(null);
+            String prompt = RealtimeImagePrompts.attemptPrompt(
+                    inviteAnchor.summary(), sceneLines, blocked, labels,
+                    realtimeImageService.characterFacts(storyId, labels), null);
+            realtimeImageService.generateAsync(reservation, prompt, realtimeImageService.referenceSheetUrls(storyId, labels));
+            return reservation.getId();
+        } catch (Exception error) {
+            log.warn("realtime-image.attempt-start-failed storyId={} cause={}", context.story().storyId(), error.toString());
+            return null;
+        }
+    }
+
+    /** 시도 장면에 그릴 인물 - 남매는 늘 함께 있고, 장면 줄에 마녀·할머니·새가 나오면 더한다(내레이터는 인물이 아니다). */
+    public static List<String> attemptCharacters(Anchor inviteAnchor, OpenRouterClient.CompanionReply reply) {
+        LinkedHashSet<String> labels = new LinkedHashSet<>(List.of("HANSEL", "GRETEL"));
+        labels.addAll(RealtimeImageService.normalizeLabels(
+                reply.attemptScene().stream().map(OpenRouterClient.SceneLine::speakerId).toList()));
+        String text = reply.attemptScene().stream().map(OpenRouterClient.SceneLine::text).reduce("", String::concat)
+                + (inviteAnchor.summary() == null ? "" : inviteAnchor.summary());
+        if (text.contains("마녀")) labels.add("WITCH");
+        else if (text.contains("할머니")) labels.add("OLD_WOMAN");
+        if (text.contains("새")) labels.add("WHITE_BIRD");
+        labels.remove("NARRATOR");
+        return new ArrayList<>(labels);
     }
 
     /** 시도 장면 설정 - 스위치·상한(DialogueProperties)과 이 이야기 캐스트의 내레이터(장면 내레이션 목소리). */

@@ -16,6 +16,7 @@ import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
 import com.qstory.backend.provider.openrouter.util.RouteResultValidator;
 import com.qstory.backend.story.StoryContext;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 /**
@@ -52,9 +53,10 @@ public class QuestionRoutingService {
         this.liveBranchGenerationService = liveBranchGenerationService;
     }
 
+    /** @param sessionId 읽기 세션(없으면 null) - 새 선택지 생성 작업에 붙여 실시간 삽화 상한을 세션별로 센다. */
     public RouteDecision route(
             StoryContext storyContext, String transcript, int questionRound, boolean guaranteeAgencyChoice,
-            RequestDeadline deadline) {
+            RequestDeadline deadline, UUID sessionId) {
         SafetyVerdict verdict = openRouterClient.evaluateSafety(
                 new OpenRouterClient.SafetyGateRequest(transcript, storyContext), deadline);
 
@@ -71,7 +73,7 @@ public class QuestionRoutingService {
                         ProviderErrorCode.OPENROUTER_SECOND_CLARIFICATION, "같은 질문을 다시 확인하지 않고 이야기로 돌아갈게요.");
             }
             decision = "NEW_CHOICES".equals(classification.route())
-                    ? buildNewChoicesDecision(classification, storyContext, transcript, questionRound)
+                    ? buildNewChoicesDecision(classification, storyContext, transcript, questionRound, sessionId)
                     : buildGeneratedContentDecision(classification, storyContext, deadline);
         }
 
@@ -140,8 +142,9 @@ public class QuestionRoutingService {
      * READY가 되면 그 결과로 THREE_PATHS를 구성한다(계획 문서 Phase 2 §3).
      */
     private RouteDecision buildNewChoicesDecision(
-            RouteClassification classification, StoryContext storyContext, String transcript, int questionRound) {
-        String jobId = liveBranchGenerationService.enqueue(storyContext, transcript, questionRound);
+            RouteClassification classification, StoryContext storyContext, String transcript, int questionRound,
+            UUID sessionId) {
+        String jobId = liveBranchGenerationService.enqueue(storyContext, transcript, questionRound, sessionId);
         if (jobId == null) {
             // 앵커당 상한에 걸려 조용히 건너뛴 경우 - 안전한 ANSWER_RESUME 상당 응답으로 폴백하되,
             // liveBranchCapped=true로 표기해 프런트가 beta event로 관측할 수 있게 한다(대사 자체는
