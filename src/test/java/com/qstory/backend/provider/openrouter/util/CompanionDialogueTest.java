@@ -229,4 +229,22 @@ class CompanionDialogueTest {
                 + "\"childMeaning\":\"\",\"asksForHelp\":false,\"proposedActionFamilyId\":null}";
         assertThat(client.validateCompanionReply(json(reply), request(DialogueInput.empty(), null))).isNull();
     }
+
+    /** 10/21 QA: 4화 도와줘에서 그레텔이 아이를 "오빠"라고 불렀다 - 페르소나 말버릇이 아이에게 그대로 나온 것. */
+    @Test
+    void replyToTheChildNeverOpensWithAStoryVocative() {
+        String reply = "{\"interactionMode\":\"ANSWER\",\"responseText\":\"%s\",\"speakerId\":\"HG-SPK-GRETEL\","
+                + "\"topicTag\":null,\"toneTag\":null,\"valueTag\":null,\"replyKind\":\"ANSWER\",\"childWantsToEnd\":false,"
+                + "\"childMeaning\":\"\",\"asksForHelp\":false,\"proposedActionFamilyId\":null}";
+        var request = request(DialogueInput.empty(), null);
+
+        assertThat(client.validateCompanionReply(json(reply.formatted("오빠, 저기 봐! 새가 또 돌아봤어.")), request).responseText())
+                .isEqualTo("저기 봐! 새가 또 돌아봤어.");
+        assertThat(client.validateCompanionReply(json(reply.formatted("응, 알겠어. 헨젤! 저기 새가 있어.")), request).responseText())
+                .isEqualTo("응, 알겠어. 저기 새가 있어.");
+        // 3인칭으로 오빠를 말하는 건 그대로.
+        assertThat(client.validateCompanionReply(json(reply.formatted("오빠가 돌을 주웠어. 너는 뭐가 궁금해?")), request).responseText())
+                .isEqualTo("오빠가 돌을 주웠어. 너는 뭐가 궁금해?");
+        assertThat(client.earlyResponseText("오빠, 저기 봐!", request)).isEqualTo("저기 봐!");
+    }
 }
