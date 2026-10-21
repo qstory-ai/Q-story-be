@@ -657,7 +657,23 @@ public class OpenRouterClient {
         if (text.isEmpty() || text.length() > 160) {
             return null;
         }
-        return request.terms().apply(routeResultValidator.normalizeKoreanResponseText(text));
+        return withoutStoryVocative(request.terms().apply(routeResultValidator.normalizeKoreanResponseText(text)));
+    }
+
+    /**
+     * 아이에게 하는 말(responseText) 첫머리나 문장 첫머리의 "오빠,", "헨젤!", "언니야," 같은 이야기 속 호칭을 뗀다.
+     * 대화하는 아이는 이야기 밖의 친구인데(프롬프트 규칙), 페르소나의 말버릇("오빠, 저기 봐")이 그대로 나와
+     * 아이를 오빠로 부르는 일이 QA(10/21, 4화 도와줘)에서 나왔다. 시도 장면 줄은 인물끼리 하는 말이라 손대지 않는다.
+     * "오빠가 말했어"처럼 3인칭으로 쓴 말은 조사가 붙어 패턴에 걸리지 않는다.
+     */
+    static final java.util.regex.Pattern STORY_VOCATIVE = java.util.regex.Pattern.compile(
+            "(?:^|(?<=[.!?…]\\s))(?:오빠|언니|헨젤|형|누나)(?:야|아)?[,!]\\s*");
+
+    static String withoutStoryVocative(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        return STORY_VOCATIVE.matcher(text).replaceAll("").trim();
     }
 
     /**
@@ -791,7 +807,7 @@ public class OpenRouterClient {
         boolean triedAndFailed = attemptTurn;
         ChildFacingTerms terms = request.terms();
         return new CompanionReply(
-                interactionMode, terms.apply(routeResultValidator.normalizeKoreanResponseText(responseText)), speakerId,
+                interactionMode, withoutStoryVocative(terms.apply(routeResultValidator.normalizeKoreanResponseText(responseText))), speakerId,
                 topicTag, toneTag, valueTag,
                 replyKind, !triedAndFailed && value.path("childWantsToEnd").asBoolean(false), terms.apply(childMeaning),
                 asksForHelp, proposed, scene, backdropId);
@@ -1284,6 +1300,8 @@ public class OpenRouterClient {
         }
         if (!persona.catchphrases().isEmpty()) {
             lines.add("가끔 쓰는 말: " + String.join(" / ", persona.catchphrases()) + ".");
+            // 10/21 QA: 말버릇 "오빠, 저기 봐"가 그대로 나와 대화하는 아이를 오빠로 불렀다.
+            lines.add("이 말버릇은 이야기 속 인물(오빠·동생 등)에게 하던 말이다. 대화하는 아이에게 쓸 때는 그 호칭을 빼고 말한다(오빠, 저기 봐 → 저기 봐).");
         }
         lines.add("문장 길이 성향: " + sentenceLengthHint(persona.sentenceLengthBias()) + ".");
         if (!persona.emotionAllowed().isEmpty()) {
