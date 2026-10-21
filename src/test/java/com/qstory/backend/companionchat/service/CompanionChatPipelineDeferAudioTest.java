@@ -39,7 +39,7 @@ class CompanionChatPipelineDeferAudioTest {
     private final ConversationRecordService records = mock(ConversationRecordService.class);
     private final CompanionChatPipelineService pipeline = new CompanionChatPipelineService(
             config, mock(AudioNormalizer.class), mock(RtzrSttClient.class), openRouter, tts,
-            mock(VoiceCastService.class), mock(CompanionChatTurnRepository.class), records, new DialogueProperties(false), null);
+            mock(VoiceCastService.class), mock(CompanionChatTurnRepository.class), records, new DialogueProperties(false), null, null);
 
     private ResolvedCompanionContext context() {
         StoryManifest story = new StoryManifest(
@@ -79,7 +79,7 @@ class CompanionChatPipelineDeferAudioTest {
         CompanionChatPipelineService withAttempts = new CompanionChatPipelineService(
                 config, mock(AudioNormalizer.class), mock(RtzrSttClient.class), openRouter, tts,
                 mock(VoiceCastService.class), mock(CompanionChatTurnRepository.class), records,
-                new DialogueProperties(null, null, 3), null);
+                new DialogueProperties(null, null, 3), null, null);
         when(config.providers().openRouter().llmConfigured()).thenReturn(true);
         when(config.providers().gemini().ttsConfigured()).thenReturn(true);
         when(openRouter.generateCompanionReply(any(), any())).thenReturn(new OpenRouterClient.CompanionReply(

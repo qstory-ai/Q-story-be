@@ -449,4 +449,20 @@ class CompanionTryAndFailTest {
         assertThat(OpenRouterClient.COMPANION_PROMPT_VERSION).isEqualTo("GRETEL_DIALOGUE_V2_2");
         assertThat(OpenRouterClient.companionPromptVersion(false)).isEqualTo(OpenRouterClient.COMPANION_PROMPT_VERSION);
     }
+    @Test
+    void newBranchIsOfferedOnlyWhenLiveGenerationHasRoom() {
+        // 10/21 QA: "화장실 간다고 거짓말하고 갔다 오자"가 대화로만 끝났다 - 실시간 분기를 만들 수 있는 질문 지점에서만 NEW_BRANCH.
+        OpenRouterClient.CompanionRequest base = request("화장실 간다고 말하고 다녀오자", ON);
+        OpenRouterClient.CompanionRequest withLive = new OpenRouterClient.CompanionRequest(
+                base.transcript(), base.promptVersion(), base.storyTitle(), base.primarySpeakerId(), base.allowedSpeakerIds(),
+                base.forbiddenKnowledge(), base.persona(), base.dialogue(), base.inviteAnchor(), base.terms(),
+                base.attemptPolicy(), true);
+        assertThat(OpenRouterClient.replyKinds(base)).doesNotContain(OpenRouterClient.NEW_BRANCH);
+        assertThat(OpenRouterClient.replyKinds(withLive)).contains(OpenRouterClient.NEW_BRANCH, OpenRouterClient.TRY_FAIL);
+        // 상시 대화(질문 초대 밖)에서는 켜져 있어도 제안하지 않는다.
+        OpenRouterClient.CompanionRequest chat = new OpenRouterClient.CompanionRequest(
+                base.transcript(), base.promptVersion(), base.storyTitle(), base.primarySpeakerId(), base.allowedSpeakerIds(),
+                base.forbiddenKnowledge(), base.persona(), base.dialogue(), null, base.terms(), base.attemptPolicy(), true);
+        assertThat(OpenRouterClient.replyKinds(chat)).doesNotContain(OpenRouterClient.NEW_BRANCH);
+    }
 }
