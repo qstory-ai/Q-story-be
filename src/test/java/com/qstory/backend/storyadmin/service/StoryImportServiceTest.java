@@ -133,4 +133,62 @@ class StoryImportServiceTest {
         assertThat(deletedAssets.getValue()).containsExactlyInAnyOrder(sceneArt, otherAuthoredBranchArt);
         assertThat(deletedAssets.getValue()).doesNotContain(liveBranchArt);
     }
+    @Test
+    void reimportDropsLiveFamilyWhoseRejoinAnchorDisappeared() throws Exception {
+        // 2026-10-21 운영: 7화 앵커가 HG-F07-DEMONSTRATION → HG-F07-KEYS-TAKEN으로 바뀐 뒤에도 옛 이름으로
+        // 돌아가는 LIVE_C_* family가 남아, 앱이 'No destination' 예외로 이야기를 열지 못했다.
+        String storyId = "HG";
+        StoryActionFamily stale = StoryActionFamily.builder()
+                .id("LIVE_C_E87429CB_0").origin(FamilyOrigin.LIVE_GENERATED).rejoinTarget("HG-F07-DEMONSTRATION").build();
+        StoryActionFamily kept = StoryActionFamily.builder()
+                .id("LIVE_B_45B3C481_0").origin(FamilyOrigin.LIVE_GENERATED).rejoinTarget("HG-F05-ENTER-HOUSE").build();
+
+        when(storyRepository.findById(storyId)).thenReturn(Optional.empty());
+        when(storyRepository.save(any(Story.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(anchorRepository.findByStory_Id(storyId)).thenReturn(List.of());
+        // 첫 조회는 정리 전(둘 다), asset 정리 시점의 두 번째 조회는 정리 후(남은 것만).
+        when(familyRepository.findByAnchor_Story_IdAndOrigin(storyId, FamilyOrigin.LIVE_GENERATED))
+                .thenReturn(List.of(stale, kept))
+                .thenReturn(List.of(kept));
+
+        StoryAsset staleArt = StoryAsset.builder().slug("live-c-e87429cb-0-01").familyId(stale.getId()).build();
+        StoryAsset keptArt = StoryAsset.builder().slug("live-b-45b3c481-0-01").familyId(kept.getId()).build();
+        when(assetRepository.findByStory_IdOrderBySlugAsc(storyId)).thenReturn(List.of(staleArt, keptArt));
+
+        when(routePromptRepository.findByVersion(anyString())).thenReturn(Optional.empty());
+        when(sceneRepository.findByStory_IdOrderBySequenceAsc(storyId)).thenReturn(List.of());
+        when(castRepository.findByStory_Id(storyId)).thenReturn(List.of());
+
+        JsonNode body = objectMapper.readTree("""
+                {
+                  "generatedContent": {
+                    "story": {"id": "HG"},
+                    "scenes": [
+                      {"id": "HG-F05", "title": "", "checkpointId": "", "segments": [{"kind": "anchor", "id": "HG-F05-ENTER-HOUSE"}]},
+                      {"id": "HG-F07", "title": "", "checkpointId": "", "segments": [{"kind": "anchor", "id": "HG-F07-KEYS-TAKEN"}]}
+                    ],
+                    "fallbacks": []
+                  },
+                  "packageData": {
+                    "story": {"slug": "hansel-gretel", "title": "Hansel & Gretel", "contentVersion": "v2", "availability": "ACTIVE"},
+                    "routeContext": {
+                      "routePromptVersion": "v1", "routePolicyVersion": "v1",
+                      "responseTextNormalizationVersion": "v1", "anchors": {}
+                    },
+                    "cast": {"castVersion": "v1", "speakers": {}},
+                    "assets": [],
+                    "prompt": {"version": "v1", "system": ["hi"], "instruction": ["hi"]}
+                  }
+                }
+                """);
+
+        service.importStory(body);
+
+        verify(familyRepository).delete(stale);
+        verify(familyRepository, org.mockito.Mockito.never()).delete(kept);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<StoryAsset>> deletedAssets = ArgumentCaptor.forClass(List.class);
+        verify(assetRepository).deleteAll(deletedAssets.capture());
+        assertThat(deletedAssets.getValue()).contains(staleArt).doesNotContain(keptArt);
+    }
 }

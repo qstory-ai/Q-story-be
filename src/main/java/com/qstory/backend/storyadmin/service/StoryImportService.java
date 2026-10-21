@@ -72,6 +72,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class StoryImportService {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(StoryImportService.class);
 
     private final ObjectMapper objectMapper;
     private final StoryRepository storyRepository;
@@ -175,6 +176,28 @@ public class StoryImportService {
                 .toList();
         if (!existingAnchorIds.isEmpty()) {
             familyRepository.deleteByAnchor_IdInAndOrigin(existingAnchorIds, FamilyOrigin.AUTHORED);
+            familyRepository.flush();
+        }
+        // 다만 LIVE family도 콘텐츠가 바뀌어 돌아갈 앵커가 사라지면 보존할 가치가 없다 - 앱은 갈 곳
+        // 없는 분기 하나 때문에 이야기 전체를 열지 못한다(2026-10-21 운영: 7화 앵커가
+        // HG-F07-DEMONSTRATION → HG-F07-KEYS-TAKEN으로 바뀐 뒤 남은 LIVE_C_*). 이 페이로드의 anchor
+        // segment에 없는 곳으로 돌아가는 LIVE family와 그 fallback segment는 지우고, 그 삽화 asset은
+        // 아래 asset 정리가 함께 지운다(liveGeneratedFamilyIds를 이 삭제 뒤에 읽으므로).
+        Set<String> anchorSegmentIds = anchorSegmentIds(generatedContent);
+        List<StoryActionFamily> staleLiveFamilies = familyRepository
+                .findByAnchor_Story_IdAndOrigin(storyId, FamilyOrigin.LIVE_GENERATED).stream()
+                .filter(family -> family.getRejoinTarget() != null
+                        && !family.getRejoinTarget().isBlank()
+                        && !anchorSegmentIds.contains(family.getRejoinTarget()))
+                .toList();
+        for (StoryActionFamily family : staleLiveFamilies) {
+            log.warn("story-import.stale-live-family storyId={} familyId={} rejoinTarget={}",
+                    storyId, family.getId(), family.getRejoinTarget());
+            fallbackSegmentRepository.deleteAll(
+                    fallbackSegmentRepository.findByFamily_IdOrderByDisplayOrderAsc(family.getId()));
+            familyRepository.delete(family);
+        }
+        if (!staleLiveFamilies.isEmpty()) {
             familyRepository.flush();
         }
         importAnchors(routeContext, story);
@@ -536,6 +559,19 @@ public class StoryImportService {
     private record SegmentToSave(int order, String kind, boolean isBranchPoint, Map<String, Object> payload) {}
 
     /** scene.segments[]와 fallback.segments[] 양쪽에서 공유하는 세그먼트 단위 루프 - 형태는 동일하고 소유자만 다르다. */
+    /** 이 페이로드가 정의하는 anchor segment id 전부 - fallback의 rejoin.target이 가리킬 수 있는 곳. */
+    static Set<String> anchorSegmentIds(JsonNode generatedContent) {
+        Set<String> ids = new java.util.LinkedHashSet<>();
+        for (JsonNode sceneNode : generatedContent.path("scenes")) {
+            for (JsonNode segmentNode : sceneNode.path("segments")) {
+                if ("anchor".equals(segmentNode.path("kind").asText("")) && segmentNode.path("id").isTextual()) {
+                    ids.add(segmentNode.path("id").asText());
+                }
+            }
+        }
+        return ids;
+    }
+
     private int importSegments(JsonNode segmentsNode, Consumer<SegmentToSave> save) {
         int order = 0;
         int count = 0;

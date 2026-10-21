@@ -138,6 +138,22 @@ public class LiveBranchExecutionWorker {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
+    /** 조립된 이야기 콘텐츠(generatedContent.scenes[].anchors)에 실제로 있는 anchor segment id 전부. */
+    static Set<String> knownAnchorIds(JsonNode assembled) {
+        Set<String> ids = new LinkedHashSet<>();
+        if (assembled == null) {
+            return ids;
+        }
+        for (JsonNode scene : assembled.path("generatedContent").path("scenes")) {
+            for (JsonNode anchorId : scene.path("anchors")) {
+                if (anchorId.isTextual() && !anchorId.asText().isBlank()) {
+                    ids.add(anchorId.asText());
+                }
+            }
+        }
+        return ids;
+    }
+
     /** generateOneFamily() 성공 결과 - draft 자체는 commitAll()이 그대로 다시 읽어 쓴다. */
     private record GeneratedFamily(
             String familyId, JsonNode draft, String imageUrl, String imageIntegrity, String bucket, String objectName) {}
@@ -164,6 +180,17 @@ public class LiveBranchExecutionWorker {
             Set<String> rejoinCandidates = new LinkedHashSet<>(
                     familyRepository.findDistinctRejoinTargetsByAnchorId(anchor.getId()));
             rejoinCandidates.add(anchor.getDefaultRejoinAt());
+            // 재임포트로 앵커 이름이 바뀌면 옛 LIVE family의 rejoinTarget이 이야기에 더 이상 없을 수
+            // 있다 - 그걸 후보로 넘기면 갈 곳 없는 분기가 또 만들어져 앱이 이야기를 못 연다. 지금
+            // 조립된 콘텐츠의 anchor segment에 있는 것만 남긴다.
+            Set<String> knownAnchorIds = knownAnchorIds(assemblyService.get(job.getStoryId()));
+            rejoinCandidates.removeIf(candidate -> !knownAnchorIds.contains(candidate));
+            if (rejoinCandidates.isEmpty()) {
+                log.warn("live-branch.rejoin-anchor-missing jobId={} anchorId={} defaultRejoinAt={}",
+                        job.getId(), anchor.getId(), anchor.getDefaultRejoinAt());
+                failJob(job, "REJOIN_ANCHOR_MISSING");
+                return;
+            }
 
             byte[] referenceBytes = readReferenceImage(anchor.getSlot());
             // 3개 서브 작업이 각자 조회하면 같은 앵커의 같은 라벨 풀을 최대 3번 DB에 왕복하게 되므로,
