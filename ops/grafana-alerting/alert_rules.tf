@@ -150,10 +150,10 @@ locals {
       severity    = "warning"
       summary     = "API 응답 p95가 5분간 ${var.slow_request_p95_ms}ms를 넘었어요."
       description = <<-EOT
-        http.request 로그의 duration_ms 기준. 실시간 분기 생성처럼 원래 오래 걸리는 경로는 뺐다. 외부 AI·음성
+        http.request 로그의 duration_ms 기준. 실시간 분기 생성, 관리자 동화 가져오기(/v1/admin/)처럼 원래 오래 걸리는 경로는 뺐다. 외부 AI·음성
         지연인지(같이 울리는 provider 규칙 확인), DB 지연인지(db-pool-exhaustion) 먼저 가른다.
       EOT
-      logql       = "max(quantile_over_time(0.95, {app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"http.request\" != \"live-branch\" | regexp \"duration_ms=(?P<duration_ms>[0-9]+)\" | unwrap duration_ms [5m]))"
+      logql       = "max(quantile_over_time(0.95, {app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"http.request\" != \"live-branch\" != \"route=/v1/admin/\" | regexp \"duration_ms=(?P<duration_ms>[0-9]+)\" | unwrap duration_ms [5m]))"
       threshold   = var.slow_request_p95_ms
     }
     fcm-push-failure = {

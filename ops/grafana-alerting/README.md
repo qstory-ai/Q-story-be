@@ -31,7 +31,7 @@ threshold(변수, `variables.tf`)를 넘으면 Discord로 알린다. `backend-si
 | `gemini-tts-quota` | **critical** | `gemini-http.failed` + `status=429\|402` | `GeminiTtsClient.java` (하루 한도 초과·크레딧 소진, 1건이면 울림) |
 | `backend-boot-failure` | **critical** | `APPLICATION FAILED TO START` | Spring Boot 부팅 실패(be#18 같은 배포 장애) |
 | `backend-silent` | **critical** | `app.heartbeat`가 15분째 없음 | `HeartbeatLogger.java` (요청이 없어도 5분마다 찍힘) |
-| `slow-requests` | warning | `http.request`의 `duration_ms` p95 | `RequestIdFilter.java` (실시간 분기 생성 제외) |
+| `slow-requests` | warning | `http.request`의 `duration_ms` p95 | `RequestIdFilter.java` (실시간 분기 생성·관리자 `/v1/admin/` 제외) |
 | `client-error-spike` | warning | `client.error` | `ClientErrorController.java` (브라우저에서 보낸 에러) |
 | `rate-limit-spike` | warning | `rate-limit.blocked` | `RateLimitService.java` (요청 상한에 걸려 429로 끊은 요청) |
 | `fcm-push-failure` | warning | `fcm.send-failed` (단 `disabled=true` 제외) | `FcmClient.java`, `PushDispatcher.java` (앱 푸시 발송 실패) |
