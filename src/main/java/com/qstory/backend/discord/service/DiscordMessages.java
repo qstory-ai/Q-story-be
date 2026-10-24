@@ -4,6 +4,7 @@ import com.qstory.backend.discord.repository.DiscordMetricsRepository.Feedback;
 import com.qstory.backend.discord.repository.DiscordMetricsRepository.Funnel;
 import com.qstory.backend.discord.repository.DiscordMetricsRepository.GaTraffic;
 import com.qstory.backend.discord.repository.DiscordMetricsRepository.JoinRequests;
+import com.qstory.backend.discord.repository.DiscordMetricsRepository.Partnership;
 import com.qstory.backend.discord.repository.DiscordMetricsRepository.Surveys;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -15,7 +16,7 @@ import java.util.Map;
 
 /**
  * 디스코드 메시지 문장 조립(순수 함수). 숫자·별점·역할 이름만 넣는다 - 개인정보는 받지도 않는다.
- * 예외는 마이페이지 요청 미리보기 하나: 운영이 바로 연락할 수 있게 글 앞부분을 넣되, 이메일·전화번호는 가린다.
+ * 예외는 마이페이지 요청·협업 문의 미리보기: 운영이 바로 연락할 수 있게 글 앞부분을 넣되, 이름·이메일·전화번호는 넣지 않는다.
  */
 public final class DiscordMessages {
 
@@ -29,11 +30,13 @@ public final class DiscordMessages {
     /** 30분 묶음 숫자. */
     public record Window(
             LocalTime from, LocalTime to, Surveys surveys, long launchNotifications, long organizations,
-            JoinRequests joinRequests, Map<String, Long> signups, List<Feedback> feedback) {
+            JoinRequests joinRequests, Map<String, Long> signups, List<Feedback> feedback,
+            List<Partnership> partnerships) {
 
         public boolean empty() {
             return surveys.count() == 0 && launchNotifications == 0 && organizations == 0
-                    && joinRequests.created() == 0 && total(signups) == 0 && feedback.isEmpty();
+                    && joinRequests.created() == 0 && total(signups) == 0 && feedback.isEmpty()
+                    && partnerships.isEmpty();
         }
     }
 
@@ -73,6 +76,7 @@ public final class DiscordMessages {
             lines.add("출시 알림 신청 " + window.launchNotifications() + "건");
         }
         appendFeedback(lines, window.feedback());
+        appendPartnerships(lines, window.partnerships());
         if (window.organizations() > 0) {
             lines.add("새 기관 등록 " + window.organizations() + "곳");
         }
@@ -104,6 +108,25 @@ public final class DiscordMessages {
         if (feedback.size() > FEEDBACK_PREVIEWS) {
             lines.add("> 외 " + (feedback.size() - FEEDBACK_PREVIEWS) + "건");
         }
+    }
+
+    /** 랜딩 협업 문의 - 건수와 앞 5건 미리보기(소속·역할과 내용 앞부분, 이름·이메일·전화는 넣지 않는다). */
+    private static void appendPartnerships(List<String> lines, List<Partnership> partnerships) {
+        if (partnerships.isEmpty()) {
+            return;
+        }
+        lines.add("협업 문의 " + partnerships.size() + "건");
+        partnerships.stream().limit(FEEDBACK_PREVIEWS).forEach(p -> lines.add("> " + partnershipPreview(p)));
+        if (partnerships.size() > FEEDBACK_PREVIEWS) {
+            lines.add("> 외 " + (partnerships.size() - FEEDBACK_PREVIEWS) + "건");
+        }
+    }
+
+    static String partnershipPreview(Partnership partnership) {
+        String who = String.join(" · ", java.util.stream.Stream.of(partnership.affiliation(), partnership.role())
+                .filter(v -> v != null && !v.isBlank()).map(String::trim).toList());
+        String text = feedbackPreview(new Feedback(partnership.message(), null));
+        return who.isEmpty() ? text : "(" + feedbackPreview(new Feedback(who, null)) + ") " + text;
     }
 
     static String feedbackPreview(Feedback feedback) {

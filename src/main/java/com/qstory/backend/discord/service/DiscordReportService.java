@@ -120,7 +120,8 @@ public class DiscordReportService {
         DiscordMessages.Window window = new DiscordMessages.Window(
                 start.atZone(KST).toLocalTime(), end.atZone(KST).toLocalTime(),
                 metrics.surveys(start, end), metrics.launchNotifications(start, end), metrics.organizations(start, end),
-                metrics.joinRequests(start, end), metrics.signupsByRole(start, end), metrics.feedback(start, end));
+                metrics.joinRequests(start, end), metrics.signupsByRole(start, end), metrics.feedback(start, end),
+                metrics.partnerships(start, end));
         state.putState(DIGEST_CURSOR, end.toString());
         if (window.empty()) {
             return false;

@@ -48,6 +48,13 @@ public class DiscordMetricsRepository {
             order by f.created_at
             """;
 
+    /** 랜딩 협업 문의 - 소속·역할·내용만(이름·이메일·전화는 고르지 않는다). */
+    static final String PARTNERSHIPS = """
+            select affiliation, role, message from public.partnership_inquiries
+            where created_at >= :from and created_at < :to
+            order by created_at
+            """;
+
     static final String SURVEYS = """
             select count(*) as n, avg(child_engagement) as engagement, avg(report_helpfulness) as helpfulness
             from public.completion_surveys where created_at >= :from and created_at < :to
@@ -79,6 +86,9 @@ public class DiscordMetricsRepository {
 
     /** 마이페이지 요청 한 건 - 남긴 글과 남긴 사람 역할(없으면 null). */
     public record Feedback(String message, String role) {}
+
+    /** 협업 문의 한 건 - 소속, 역할, 내용. */
+    public record Partnership(String affiliation, String role, String message) {}
 
     public record Surveys(long count, Double engagement, Double helpfulness) {}
 
@@ -115,6 +125,11 @@ public class DiscordMetricsRepository {
     public List<Feedback> feedback(Instant from, Instant to) {
         return jdbc.query(FEEDBACK, range(from, to),
                 (rs, i) -> new Feedback(rs.getString("message"), rs.getString("role")));
+    }
+
+    public List<Partnership> partnerships(Instant from, Instant to) {
+        return jdbc.query(PARTNERSHIPS, range(from, to), (rs, i) ->
+                new Partnership(rs.getString("affiliation"), rs.getString("role"), rs.getString("message")));
     }
 
     public Surveys surveys(Instant from, Instant to) {
