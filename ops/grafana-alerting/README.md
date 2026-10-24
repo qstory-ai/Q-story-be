@@ -56,9 +56,12 @@ Discord 메시지에는 firing/resolved 요약, description, Grafana Explore 링
 
 ## 대시보드
 
-`Dashboards > qstory-backend` 폴더.
+폴더 두 개(`folder.tf`). 권한은 Terraform이 전부 정한다(콘솔에서 바꾸면 apply 때 되돌아간다).
 
-- **Q-Story 백엔드 상태**(운영 개요, 조직 홈 대시보드 - `preferences.tf`): 분당 요청 수, 5xx 비율, 경로별 응답
+- `Q-Story 운영·영업`: 사용자 응답·유입 → 전환·대화 품질. 조직 Viewer(운영·영업 PM)도 본다. 조직 홈은 사용자 응답.
+- `qstory-backend`: 백엔드 상태·UT 회차(아이 발화 원문)·알림 규칙. Viewer는 못 보고 Editor·Admin만.
+
+- **Q-Story 백엔드 상태**(운영 개요): 분당 요청 수, 5xx 비율, 경로별 응답
   시간 p95, 외부 AI·음성 실패, 브라우저 에러(종류별), 서버 메모리, 최근 24시간 Gemini TTS 호출(성공 + 한도를 쓴
   실패, 한도 `tts_daily_limit` 대비 색), 최근 15분 heartbeat, 요청 상한(429) 차단(상한별), 오늘 이용(방문 세션·
   이야기 시작·완주·그레텔 대화, Postgres 연결이 있을 때), 최근 에러 로그.

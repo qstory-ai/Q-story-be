@@ -360,7 +360,7 @@ locals {
 
 resource "grafana_dashboard" "dialogue_quality" {
   count  = local.postgres_enabled ? 1 : 0
-  folder = grafana_folder.alerting.uid
+  folder = grafana_folder.ops.uid
   config_json = jsonencode({
     uid           = "qstory-dialogue-quality"
     title         = "Q-Story 대화 품질"
