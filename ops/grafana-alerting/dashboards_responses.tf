@@ -1,6 +1,6 @@
 # ── 사용자 응답 (출시 알림·가입·1분 후기·협업 문의·마이페이지 요청·탈퇴) ─────────────────────────────────
-# 운영 DB의 grafana.user_responses 뷰(db/schema/091)를 읽는다. 뷰에는 이름·이메일·전화번호·연락처 칸이 없고, 자유 글은
-# 이메일·휴대전화 모양을 가린 앞 120자만 있다. 연락이 필요하면 Supabase Table Editor에서 원본을 본다.
+# 운영 DB의 grafana.user_responses 뷰(db/schema/091·092)를 읽는다. 최근 목록에는 운영이 바로 연락할 수 있게 이름·이메일·전화와
+# 연락 동의를 같이 보여 준다(자유 글 요약 속 연락처는 가린 채). 이 폴더를 볼 수 있는 사람은 모두 연락처를 보게 된다.
 # 디스코드 "소식" 채널에는 같은 내용이 30분마다 묶여 온다.
 
 locals {
@@ -25,12 +25,13 @@ locals {
       pos         = { x = 10, y = 0, w = 14, h = 8 }
     }
     c_recent = {
-      title       = "최근 응답 (연락처 제외)"
-      description = "최근 200건. 내용은 종류별 요약(나이대·유입 경로·역할·점수·글 앞부분). 연락처가 필요하면 Supabase에서 원본을 본다."
+      title       = "최근 응답"
+      description = "최근 200건. 내용은 종류별 요약(나이대·유입 경로·역할·점수·글 앞부분). 연락은 연락 동의 칸을 확인하고 한다."
       type        = "table"
       format      = "table"
       sql         = <<-SQL
-        select to_char(occurred_at at time zone 'Asia/Seoul', 'YYYY-MM-DD HH24:MI') as "시각", kind as "종류", summary as "내용"
+        select to_char(occurred_at at time zone 'Asia/Seoul', 'YYYY-MM-DD HH24:MI') as "시각", kind as "종류", summary as "내용",
+               name as "이름", email as "이메일", phone as "전화", contact_consent as "연락 동의"
         from grafana.user_responses where $__timeFilter(occurred_at) order by occurred_at desc limit 200
       SQL
       pos         = { x = 0, y = 8, w = 24, h = 14 }
@@ -44,7 +45,7 @@ resource "grafana_dashboard" "user_responses" {
   config_json = jsonencode({
     uid           = "qstory-user-responses"
     title         = "Q-Story 사용자 응답"
-    description   = "출시 알림 신청·가입·1분 후기·협업 문의·마이페이지 요청·탈퇴를 날짜별로 세고 최근 목록을 본다(연락처 제외)."
+    description   = "출시 알림 신청·가입·1분 후기·협업 문의·마이페이지 요청·탈퇴를 날짜별로 세고 최근 목록(연락처 포함)을 본다."
     tags          = ["qstory", "growth", "responses"]
     timezone      = "Asia/Seoul"
     schemaVersion = 39
