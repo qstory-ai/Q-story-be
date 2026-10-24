@@ -465,4 +465,18 @@ class CompanionTryAndFailTest {
                 base.forbiddenKnowledge(), base.persona(), base.dialogue(), null, base.terms(), base.attemptPolicy(), true);
         assertThat(OpenRouterClient.replyKinds(chat)).doesNotContain(OpenRouterClient.NEW_BRANCH);
     }
+
+    @Test
+    void preparedActionMustMatchTheMethodWhenANewBranchIsPossible() {
+        // 10/21 QA: "마녀가 냄비를 보게 하고 열쇠를 가져오자"가 "헨젤이 부르는 동안"으로 묶였다 - 방법이 다르면 새 선택지로.
+        OpenRouterClient.CompanionRequest base = request("마녀가 냄비를 보게 하고 열쇠를 가져오자", anchorC(), ON, withAttempt(0, null));
+        OpenRouterClient.CompanionRequest withLive = new OpenRouterClient.CompanionRequest(
+                base.transcript(), base.promptVersion(), base.storyTitle(), base.primarySpeakerId(), base.allowedSpeakerIds(),
+                base.forbiddenKnowledge(), base.persona(), base.dialogue(), base.inviteAnchor(), base.terms(),
+                base.attemptPolicy(), true);
+        assertThat(client.companionSystemPrompt(withLive))
+                .contains("방법(누가, 무엇으로 하는지)까지 같다는 뜻이다", "마녀가 냄비를 보게 하고 열쇠를 가져오자");
+        // 새 선택지를 못 만들 때는 지금처럼 목적이 같으면 준비된 행동으로 잇는다.
+        assertThat(client.companionSystemPrompt(base)).doesNotContain("방법(누가, 무엇으로 하는지)까지 같다는 뜻이다");
+    }
 }
