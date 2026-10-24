@@ -3,6 +3,7 @@ package com.qstory.backend.identity.controller;
 import com.qstory.backend.identity.OAuthProvider;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.dto.OAuthLoginRequest;
+import com.qstory.backend.identity.repository.LoginLogRepository;
 import com.qstory.backend.identity.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,22 +22,28 @@ import org.springframework.web.bind.annotation.RestController;
 public class OAuthController {
 
     private final AuthService authService;
+    private final LoginLogRepository loginLog;
 
-    public OAuthController(AuthService authService) {
+    public OAuthController(AuthService authService, LoginLogRepository loginLog) {
         this.authService = authService;
+        this.loginLog = loginLog;
     }
 
     @Operation(summary = "Sign in or sign up with Google",
             description = "token is the id_token from Google Identity Services. role is required only for a brand-new account.")
     @PostMapping("/v1/auth/oauth/google")
     public AuthResponse google(@RequestBody OAuthLoginRequest request) {
-        return authService.loginOrSignupWithOAuth(OAuthProvider.GOOGLE, request);
+        AuthResponse response = authService.loginOrSignupWithOAuth(OAuthProvider.GOOGLE, request);
+        loginLog.record(response, "GOOGLE");
+        return response;
     }
 
     @Operation(summary = "Sign in or sign up with Kakao",
             description = "token is the access token from the Kakao JS SDK. role is required only for a brand-new account.")
     @PostMapping("/v1/auth/oauth/kakao")
     public AuthResponse kakao(@RequestBody OAuthLoginRequest request) {
-        return authService.loginOrSignupWithOAuth(OAuthProvider.KAKAO, request);
+        AuthResponse response = authService.loginOrSignupWithOAuth(OAuthProvider.KAKAO, request);
+        loginLog.record(response, "KAKAO");
+        return response;
     }
 }

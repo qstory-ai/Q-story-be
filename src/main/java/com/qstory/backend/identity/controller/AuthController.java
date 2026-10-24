@@ -1,4 +1,5 @@
 package com.qstory.backend.identity.controller;
+import com.qstory.backend.identity.repository.LoginLogRepository;
 import com.qstory.backend.identity.service.AuthService;
 
 import com.qstory.backend.common.util.AdminTokenGuard;
@@ -42,14 +43,16 @@ public class AuthController {
     private final CurrentUserResolver currentUserResolver;
     private final AdminTokenGuard adminTokenGuard;
     private final RateLimitService rateLimitService;
+    private final LoginLogRepository loginLog;
 
     public AuthController(
             AuthService authService, CurrentUserResolver currentUserResolver, AdminTokenGuard adminTokenGuard,
-            RateLimitService rateLimitService) {
+            RateLimitService rateLimitService, LoginLogRepository loginLog) {
         this.authService = authService;
         this.currentUserResolver = currentUserResolver;
         this.adminTokenGuard = adminTokenGuard;
         this.rateLimitService = rateLimitService;
+        this.loginLog = loginLog;
     }
 
     @Operation(summary = "Sign up as an organization owner",
@@ -105,7 +108,9 @@ public class AuthController {
             rateLimitService.enforce(RateLimitRule.LOGIN_ACCOUNT, rateLimitService.clientIp(httpRequest) + "|" + loginId);
             rateLimitService.enforce(RateLimitRule.LOGIN_ID, loginId);
         }
-        return authService.login(request);
+        AuthResponse response = authService.login(request);
+        loginLog.record(response, "PASSWORD");
+        return response;
     }
 
     @Operation(summary = "Renew the current token",
@@ -113,7 +118,9 @@ public class AuthController {
                     + "and a full lifetime. 401 if the token is missing/expired or the account was deleted.")
     @PostMapping("/v1/auth/refresh")
     public AuthResponse refresh() {
-        return authService.refresh(currentUserResolver.require());
+        AuthResponse response = authService.refresh(currentUserResolver.require());
+        loginLog.record(response, "REFRESH");
+        return response;
     }
 
     @Operation(summary = "Get the current logged-in user")
