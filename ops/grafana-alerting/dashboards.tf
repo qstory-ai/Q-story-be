@@ -289,71 +289,230 @@ resource "grafana_dashboard" "backend_overview" {
 }
 
 # ── 대화 품질 (Postgres) ─────────────────────────────────────────────────────
+# 운영·영업 PM과 기획이 보는 화면. 이야기 흐름(시작 → 질문 → 대화 → 완주 → 리포트), 장면별 이탈, 질문 지점별 반응,
+# 그레텔 답과 대기 시간, 재생 조작을 본다. 원문(아이 말·답 문장)은 없다 - 원문은 UT 회차(개발 폴더)에서만.
+# 상단 `트래픽` 변수 기본은 실제 이용자(BETA). 차트 꾸밈(stat·막대·도넛)은 dashboards_responses.tf의 locals를 같이 쓴다.
 
 locals {
   pg = local.postgres_enabled ? { type = "grafana-postgresql-datasource", uid = grafana_data_source.postgres[0].uid } : null
 
-  # $traffic_type은 대시보드 변수(BETA/QA/DEV, DB에 대문자로 저장됨) - 기본은 실제 이용자(BETA)만.
+  # $traffic_type은 대시보드 변수(BETA/QA/DEV, DB에 대문자로 저장됨).
+  in_range = "traffic_type = '$traffic_type' and $__timeFilter(occurred_at)"
+  # 아이 말(CHILD_TURN) 바로 다음 그레텔 답(REPLY)까지 걸린 초 - 같은 세션 안에서 다음 단계를 본다.
+  reply_waits = <<-SQL
+    select occurred_at, extract(epoch from next_at - occurred_at) as wait_s from (
+      select occurred_at, turn_kind,
+             lead(turn_kind) over w as next_kind, lead(occurred_at) over w as next_at
+      from grafana.dialogue_steps where turn_kind in ('CHILD_TURN', 'REPLY', 'ERROR') and ${local.in_range}
+      window w as (partition by session_id order by occurred_at)) t
+    where turn_kind = 'CHILD_TURN' and next_kind = 'REPLY'
+  SQL
+
+  dialogue_rows = {
+    r1 = { title = "한눈에", y = 0 }
+    r2 = { title = "이야기 흐름 - 어디까지 듣고, 어디서 멈추나", y = 6 }
+    r3 = { title = "질문 지점별 반응", y = 24 }
+    r4 = { title = "그레텔 답", y = 42 }
+    r5 = { title = "재생 조작", y = 51 }
+  }
+
   dialogue_queries = {
-    opens = {
-      title  = "하루 대화 열림 (진입 방식별)"
-      type   = "timeseries"
-      format = "time_series"
-      sql    = "select date_trunc('day', occurred_at) as time, entry_mode as metric, count(*) as value from grafana.dialogue_steps where turn_kind = 'OPEN' and traffic_type = '$traffic_type' and $__timeFilter(occurred_at) group by 1, 2 order by 1"
-      pos    = { x = 0, y = 0, w = 12, h = 8 }
+    k1_started = {
+      title       = "이야기 시작"
+      description = "이야기를 시작한 세션 수."
+      type        = "stat"
+      sql         = "select count(distinct session_id) as \"세션\" from grafana.story_events where event_name = 'STORY_STARTED' and ${local.in_range}"
+      options     = local.this_vs_prev
+      pos         = { x = 0, y = 1, w = 3, h = 5 }
     }
-    invite_outcomes = {
-      title  = "질문 초대별 결과"
-      type   = "table"
-      format = "table"
-      sql    = <<-SQL
-        select anchor_id as "질문 지점",
-               count(*) filter (where turn_kind = 'OPEN') as "초대",
-               count(*) filter (where turn_kind = 'CHILD_TURN') as "아이 말",
-               count(*) filter (where turn_kind = 'HELP') as "도움 요청",
-               count(*) filter (where turn_kind = 'CONFIRM') as "행동 실행",
-               count(*) filter (where turn_kind = 'CONFIRM' and via_suggestion) as "예시 후 선택",
-               round(100.0 * count(*) filter (where turn_kind = 'CONFIRM') / nullif(count(*) filter (where turn_kind = 'OPEN'), 0), 1) as "행동 실행률 %"
-        from grafana.dialogue_steps
-        where anchor_id is not null and traffic_type = '$traffic_type' and $__timeFilter(occurred_at)
-        group by anchor_id order by anchor_id
+    k2_completion = {
+      title       = "완주율"
+      description = "이야기를 시작한 세션 중 끝까지 들은 비율."
+      type        = "stat"
+      sql         = "select round(100.0 * count(distinct session_id) filter (where event_name = 'STORY_COMPLETED') / nullif(count(distinct session_id) filter (where event_name = 'STORY_STARTED'), 0), 0) as \"완주율\", count(distinct session_id) filter (where event_name = 'STORY_COMPLETED') as \"완주\" from grafana.story_events where ${local.in_range}"
+      options     = local.this_vs_prev
+      overrides   = [{ matcher = { id = "byName", options = "완주율" }, properties = [{ id = "unit", value = "percent" }, { id = "noValue", value = "-" }] }]
+      pos         = { x = 3, y = 1, w = 3, h = 5 }
+    }
+    k3_talk_rate = {
+      title       = "대화 참여율"
+      description = "이야기를 시작한 세션 중 아이가 그레텔에게 한 번이라도 말한 비율."
+      type        = "stat"
+      sql         = <<-SQL
+        select round(100.0 * t.n / nullif(s.n, 0), 0) as "참여율", t.n as "말한 세션"
+        from (select count(distinct session_id) as n from grafana.dialogue_steps where turn_kind = 'CHILD_TURN' and ${local.in_range}) t,
+             (select count(distinct session_id) as n from grafana.story_events where event_name = 'STORY_STARTED' and ${local.in_range}) s
       SQL
-      pos    = { x = 12, y = 0, w = 12, h = 8 }
+      options     = local.this_vs_prev
+      overrides   = [{ matcher = { id = "byName", options = "참여율" }, properties = [{ id = "unit", value = "percent" }, { id = "noValue", value = "-" }] }]
+      pos         = { x = 6, y = 1, w = 3, h = 5 }
     }
-    help_steps = {
-      title  = "도움 단계 분포 (몇 단계까지 썼나)"
-      type   = "barchart"
-      format = "table"
-      sql    = "select anchor_id || ' · ' || help_step || '단계' as step, count(*) as \"요청\" from grafana.dialogue_steps where turn_kind = 'HELP' and traffic_type = '$traffic_type' and $__timeFilter(occurred_at) group by anchor_id, help_step order by anchor_id, help_step"
-      pos    = { x = 0, y = 8, w = 12, h = 8 }
+    k4_spontaneous = {
+      title       = "아이가 먼저 건 대화"
+      description = "질문 초대 없이 아이가 스스로 그레텔을 불러 대화를 연 횟수와 그런 세션 수. 아이의 자발적 참여 지표."
+      type        = "stat"
+      sql         = "select count(*) as \"횟수\", count(distinct session_id) as \"세션\" from grafana.dialogue_steps where turn_kind = 'OPEN' and entry_mode = 'SPONTANEOUS' and ${local.in_range}"
+      options     = local.this_vs_prev
+      pos         = { x = 9, y = 1, w = 3, h = 5 }
     }
-    reply_kinds = {
-      title  = "그레텔 답 종류"
-      type   = "piechart"
-      format = "table"
-      sql    = "select coalesce(reply_kind, '-') as kind, count(*) as value from grafana.dialogue_steps where turn_kind = 'REPLY' and traffic_type = '$traffic_type' and $__timeFilter(occurred_at) group by 1"
-      pos    = { x = 12, y = 8, w = 6, h = 8 }
+    k5_turns = {
+      title       = "대화당 평균 왕복"
+      description = "대화 한 번에 아이와 그레텔이 주고받은 평균 횟수."
+      type        = "stat"
+      sql         = "select round(avg(turn_number)::numeric, 1) as \"왕복\" from grafana.dialogue_steps where turn_kind = 'CLOSE' and ${local.in_range}"
+      options     = local.this_vs_prev
+      defaults    = { noValue = "-", decimals = 1 }
+      pos         = { x = 12, y = 1, w = 3, h = 5 }
     }
-    dialogue_errors = {
-      title  = "대화 오류율"
-      type   = "stat"
-      format = "table"
-      sql    = "select round(100.0 * count(*) filter (where turn_kind = 'ERROR') / nullif(count(*) filter (where turn_kind = 'CHILD_TURN'), 0), 1) as \"오류율 %\" from grafana.dialogue_steps where traffic_type = '$traffic_type' and $__timeFilter(occurred_at)"
-      pos    = { x = 18, y = 8, w = 6, h = 4 }
+    k6_wait = {
+      title       = "답 기다린 시간"
+      description = "아이가 말한 뒤 그레텔 답이 나오기까지 걸린 시간(중앙값과 느린 쪽 10%)."
+      type        = "stat"
+      sql         = "select round(percentile_cont(0.5) within group (order by wait_s)::numeric, 1) as \"중앙값\", round(percentile_cont(0.9) within group (order by wait_s)::numeric, 1) as \"느린 10%\" from (${local.reply_waits}) w"
+      options     = local.this_vs_prev
+      defaults    = { noValue = "-", unit = "s", decimals = 1 }
+      pos         = { x = 15, y = 1, w = 3, h = 5 }
     }
-    turns = {
-      title  = "대화당 평균 왕복"
-      type   = "stat"
-      format = "table"
-      sql    = "select round(avg(turn_number)::numeric, 1) as \"왕복\" from grafana.dialogue_steps where turn_kind = 'CLOSE' and traffic_type = '$traffic_type' and $__timeFilter(occurred_at)"
-      pos    = { x = 18, y = 12, w = 6, h = 4 }
+    k7_voice = {
+      title       = "음성으로 말한 비율"
+      description = "아이 말 중 음성 인식으로 들어온 비율(나머지는 글자·예시 선택)."
+      type        = "stat"
+      sql         = "select round(100.0 * count(*) filter (where turn_kind = 'TRANSCRIBED') / nullif(count(*) filter (where turn_kind = 'CHILD_TURN'), 0), 0) as \"음성\" from grafana.dialogue_steps where ${local.in_range}"
+      options     = local.this_vs_prev
+      defaults    = { noValue = "-", unit = "percent" }
+      pos         = { x = 18, y = 1, w = 3, h = 5 }
     }
-    funnel = {
-      title  = "하루 이야기 시작·완주"
-      type   = "timeseries"
-      format = "time_series"
-      sql    = "select date_trunc('day', occurred_at) as time, case event_name when 'STORY_STARTED' then '시작' else '완주' end as metric, count(distinct session_id) as value from grafana.story_events where event_name in ('STORY_STARTED', 'STORY_COMPLETED') and traffic_type = '$traffic_type' and $__timeFilter(occurred_at) group by 1, 2 order by 1"
-      pos    = { x = 0, y = 16, w = 24, h = 8 }
+    k8_errors = {
+      title       = "대화 오류율"
+      description = "아이 말 중 답을 못 만들고 오류가 난 비율. 2% 넘으면 개발에 알려 주세요."
+      type        = "stat"
+      sql         = "select round(100.0 * count(*) filter (where turn_kind = 'ERROR') / nullif(count(*) filter (where turn_kind = 'CHILD_TURN'), 0), 1) as \"오류율\", count(*) filter (where turn_kind = 'ERROR') as \"오류\" from grafana.dialogue_steps where ${local.in_range}"
+      options     = merge(local.this_vs_prev, { colorMode = "value" })
+      overrides = [{ matcher = { id = "byName", options = "오류율" }, properties = [
+        { id = "unit", value = "percent" }, { id = "decimals", value = 1 }, { id = "noValue", value = "-" },
+        { id = "thresholds", value = { mode = "absolute", steps = [{ color = "green", value = null }, { color = "orange", value = 2 }, { color = "red", value = 5 }] } },
+      ] }]
+      pos = { x = 21, y = 1, w = 3, h = 5 }
+    }
+    f1_funnel = {
+      title       = "세션 퍼널"
+      description = "단계별 세션 수. 대화 참여 = 아이가 한 번이라도 말함, 리포트 = 보호자·앱 리포트를 연 세션."
+      type        = "barchart"
+      sql         = <<-SQL
+        select step as "단계", n as "세션" from (
+          select '1 이야기 시작' as step, count(distinct session_id) as n from grafana.story_events where event_name = 'STORY_STARTED' and ${local.in_range}
+          union all select '2 질문 초대 봄', count(distinct session_id) from grafana.story_events where event_name = 'QUESTION_INVITE_SHOWN' and ${local.in_range}
+          union all select '3 대화 참여', count(distinct session_id) from grafana.dialogue_steps where turn_kind = 'CHILD_TURN' and ${local.in_range}
+          union all select '4 완주', count(distinct session_id) from grafana.story_events where event_name = 'STORY_COMPLETED' and ${local.in_range}
+          union all select '5 리포트 열기', count(distinct session_id) from grafana.story_events where event_name in ('PARENT_REPORT_OPENED', 'REPORT_VIEWED') and ${local.in_range}
+        ) f order by 1
+      SQL
+      options     = merge(local.bars_horizontal, { orientation = "auto" })
+      pos         = { x = 0, y = 7, w = 12, h = 9 }
+    }
+    f2_scenes = {
+      title       = "장면별 도달 (이탈 곡선)"
+      description = "각 장면까지 온 세션 수와 첫 장면 대비 비율. 크게 줄어드는 장면이 이탈 지점."
+      type        = "barchart"
+      sql         = <<-SQL
+        select scene_id as "장면", n as "도달 세션", round(100.0 * n / nullif(first_value(n) over (order by scene_id), 0), 0) as "첫 장면 대비 %"
+        from (select scene_id, count(distinct session_id) as n from grafana.story_events
+              where event_name = 'SCENE_REACHED' and scene_id is not null and ${local.in_range} group by 1) s
+        order by 1
+      SQL
+      options     = merge(local.bars_horizontal, { orientation = "auto" })
+      pos         = { x = 12, y = 7, w = 12, h = 9 }
+    }
+    f3_daily = {
+      title       = "하루 이야기 시작·완주"
+      description = "한국 날짜 기준 하루 세션 수."
+      type        = "timeseries"
+      format      = "time_series"
+      sql         = "select (date_trunc('day', occurred_at at time zone 'Asia/Seoul') at time zone 'Asia/Seoul') as time, case event_name when 'STORY_STARTED' then '시작' else '완주' end as metric, count(distinct session_id) as value from grafana.story_events where event_name in ('STORY_STARTED', 'STORY_COMPLETED') and ${local.in_range} group by 1, 2 order by 1"
+      custom      = { drawStyle = "line", fillOpacity = 10, showPoints = "always" }
+      pos         = { x = 0, y = 16, w = 24, h = 8 }
+    }
+    q1_anchors = {
+      title       = "질문 지점별 반응"
+      description = "초대 본 세션 = 질문 초대가 뜬 세션, 답한 세션 = 그 지점에서 아이가 말한 세션. 건너뜀은 횟수(한 세션에서 여러 번일 수 있음)."
+      type        = "table"
+      sql         = <<-SQL
+        select coalesce(i.anchor_id, d.anchor_id) as "질문 지점", coalesce(i.shown, 0) as "초대 본 세션", coalesce(d.answered, 0) as "답한 세션",
+               round(100.0 * coalesce(d.answered, 0) / nullif(i.shown, 0), 0) as "답한 비율 %", coalesce(i.skipped, 0) as "건너뜀",
+               coalesce(d.helps, 0) as "도움 요청", coalesce(d.actions, 0) as "행동 실행", coalesce(d.from_example, 0) as "예시 보고 고름"
+        from (select anchor_id, count(distinct session_id) filter (where event_name = 'QUESTION_INVITE_SHOWN') as shown,
+                     count(*) filter (where event_name = 'QUESTION_SKIPPED') as skipped
+              from grafana.story_events where anchor_id is not null and ${local.in_range} group by 1) i
+        full join (select anchor_id, count(distinct session_id) filter (where turn_kind = 'CHILD_TURN') as answered,
+                          count(*) filter (where turn_kind = 'HELP') as helps, count(*) filter (where turn_kind = 'CONFIRM') as actions,
+                          count(*) filter (where turn_kind = 'CONFIRM' and via_suggestion) as from_example
+                   from grafana.dialogue_steps where anchor_id is not null and ${local.in_range} group by 1) d on d.anchor_id = i.anchor_id
+        order by 1
+      SQL
+      pos         = { x = 0, y = 25, w = 24, h = 7 }
+    }
+    q2_help = {
+      title       = "도움 단계 (몇 단계까지 썼나)"
+      description = "아이가 막혀서 도움을 받은 단계. 단계가 높을수록 질문이 어려웠다는 뜻."
+      type        = "barchart"
+      sql         = "select anchor_id || ' · ' || help_step || '단계' as \"지점·단계\", count(*) as \"요청\" from grafana.dialogue_steps where turn_kind = 'HELP' and ${local.in_range} group by anchor_id, help_step order by anchor_id, help_step"
+      options     = local.bars_horizontal
+      pos         = { x = 0, y = 32, w = 12, h = 10 }
+    }
+    q3_opens = {
+      title       = "하루 대화 열림 (어떻게 시작했나)"
+      description = "질문 초대로 열림 / 아이가 먼저 열림 / 도움 요청으로 열림."
+      type        = "timeseries"
+      format      = "time_series"
+      sql         = "select (date_trunc('day', occurred_at at time zone 'Asia/Seoul') at time zone 'Asia/Seoul') as time, case entry_mode when 'INVITE' then '질문 초대' when 'SPONTANEOUS' then '아이가 먼저' when 'HELP' then '도움 요청' else coalesce(entry_mode, '-') end as metric, count(*) as value from grafana.dialogue_steps where turn_kind = 'OPEN' and ${local.in_range} group by 1, 2 order by 1"
+      custom      = local.stacked_bars
+      pos         = { x = 12, y = 32, w = 12, h = 10 }
+    }
+    a1_reply_kinds = {
+      title       = "그레텔 답 종류"
+      description = "답변 / 공감 / 이야기로 돌림(주제를 벗어났을 때) / 마무리 / 행동 시도 실패."
+      type        = "piechart"
+      sql         = "select case reply_kind when 'ANSWER' then '답변' when 'REDIRECT' then '이야기로 돌림' when 'CLOSE' then '마무리' when 'TRY_FAIL' then '행동 시도 실패' when 'EMPATHY' then '공감' else coalesce(reply_kind, '-') end as \"답 종류\", count(*) as \"답\" from grafana.dialogue_steps where turn_kind = 'REPLY' and ${local.in_range} group by 1 order by 2 desc"
+      options     = local.pie
+      pos         = { x = 0, y = 43, w = 8, h = 8 }
+    }
+    a2_close = {
+      title       = "대화가 끝난 방식"
+      description = "이야기로 돌아감(그레텔이 마무리) / 아이가 직접 끝냄 등."
+      type        = "piechart"
+      sql         = "select case reply_kind when 'CONTINUE' then '이야기로 돌아감' when 'CHILD_ENDED' then '아이가 끝냄' when 'CLOSED_BY_REPLY' then '그레텔 답으로 끝남' else coalesce(reply_kind, '-') end as \"끝난 방식\", count(*) as \"대화\" from grafana.dialogue_steps where turn_kind = 'CLOSE' and ${local.in_range} group by 1 order by 2 desc"
+      options     = local.pie
+      pos         = { x = 8, y = 43, w = 8, h = 8 }
+    }
+    a3_wait_daily = {
+      title       = "하루 답 기다린 시간"
+      description = "아이 말 → 그레텔 답까지 걸린 초(하루 중앙값과 느린 쪽 10%)."
+      type        = "timeseries"
+      format      = "time_series"
+      sql         = <<-SQL
+        select (date_trunc('day', occurred_at at time zone 'Asia/Seoul') at time zone 'Asia/Seoul') as time,
+               percentile_cont(0.5) within group (order by wait_s) as "중앙값", percentile_cont(0.9) within group (order by wait_s) as "느린 10%"
+        from (${local.reply_waits}) w group by 1 order by 1
+      SQL
+      defaults    = { unit = "s", decimals = 1 }
+      custom      = { drawStyle = "line", fillOpacity = 0, showPoints = "always" }
+      pos         = { x = 16, y = 43, w = 8, h = 8 }
+    }
+    p1_controls = {
+      title       = "재생 조작 종류"
+      description = "듣는 중에 누른 조작 횟수."
+      type        = "barchart"
+      sql         = "select case action when 'skip_scene' then '장면 넘기기' when 'pause' then '일시정지' when 'resume' then '다시 재생' when 'exit' then '나가기' when 'chapter_jump' then '장면 이동' when 'home_menu' then '홈 메뉴' when 'replay' then '다시 듣기' else coalesce(action, '-') end as \"조작\", count(*) as \"횟수\", count(distinct session_id) as \"세션\" from grafana.story_events where event_name = 'PLAYBACK_CONTROL' and ${local.in_range} group by 1 order by 2 desc"
+      options     = local.bars_horizontal
+      pos         = { x = 0, y = 52, w = 8, h = 9 }
+    }
+    p2_skips = {
+      title       = "장면별 넘기기·나가기"
+      description = "어느 장면에서 넘기거나 나갔나. 넘기기가 몰린 장면은 지루하거나 길다는 신호."
+      type        = "barchart"
+      sql         = "select scene_id as \"장면\", count(*) filter (where action = 'skip_scene') as \"넘기기\", count(*) filter (where action in ('exit', 'home_menu')) as \"나가기\", count(*) filter (where action = 'replay') as \"다시 듣기\" from grafana.story_events where event_name = 'PLAYBACK_CONTROL' and scene_id is not null and ${local.in_range} group by 1 order by 1"
+      options     = merge(local.bars_horizontal, { orientation = "auto", stacking = "none" })
+      pos         = { x = 8, y = 52, w = 16, h = 9 }
     }
   }
 }
@@ -364,10 +523,11 @@ resource "grafana_dashboard" "dialogue_quality" {
   config_json = jsonencode({
     uid           = "qstory-dialogue-quality"
     title         = "Q-Story 대화 품질"
+    description   = "이야기 흐름·장면별 이탈·질문 지점별 반응·그레텔 답과 대기 시간·재생 조작(원문 없음)."
     tags          = ["qstory", "dialogue"]
     timezone      = "Asia/Seoul"
     schemaVersion = 39
-    time          = { from = "now-14d", to = "now" }
+    time          = { from = "now-30d", to = "now" }
     templating = {
       list = [{
         name    = "traffic_type"
@@ -382,21 +542,37 @@ resource "grafana_dashboard" "dialogue_quality" {
         ]
       }]
     }
-    panels = [for index, key in keys(local.dialogue_queries) : {
-      id         = index + 1
-      type       = local.dialogue_queries[key].type
-      title      = local.dialogue_queries[key].title
-      datasource = local.pg
-      gridPos    = local.dialogue_queries[key].pos
-      targets = [{
-        refId      = "A"
-        datasource = local.pg
-        rawQuery   = true
-        editorMode = "code"
-        format     = local.dialogue_queries[key].format
-        rawSql     = local.dialogue_queries[key].sql
+    panels = concat(
+      [for index, key in keys(local.dialogue_rows) : {
+        id        = 100 + index
+        type      = "row"
+        title     = local.dialogue_rows[key].title
+        collapsed = false
+        panels    = []
+        gridPos   = { x = 0, y = local.dialogue_rows[key].y, w = 24, h = 1 }
+      }],
+      [for index, key in keys(local.dialogue_queries) : {
+        id          = index + 1
+        type        = local.dialogue_queries[key].type
+        title       = local.dialogue_queries[key].title
+        description = local.dialogue_queries[key].description
+        datasource  = local.pg
+        gridPos     = local.dialogue_queries[key].pos
+        options     = try(local.dialogue_queries[key].options, {})
+        fieldConfig = {
+          defaults  = merge({ noValue = "0", custom = try(local.dialogue_queries[key].custom, {}) }, try(local.dialogue_queries[key].defaults, {}))
+          overrides = try(local.dialogue_queries[key].overrides, [])
+        }
+        targets = [{
+          refId      = "A"
+          datasource = local.pg
+          rawQuery   = true
+          editorMode = "code"
+          format     = try(local.dialogue_queries[key].format, "table")
+          rawSql     = local.dialogue_queries[key].sql
+        }]
       }]
-    }]
+    )
   })
 }
 
