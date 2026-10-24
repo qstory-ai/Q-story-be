@@ -53,6 +53,15 @@ class BetaEventValidatorDialogueTest {
     }
 
     @Test
+    void dialogueStepAcceptsVoicePlaybackStats() throws Exception {
+        var parsed = validator.parse(event("""
+                {"entry_mode":"INVITE","turn_kind":"VOICE_DONE","buffer_wait_ms":78,"stall_count":0,"stall_ms":0,
+                 "audio_ms":12680,"anchor_id":"HG-Q-A","scene_id":"HG-F04","elapsed_ms":24326}
+                """));
+        assertThat(parsed.metadata()).containsEntry("buffer_wait_ms", 78L).containsEntry("audio_ms", 12680L);
+    }
+
+    @Test
     void dialogueStepRejectsChildUtteranceText() {
         assertThatThrownBy(() -> validator.parse(event("{\"question_text\":\"마녀는 왜 나빠?\"}")))
                 .isInstanceOf(ApiException.class);
