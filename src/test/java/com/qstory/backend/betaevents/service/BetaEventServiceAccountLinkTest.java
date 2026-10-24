@@ -15,12 +15,14 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.TransactionOperations;
 
 /** 보안 점검 L2 - 통계 세션에는 처음 이어진 계정만 남는다. 남의 베타 세션 id로 이벤트를 보내 계정 연결을 바꾸지 못한다. */
 class BetaEventServiceAccountLinkTest {
 
     private final BetaEventRepository repository = mock(BetaEventRepository.class);
-    private final BetaEventService service = new BetaEventService(repository, mock(ShadowIntentCollectionService.class));
+    private final BetaEventService service = new BetaEventService(
+            repository, mock(ShadowIntentCollectionService.class), TransactionOperations.withoutTransaction());
     private final UUID sessionId = UUID.randomUUID();
 
     private StorySession sessionOwnedBy(UUID userId) {

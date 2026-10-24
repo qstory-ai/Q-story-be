@@ -1,6 +1,7 @@
 package com.qstory.backend.betaevents.controller;
 import com.qstory.backend.betaevents.util.BetaEventValidator;
-import com.qstory.backend.betaevents.service.BetaEventService;
+import com.qstory.backend.betaevents.service.BetaEventIngestQueue;
+import com.qstory.backend.betaevents.service.BetaEventRateLimiter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,7 +23,10 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 베타 퍼널 텔레메트리 이벤트 한 건을 받아 검증(BetaEventValidator) 후 저장한다. */
+/**
+ * 베타 퍼널 텔레메트리 이벤트 한 건을 받아 검증(BetaEventValidator)·한도 확인(BetaEventRateLimiter) 후 대기열에 넣고 바로 202로
+ * 답한다. 저장은 BetaEventIngestQueue의 저장 스레드가 묶음으로 한다 - 요청 스레드는 DB 연결을 잡지 않는다.
+ */
 @Tag(name = "Beta events", description = "Pseudonymous, cookie-free funnel telemetry for the beta - session lifecycle and question-routing events")
 @RestController
 public class BetaEventController {
@@ -31,15 +35,17 @@ public class BetaEventController {
 
     private final ObjectMapper objectMapper;
     private final BetaEventValidator validator;
-    private final BetaEventService service;
+    private final BetaEventRateLimiter rateLimiter;
+    private final BetaEventIngestQueue queue;
     private final com.qstory.backend.identity.security.CurrentUserResolver currentUserResolver;
 
     public BetaEventController(
-            ObjectMapper objectMapper, BetaEventValidator validator, BetaEventService service,
-            com.qstory.backend.identity.security.CurrentUserResolver currentUserResolver) {
+            ObjectMapper objectMapper, BetaEventValidator validator, BetaEventRateLimiter rateLimiter,
+            BetaEventIngestQueue queue, com.qstory.backend.identity.security.CurrentUserResolver currentUserResolver) {
         this.objectMapper = objectMapper;
         this.validator = validator;
-        this.service = service;
+        this.rateLimiter = rateLimiter;
+        this.queue = queue;
         this.currentUserResolver = currentUserResolver;
     }
 
@@ -67,7 +73,9 @@ public class BetaEventController {
         BetaEventValidator.ParsedEvent event = validator.parse(body);
         // 로그인 토큰이 같이 오면 그 계정에 세션을 잇는다. 토큰이 없거나 잘못돼도 이벤트는 익명으로 받는다.
         java.util.UUID userId = currentUserResolver.current().map(user -> user.userId()).orElse(null);
-        service.record(event, userId);
+        rateLimiter.acquire(event.sessionId());
+        // 대기열이 차 있으면 이 이벤트는 버리지만 응답은 그대로 202 - 분석용이라 잃어도 되고, 다시 보내면 더 몰린다.
+        queue.offer(new BetaEventIngestQueue.Pending(event, userId, java.time.Instant.now()));
         HttpJsonWriter.writeJson(response, objectMapper, 202, Map.of("ok", true));
     }
 

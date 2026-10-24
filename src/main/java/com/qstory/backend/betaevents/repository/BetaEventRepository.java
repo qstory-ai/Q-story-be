@@ -35,10 +35,6 @@ public class BetaEventRepository {
         return sessionRepository.save(session);
     }
 
-    public long countRecentEvents(UUID sessionId, Instant since) {
-        return eventRepository.countBySession_IdAndReceivedAtAfter(sessionId, since);
-    }
-
     public StoryEvent saveEvent(StoryEvent event) {
         return eventRepository.save(event);
     }
