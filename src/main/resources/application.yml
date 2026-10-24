@@ -160,7 +160,8 @@ qstory:
       image-model: ${OPENROUTER_IMAGE_MODEL:google/gemini-3.1-flash-image}
       # 텍스트(JSON 스키마) 호출의 대체 모델(쉼표로 구분, 순서대로). 기본 모델이 한도 초과·장애로 실패하면
       # OpenRouter가 다음 모델로 넘긴다. 비우면 대체 없이 기본 모델만 쓴다. 이미지 모델에는 쓰지 않는다.
-      llm-fallback-models: ${OPENROUTER_LLM_FALLBACK_MODELS:anthropic/claude-haiku-4.5,openai/gpt-oss-120b}
+      # gpt-oss-120b는 뺐다 - 그레텔 답 스트리밍에서 글을 돌려주지 않아(추론만) 아이에게 오류가 떴다(10/25).
+      llm-fallback-models: ${OPENROUTER_LLM_FALLBACK_MODELS:anthropic/claude-haiku-4.5}
     # TTS는 OpenRouter를 거치지 않고 Gemini의 Interactions API(generativelanguage.googleapis.com)를
     # 직접 호출한다 - gemini-*-tts-preview 모델과 Sulafat 등 프리셋 목소리는 OpenRouter 카탈로그에 없다.
     gemini:
