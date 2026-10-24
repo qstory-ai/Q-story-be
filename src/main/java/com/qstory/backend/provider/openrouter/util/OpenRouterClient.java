@@ -56,6 +56,7 @@ public class OpenRouterClient {
     private final String llmModel;
     private final String safetyModel;
     private final String imageModel;
+    private final List<String> llmFallbackModels;
 
     public OpenRouterClient(
             HttpClient httpClient, ObjectMapper objectMapper, RouteResultValidator routeResultValidator,
@@ -68,6 +69,45 @@ public class OpenRouterClient {
         this.llmModel = config.providers().openRouter().llmModel();
         this.safetyModel = config.providers().openRouter().safetyModel();
         this.imageModel = config.providers().openRouter().imageModel();
+        List<String> fallbacks = new java.util.ArrayList<>();
+        Iterable<String> configured = config.providers().openRouter().llmFallbackModels();
+        if (configured != null) {
+            configured.forEach(fallbacks::add);
+        }
+        this.llmFallbackModels = List.copyOf(fallbacks);
+    }
+
+    /**
+     * 텍스트 호출의 모델 지정. 대체 모델이 있으면 OpenRouter 모델 라우팅용 models 배열(기본 모델이 맨 앞)을
+     * 함께 보낸다 - 기본 모델이 한도 초과·장애로 실패하면 OpenRouter가 다음 모델로 넘긴다. 대체 모델이 없으면
+     * models를 아예 넣지 않아 예전 요청과 같다.
+     */
+    static void putModelRouting(ObjectNode root, String primaryModel, List<String> fallbackModels) {
+        root.put("model", primaryModel);
+        if (fallbackModels == null || fallbackModels.isEmpty()) {
+            return;
+        }
+        java.util.LinkedHashSet<String> ordered = new java.util.LinkedHashSet<>();
+        ordered.add(primaryModel);
+        for (String fallback : fallbackModels) {
+            if (fallback != null && !fallback.isBlank()) {
+                ordered.add(fallback.trim());
+            }
+        }
+        if (ordered.size() < 2) {
+            return;
+        }
+        ArrayNode models = root.putArray("models");
+        ordered.forEach(models::add);
+    }
+
+    /** 응답의 model(실제로 답한 모델)이 요청한 기본 모델과 다르면 대체가 일어난 것 - 운영 로그로 남긴다. */
+    static String usedModel(String context, String requestedModel, String responseModel) {
+        String used = responseModel != null && !responseModel.isBlank() ? responseModel : requestedModel;
+        if (!used.equals(requestedModel)) {
+            log.warn("openrouter.model-fallback context={} requested={} used={}", context, requestedModel, used);
+        }
+        return used;
     }
 
     // ---------------------------------------------------------------------------------------
@@ -89,11 +129,11 @@ public class OpenRouterClient {
         ArrayNode forbiddenKnowledge = payload.putArray("forbiddenKnowledge");
         ctx.forbiddenKnowledge().forEach(forbiddenKnowledge::add);
 
-        JsonNode raw = generateStructuredCompletion(
+        StructuredCompletion completion = structuredCompletion(
                 safetyModel, stagePrompt.systemText(), stagePrompt.examples(), payload.toString(),
                 safetySchema(), "qstory_safety_gate_v1", 300, 0,
                 ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "안전 확인을 하지 못했어요.", deadline);
-        SafetyVerdict verdict = routeResultValidator.validateSafetyVerdict(raw, safetyModel);
+        SafetyVerdict verdict = routeResultValidator.validateSafetyVerdict(completion.content(), completion.model());
         if (verdict == null) {
             throw new ProviderException(
                     ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "안전 확인 결과를 확인하지 못했어요.");
@@ -149,11 +189,12 @@ public class OpenRouterClient {
         payload.put("fixedRejoinAnchorId", ctx.rejoinAt());
         payload.put("fallbackFamilyId", ctx.fallbackFamilyId());
 
-        JsonNode raw = generateStructuredCompletion(
+        StructuredCompletion completion = structuredCompletion(
                 llmModel, stagePrompt.systemText(), stagePrompt.examples(), payload.toString(),
                 classificationSchema(ctx.actionFamilyIds(), ctx.allowedSpeakerIds()), "qstory_route_classifier_v1",
                 700, 0, ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "질문 방향을 정하지 못했어요.", deadline);
-        RouteClassification classification = routeResultValidator.validateClassification(raw, ctx, llmModel);
+        RouteClassification classification =
+                routeResultValidator.validateClassification(completion.content(), ctx, completion.model());
         if (classification == null) {
             throw new ProviderException(
                     ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "질문 방향을 확인하지 못했어요.");
@@ -549,6 +590,7 @@ public class OpenRouterClient {
                         response.statusCode() == 400 || response.statusCode() >= 429);
             }
             JsonNode payload = objectMapper.readTree(response.body());
+            usedModel("generateCompanionReply", llmModel, payload.path("model").asText(null));
             JsonNode contentNode = payload.path("choices").path(0).path("message").path("content");
             JsonNode parsed = contentNode.isTextual()
                     ? objectMapper.readTree(contentNode.asText())
@@ -605,6 +647,7 @@ public class OpenRouterClient {
                     new java.io.InputStreamReader(body, StandardCharsets.UTF_8));
             StringBuilder content = new StringBuilder();
             boolean textSent = false;
+            String responseModel = null;
             long firstTokenMs = -1;
             long responseTextMs = -1;
             String line;
@@ -622,6 +665,9 @@ public class OpenRouterClient {
                             truncate(event.path("error").toString()));
                     throw new ProviderException(
                             ProviderErrorCode.OPENROUTER_RESPONSE_FAILED, "아이의 말에 답을 준비하지 못했어요.", true);
+                }
+                if (responseModel == null && event.path("model").isTextual()) {
+                    responseModel = event.path("model").asText();
                 }
                 JsonNode delta = event.path("choices").path(0).path("delta").path("content");
                 if (!delta.isTextual() || delta.asText().isEmpty()) {
@@ -648,7 +694,8 @@ public class OpenRouterClient {
                     }
                 }
             }
-            log.info("openrouter.companion-stream first_token_ms={} response_text_ms={} total_ms={}",
+            log.info("openrouter.companion-stream model={} first_token_ms={} response_text_ms={} total_ms={}",
+                    usedModel("streamCompanionReply", llmModel, responseModel),
                     firstTokenMs, responseTextMs, (System.nanoTime() - startedAt) / 1_000_000);
             if (content.length() == 0) {
                 throw new ProviderException(
@@ -955,9 +1002,9 @@ public class OpenRouterClient {
         return allowedLabels.contains(text) ? text : NOT_FOUND;
     }
 
-    private String buildCompanionChatBody(CompanionRequest request, boolean stream) {
+    String buildCompanionChatBody(CompanionRequest request, boolean stream) {
         ObjectNode root = objectMapper.createObjectNode();
-        root.put("model", llmModel);
+        putModelRouting(root, llmModel, llmFallbackModels);
         if (stream) {
             root.put("stream", true);
         }
@@ -1411,41 +1458,24 @@ public class OpenRouterClient {
             String model, String systemPrompt, List<FewShotExample> examples, String userPayloadJson,
             ObjectNode schema, String schemaName, int maxTokens, double temperature,
             ProviderErrorCode failureCode, String failureSafeDetail, RequestDeadline deadline) {
-        try {
-            ObjectNode root = objectMapper.createObjectNode();
-            root.put("model", model);
-            ArrayNode messages = root.putArray("messages");
-            ObjectNode systemMessage = messages.addObject();
-            systemMessage.put("role", "system");
-            systemMessage.put("content", systemPrompt);
-            for (FewShotExample example : examples) {
-                ObjectNode exampleUser = messages.addObject();
-                exampleUser.put("role", "user");
-                exampleUser.put("content", example.input());
-                ObjectNode exampleAssistant = messages.addObject();
-                exampleAssistant.put("role", "assistant");
-                exampleAssistant.put("content", example.output());
-            }
-            ObjectNode userMessage = messages.addObject();
-            userMessage.put("role", "user");
-            userMessage.put("content", userPayloadJson);
-            ObjectNode responseFormat = root.putObject("response_format");
-            responseFormat.put("type", "json_schema");
-            ObjectNode jsonSchema = responseFormat.putObject("json_schema");
-            jsonSchema.put("name", schemaName);
-            jsonSchema.put("strict", true);
-            jsonSchema.set("schema", schema);
-            root.putObject("provider").put("require_parameters", true);
-            ObjectNode reasoning = root.putObject("reasoning");
-            reasoning.put("effort", "minimal");
-            reasoning.put("exclude", true);
-            root.put("temperature", temperature);
-            root.put("max_tokens", maxTokens);
+        return structuredCompletion(
+                model, systemPrompt, examples, userPayloadJson, schema, schemaName, maxTokens, temperature,
+                failureCode, failureSafeDetail, deadline).content();
+    }
 
+    /** 구조화 응답과 실제로 답한 모델(대체 모델로 넘어갔으면 그 모델 - 기록의 modelId로 쓴다). */
+    record StructuredCompletion(JsonNode content, String model) {}
+
+    StructuredCompletion structuredCompletion(
+            String model, String systemPrompt, List<FewShotExample> examples, String userPayloadJson,
+            ObjectNode schema, String schemaName, int maxTokens, double temperature,
+            ProviderErrorCode failureCode, String failureSafeDetail, RequestDeadline deadline) {
+        try {
+            String body = buildStructuredBody(
+                    model, systemPrompt, examples, userPayloadJson, schema, schemaName, maxTokens, temperature);
             HttpRequest httpRequest = deadline.applyTo(HttpRequest.newBuilder(URI.create(BASE_URL + "/chat/completions"))
                             .headers(baseHeaders())
-                            .POST(HttpRequest.BodyPublishers.ofByteArray(
-                                    root.toString().getBytes(StandardCharsets.UTF_8))))
+                            .POST(HttpRequest.BodyPublishers.ofByteArray(body.getBytes(StandardCharsets.UTF_8))))
                     .build();
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
@@ -1454,8 +1484,10 @@ public class OpenRouterClient {
                         failureCode, failureSafeDetail, response.statusCode() == 400 || response.statusCode() >= 429);
             }
             JsonNode payload = objectMapper.readTree(response.body());
+            String used = usedModel("generateStructuredCompletion:" + schemaName, model, payload.path("model").asText(null));
             JsonNode contentNode = payload.path("choices").path(0).path("message").path("content");
-            return contentNode.isTextual() ? objectMapper.readTree(contentNode.asText()) : contentNode;
+            return new StructuredCompletion(
+                    contentNode.isTextual() ? objectMapper.readTree(contentNode.asText()) : contentNode, used);
         } catch (ProviderException | AbortException known) {
             throw known;
         } catch (HttpTimeoutException timeout) {
@@ -1468,6 +1500,41 @@ public class OpenRouterClient {
         } catch (Exception error) {
             throw new ProviderException(failureCode, failureSafeDetail, true, error);
         }
+    }
+
+    String buildStructuredBody(
+            String model, String systemPrompt, List<FewShotExample> examples, String userPayloadJson,
+            ObjectNode schema, String schemaName, int maxTokens, double temperature) {
+        ObjectNode root = objectMapper.createObjectNode();
+        putModelRouting(root, model, llmFallbackModels);
+        ArrayNode messages = root.putArray("messages");
+        ObjectNode systemMessage = messages.addObject();
+        systemMessage.put("role", "system");
+        systemMessage.put("content", systemPrompt);
+        for (FewShotExample example : examples) {
+            ObjectNode exampleUser = messages.addObject();
+            exampleUser.put("role", "user");
+            exampleUser.put("content", example.input());
+            ObjectNode exampleAssistant = messages.addObject();
+            exampleAssistant.put("role", "assistant");
+            exampleAssistant.put("content", example.output());
+        }
+        ObjectNode userMessage = messages.addObject();
+        userMessage.put("role", "user");
+        userMessage.put("content", userPayloadJson);
+        ObjectNode responseFormat = root.putObject("response_format");
+        responseFormat.put("type", "json_schema");
+        ObjectNode jsonSchema = responseFormat.putObject("json_schema");
+        jsonSchema.put("name", schemaName);
+        jsonSchema.put("strict", true);
+        jsonSchema.set("schema", schema);
+        root.putObject("provider").put("require_parameters", true);
+        ObjectNode reasoning = root.putObject("reasoning");
+        reasoning.put("effort", "minimal");
+        reasoning.put("exclude", true);
+        root.put("temperature", temperature);
+        root.put("max_tokens", maxTokens);
+        return root.toString();
     }
 
     /** 기본 llmModel·few-shot 없음·temperature=0 단축 오버로드(ShadowFamilyGenerationService, LiveBranchExecutionWorker, FamilyDraftHarness). */
