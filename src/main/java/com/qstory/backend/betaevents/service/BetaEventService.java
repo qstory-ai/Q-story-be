@@ -6,49 +6,78 @@ import com.qstory.backend.common.enums.EntrySource;
 import com.qstory.backend.common.enums.EventName;
 import com.qstory.backend.common.enums.EventSource;
 import com.qstory.backend.common.enums.TrafficType;
-import com.qstory.backend.common.error.ApiException;
-import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.betaevents.entity.StoryEvent;
 import com.qstory.backend.betaevents.entity.StorySession;
 import com.qstory.backend.shadow.service.ShadowIntentCollectionService;
-import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
-/** 베타 이벤트의 세션 upsert와 이벤트 insert를 하나의 트랜잭션 안에서 처리한다. */
+/**
+ * 베타 이벤트의 세션 upsert와 이벤트 insert를 하나의 트랜잭션 안에서 처리한다. 요청 스레드가 아니라
+ * BetaEventIngestQueue의 저장 스레드가 묶음으로 부른다. 세션당 보내기 한도(429)는 요청에서 BetaEventRateLimiter가 본다.
+ */
 @Service
 public class BetaEventService {
 
+    private static final Logger log = LoggerFactory.getLogger(BetaEventService.class);
     private static final String STORY_ID = "hansel-gretel";
-    private static final int RATE_LIMIT_MAX_EVENTS = 120;
-    private static final Duration RATE_LIMIT_WINDOW = Duration.ofMinutes(10);
 
     private final BetaEventRepository repository;
     private final ShadowIntentCollectionService shadowIntentCollectionService;
+    private final TransactionOperations transactions;
 
-    public BetaEventService(BetaEventRepository repository, ShadowIntentCollectionService shadowIntentCollectionService) {
+    public BetaEventService(
+            BetaEventRepository repository, ShadowIntentCollectionService shadowIntentCollectionService,
+            TransactionOperations transactions) {
         this.repository = repository;
         this.shadowIntentCollectionService = shadowIntentCollectionService;
+        this.transactions = transactions;
+    }
+
+    /**
+     * 묶음 전체를 한 트랜잭션으로 저장한다(왕복·커밋을 줄인다). 한 건 때문에 묶음이 실패하면 그 묶음은 한 건씩 따로 저장해서,
+     * 잘못된 한 건만 버리고 나머지는 남긴다.
+     */
+    public void storeBatch(List<BetaEventIngestQueue.Pending> batch) {
+        try {
+            transactions.executeWithoutResult(status -> batch.forEach(this::store));
+        } catch (RuntimeException batchFailure) {
+            for (BetaEventIngestQueue.Pending pending : batch) {
+                try {
+                    transactions.executeWithoutResult(status -> store(pending));
+                } catch (RuntimeException failure) {
+                    log.warn("beta-events.store-failed event={} reason={}",
+                            pending.event().eventName(), failure.getClass().getSimpleName());
+                }
+            }
+        }
+    }
+
+    private void store(BetaEventIngestQueue.Pending pending) {
+        record(pending.event(), pending.userId(), pending.receivedAt());
     }
 
     @Transactional
-    public void record(BetaEventValidator.ParsedEvent event) {
-        record(event, null);
+    public void record(BetaEventValidator.ParsedEvent event, UUID userId) {
+        record(event, userId, Instant.now());
     }
 
     /**
      * userId: 로그인한 채 보낸 이벤트면 그 계정 - 세션에 남겨 참여자의 흐름을 잇는다(Q-40). 없으면 익명 그대로. 이미 다른
-     * 계정이 이어진 세션은 바꾸지 않는다.
+     * 계정이 이어진 세션은 바꾸지 않는다. now: 요청을 받은 시각(received_at, last_seen_at).
      */
     @Transactional
-    public void record(BetaEventValidator.ParsedEvent event, UUID userId) {
+    public void record(BetaEventValidator.ParsedEvent event, UUID userId, Instant now) {
         if (repository.eventExists(event.eventId())) {
             return;
         }
 
-        Instant now = Instant.now();
         EntrySource entrySource = switch (event.source()) {
             case LANDING -> EntrySource.LANDING;
             case PLAYER -> EntrySource.PLAYER;
@@ -64,11 +93,6 @@ public class BetaEventService {
             session.setUserId(userId);
         }
         repository.saveSession(session);
-
-        long recentEvents = repository.countRecentEvents(event.sessionId(), now.minus(RATE_LIMIT_WINDOW));
-        if (recentEvents >= RATE_LIMIT_MAX_EVENTS) {
-            throw ApiException.contractError(ErrorCode.RATE_LIMITED, "요청이 너무 잦아요.", 429);
-        }
 
         StoryEvent savedEvent = repository.saveEvent(StoryEvent.builder()
                 .id(event.eventId())
