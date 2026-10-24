@@ -5,6 +5,7 @@ import java.time.ZoneOffset;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -39,6 +40,14 @@ public class DiscordMetricsRepository {
     static final String LAUNCH_NOTIFICATIONS =
             "select count(*) from public.launch_notification_requests where created_at >= :from and created_at < :to";
 
+    /** 마이페이지 기능 제안·오류 제보(앱이 message 앞에 [기능 제안]/[오류 제보]를 붙인다). 30분 묶음에 미리보기로 넣는다. */
+    static final String FEEDBACK = """
+            select f.message, u.role from public.improvement_feedback f
+            left join public.app_user u on u.id = f.user_id
+            where f.created_at >= :from and f.created_at < :to
+            order by f.created_at
+            """;
+
     static final String SURVEYS = """
             select count(*) as n, avg(child_engagement) as engagement, avg(report_helpfulness) as helpfulness
             from public.completion_surveys where created_at >= :from and created_at < :to
@@ -67,6 +76,9 @@ public class DiscordMetricsRepository {
             """;
 
     public record Funnel(long starts, long completions, long reports) {}
+
+    /** 마이페이지 요청 한 건 - 남긴 글과 남긴 사람 역할(없으면 null). */
+    public record Feedback(String message, String role) {}
 
     public record Surveys(long count, Double engagement, Double helpfulness) {}
 
@@ -98,6 +110,11 @@ public class DiscordMetricsRepository {
 
     public long launchNotifications(Instant from, Instant to) {
         return count(LAUNCH_NOTIFICATIONS, from, to);
+    }
+
+    public List<Feedback> feedback(Instant from, Instant to) {
+        return jdbc.query(FEEDBACK, range(from, to),
+                (rs, i) -> new Feedback(rs.getString("message"), rs.getString("role")));
     }
 
     public Surveys surveys(Instant from, Instant to) {

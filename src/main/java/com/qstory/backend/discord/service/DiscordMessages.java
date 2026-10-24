@@ -1,5 +1,6 @@
 package com.qstory.backend.discord.service;
 
+import com.qstory.backend.discord.repository.DiscordMetricsRepository.Feedback;
 import com.qstory.backend.discord.repository.DiscordMetricsRepository.Funnel;
 import com.qstory.backend.discord.repository.DiscordMetricsRepository.GaTraffic;
 import com.qstory.backend.discord.repository.DiscordMetricsRepository.JoinRequests;
@@ -12,7 +13,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** 디스코드 메시지 문장 조립(순수 함수). 숫자·별점·역할 이름만 넣는다 - 개인정보는 받지도 않는다. */
+/**
+ * 디스코드 메시지 문장 조립(순수 함수). 숫자·별점·역할 이름만 넣는다 - 개인정보는 받지도 않는다.
+ * 예외는 마이페이지 요청 미리보기 하나: 운영이 바로 연락할 수 있게 글 앞부분을 넣되, 이메일·전화번호는 가린다.
+ */
 public final class DiscordMessages {
 
     private DiscordMessages() {}
@@ -25,11 +29,11 @@ public final class DiscordMessages {
     /** 30분 묶음 숫자. */
     public record Window(
             LocalTime from, LocalTime to, Surveys surveys, long launchNotifications, long organizations,
-            JoinRequests joinRequests, Map<String, Long> signups) {
+            JoinRequests joinRequests, Map<String, Long> signups, List<Feedback> feedback) {
 
         public boolean empty() {
             return surveys.count() == 0 && launchNotifications == 0 && organizations == 0
-                    && joinRequests.created() == 0 && total(signups) == 0;
+                    && joinRequests.created() == 0 && total(signups) == 0 && feedback.isEmpty();
         }
     }
 
@@ -68,6 +72,7 @@ public final class DiscordMessages {
         if (window.launchNotifications() > 0) {
             lines.add("출시 알림 신청 " + window.launchNotifications() + "건");
         }
+        appendFeedback(lines, window.feedback());
         if (window.organizations() > 0) {
             lines.add("새 기관 등록 " + window.organizations() + "곳");
         }
@@ -81,6 +86,37 @@ public final class DiscordMessages {
         }
         appendLink(lines, link);
         return String.join("\n", lines);
+    }
+
+    private static final int FEEDBACK_PREVIEWS = 5;
+    private static final int FEEDBACK_PREVIEW_CHARS = 100;
+    private static final String BUG_PREFIX = "[오류 제보]";
+
+    /** 마이페이지 요청 - 건수(오류 제보/기능 제안)와 앞 5건 미리보기. */
+    private static void appendFeedback(List<String> lines, List<Feedback> feedback) {
+        if (feedback.isEmpty()) {
+            return;
+        }
+        long bugs = feedback.stream().filter(f -> f.message() != null && f.message().startsWith(BUG_PREFIX)).count();
+        lines.add("마이페이지 요청 " + feedback.size() + "건 (오류 제보 " + bugs + " · 기능 제안 "
+                + (feedback.size() - bugs) + ")");
+        feedback.stream().limit(FEEDBACK_PREVIEWS).forEach(f -> lines.add("> " + feedbackPreview(f)));
+        if (feedback.size() > FEEDBACK_PREVIEWS) {
+            lines.add("> 외 " + (feedback.size() - FEEDBACK_PREVIEWS) + "건");
+        }
+    }
+
+    static String feedbackPreview(Feedback feedback) {
+        String text = feedback.message() == null ? "" : feedback.message().replaceAll("\\s+", " ").trim();
+        // 연락처는 가리고, 멘션(@everyone 등)은 울리지 않게 끊는다.
+        text = text.replaceAll("[\\w.+-]+@[\\w-]+(\\.[\\w-]+)+", "(이메일)")
+                .replaceAll("01[0-9][- .]?\\d{3,4}[- .]?\\d{4}", "(전화번호)")
+                .replace("@", "@\u200b");
+        if (text.length() > FEEDBACK_PREVIEW_CHARS) {
+            text = text.substring(0, FEEDBACK_PREVIEW_CHARS) + "…";
+        }
+        String role = feedback.role() == null ? "" : roleLabel(feedback.role());
+        return role.isEmpty() ? text : "(" + role + ") " + text;
     }
 
     public static String geminiTtsUsage(int used, int limit, int step) {
