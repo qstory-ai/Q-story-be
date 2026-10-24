@@ -28,6 +28,7 @@ class AccountErasureCoverageTest {
     private static final Map<String, String> HANDLED = Map.ofEntries(
             Map.entry("story_revision.author_id", "보존 - 내부(STAFF) 작품 편집 이력. 개인 정보 없음, 계정은 익명화"),
             Map.entry("password_reset_token.user_id", "삭제"),
+            Map.entry("auth_login_log.user_id", "삭제(로그인 기록)"),
             Map.entry("story_completion.user_id", "보호자 가정 기록·선생님 개인 기록 삭제, 기관 반 수업 기록은 보존"),
             Map.entry("tutor_student.tutor_id", "개인 반 학생 삭제, 기관 반 학생은 담임만 비움"),
             Map.entry("tutor_student.linked_parent_user_id", "연결 해제"),
