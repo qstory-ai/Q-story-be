@@ -76,8 +76,20 @@ public record AppProperties(
         }
     }
 
+    /**
+     * @param llmFallbackModels 텍스트(JSON 스키마) 호출의 대체 모델들 - 기본 모델이 실패(한도 초과·장애)하면
+     *                          OpenRouter가 이 순서대로 넘겨 받는다. 비어 있으면 기본 모델만 쓴다. 이미지 모델에는 쓰지 않는다.
+     */
     public record OpenRouter(
-            String apiKey, String llmModel, String safetyModel, String imageModel) {
+            String apiKey, String llmModel, String safetyModel, String imageModel, List<String> llmFallbackModels) {
+        public OpenRouter {
+            llmFallbackModels = llmFallbackModels == null ? List.of() : llmFallbackModels.stream()
+                    .filter(model -> model != null && !model.isBlank())
+                    .map(String::trim)
+                    .distinct()
+                    .toList();
+        }
+
         public boolean llmConfigured() {
             return notBlank(apiKey) && notBlank(llmModel);
         }
