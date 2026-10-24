@@ -41,7 +41,7 @@ locals {
 
 resource "grafana_dashboard" "user_responses" {
   count  = local.postgres_enabled ? 1 : 0
-  folder = grafana_folder.alerting.uid
+  folder = grafana_folder.ops.uid
   config_json = jsonencode({
     uid           = "qstory-user-responses"
     title         = "Q-Story 사용자 응답"

@@ -187,7 +187,7 @@ locals {
 
 resource "grafana_dashboard" "growth" {
   count  = local.postgres_enabled ? 1 : 0
-  folder = grafana_folder.alerting.uid
+  folder = grafana_folder.ops.uid
   config_json = jsonencode({
     uid           = "qstory-growth"
     title         = "Q-Story 유입 → 전환"
