@@ -202,7 +202,9 @@ public class BetaEventValidator {
                 // turn_kind=FILLER - 답을 기다리는 동안 튼 "생각 중" 말(어떤 녹음인지, 예정보다 늦은 시간).
                 "filler_clip", "filler_late_ms",
                 // turn_kind=TRY_FAIL·TRY_END - 질문 초대 시도 장면(장면 줄 수, 장면 안 아이 말 수, 어떻게 끝났는지).
-                "scene_lines", "attempt_turns", "attempt_end"));
+                "scene_lines", "attempt_turns", "attempt_end",
+                // turn_kind=VOICE_DONE - 그레텔 답 음성 스트리밍 품질(시작 전 모은 시간, 끊긴 횟수·시간, 음성 길이).
+                "buffer_wait_ms", "stall_count", "stall_ms", "audio_ms"));
         // Q-40 UT 데이터 수집. 질문 원문 같은 자유 문장은 받지 않는다.
         keys.put(EventName.APP_ENTRY, Set.of("entry", "path", "has_class_code"));
         keys.put(EventName.SIGNUP_STARTED, Set.of("role", "entry"));
