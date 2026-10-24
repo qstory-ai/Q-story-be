@@ -1224,6 +1224,9 @@ public class OpenRouterClient {
             // V2(PM 피드백 - "그럼 살펴보자"에 동의했는데 이야기에서 그 행동이 나오지 않음).
             lines.add("앞에서 네가 preparedActions 중 하나와 뜻이 같은 행동을 말했고 아이가 그것에 동의하면(예: 네가 '새가 어디로 가는지 지켜볼까?'라고 한 뒤 아이가 '그래', '그럼 살펴보자', '좋아 그렇게 하자'), 아이가 그 행동을 제안한 것으로 보고 proposedActionFamilyId에 그 id를 넣고 뜻을 한 번 확인한다.");
             if (request.canOfferNewBranch()) {
+                // 10/21 QA: "마녀가 냄비를 보게 하고 열쇠를 가져오자"가 "헨젤이 부르는 동안"으로 묶여 아이가 말한 방법이 사라졌다.
+                // 새 선택지를 만들 수 있을 때는 방법까지 같아야 준비된 행동으로 잇는다(PM 결정 10/24).
+                lines.add("preparedActions와 '뜻이 같다'는 것은 목적뿐 아니라 방법(누가, 무엇으로 하는지)까지 같다는 뜻이다. 목적이 같아도 아이가 말한 방법이 preparedActions의 meaning과 다르면(예: preparedActions는 '헨젤이 마녀를 부르는 동안 열쇠를 가져온다'인데 아이는 '마녀가 냄비를 보게 하고 열쇠를 가져오자') 같은 뜻으로 묶지 말고 아래 NEW_BRANCH로 받아 아이가 말한 방법을 그대로 살린다.");
                 // 10/21 QA: "화장실 간다고 거짓말하고 갔다 오자"처럼 해 볼 만한 계획이 대화로만 끝났다 - 새 선택지로 이어 준다.
                 lines.add("새 선택지(NEW_BRANCH): 아이가 preparedActions에 없지만 위험하지 않고 지금 장소에서 해 볼 만한 계획(예: 할머니에게 화장실 간다고 말하고 다녀오기, 할머니를 다른 데로 보내기, 소리를 내 눈길 돌리기)을 분명히 제안하면 replyKind를 NEW_BRANCH로 한다. responseText는 그 생각을 한 문장으로 받아 준 뒤 '그럼 그렇게 해 볼까?'로 끝낸다(다른 질문을 붙이지 않고, 아직 실행했다고 말하지 않는다). proposedActionFamilyId는 null, attemptScene은 빈 배열이다."
                         + (request.canStartAttempt()
