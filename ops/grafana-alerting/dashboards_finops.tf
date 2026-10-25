@@ -29,11 +29,15 @@ locals {
       pos         = { x = 4, y = 0, w = 6, h = 5 }
     }
     c_tts_month = {
-      title       = "그레텔 음성 이번 달(추정)"
-      description = "이번 달(한국 날짜) 음성 길이 × 단가. 단가가 추정이면 아래 단가표 source에 표시된다."
+      title       = "구글(그레텔 음성) 이번 달"
+      description = "구글 클라우드 실제 청구액(BigQuery 내보내기, 크레딧 뺀 순비용). 청구가 아직 안 들어온 날은 음성 길이 × 단가 추정으로 채운다."
       type        = "stat"
-      sql         = "select round(coalesce(sum(est_cost_usd), 0), 2) as \"추정 비용\", round(coalesce(sum(audio_seconds), 0) / 60.0, 0) as \"음성 분\" from grafana.tts_audio_daily where usage_date >= date_trunc('month', now() at time zone 'Asia/Seoul')::date"
-      overrides   = [{ matcher = { id = "byName", options = "추정 비용" }, properties = [{ id = "unit", value = "currencyUSD" }, { id = "decimals", value = 2 }] }]
+      sql         = <<-SQL
+        select round(coalesce(sum(cost_usd), 0), 2) as "비용",
+               count(*) filter (where basis = '추정') as "추정으로 채운 날"
+        from grafana.google_cost_daily where usage_date >= date_trunc('month', now() at time zone 'Asia/Seoul')::date
+      SQL
+      overrides   = [{ matcher = { id = "byName", options = "비용" }, properties = [{ id = "unit", value = "currencyUSD" }, { id = "decimals", value = 2 }] }]
       options     = local.this_vs_prev
       pos         = { x = 10, y = 0, w = 6, h = 5 }
     }
@@ -47,12 +51,12 @@ locals {
     }
     e_cost_per_play = {
       title       = "체험 1회당 AI 비용"
-      description = "기간 안 (OpenRouter 사용액 + 음성 추정 비용) ÷ 실제 이용자(BETA) 이야기 시작 수."
+      description = "기간 안 (OpenRouter 사용액 + 구글 비용(실제, 없는 날은 추정)) ÷ 실제 이용자(BETA) 이야기 시작 수."
       type        = "stat"
       sql         = <<-SQL
         select round(((select coalesce(sum(spend_usd), 0) from grafana.openrouter_cost_daily
                         where usage_date between ($__timeFrom()::timestamptz at time zone 'UTC')::date and ($__timeTo()::timestamptz at time zone 'UTC')::date)
-                     + (select coalesce(sum(est_cost_usd), 0) from grafana.tts_audio_daily
+                     + (select coalesce(sum(cost_usd), 0) from grafana.google_cost_daily
                         where usage_date between ($__timeFrom()::timestamptz at time zone 'Asia/Seoul')::date and ($__timeTo()::timestamptz at time zone 'Asia/Seoul')::date))
                     / nullif((select count(distinct session_id) from grafana.story_events
                               where event_name = 'STORY_STARTED' and traffic_type = 'BETA' and $__timeFilter(occurred_at)), 0), 3) as "1회당"
@@ -63,15 +67,15 @@ locals {
     }
     f_daily_cost = {
       title       = "하루 비용 (서비스별)"
-      description = "OpenRouter는 UTC 날짜별 사용액, 그레텔 음성은 한국 날짜별 추정 비용. 기록은 10/25부터."
+      description = "OpenRouter는 UTC 날짜별 사용액, 구글은 실제 청구액(미국 태평양 날짜)이고 청구가 아직 없는 날은 음성 추정 비용. 기록은 10/25부터."
       type        = "timeseries"
       format      = "time_series"
       sql         = <<-SQL
         select (usage_date::timestamp at time zone 'UTC') as time, 'OpenRouter (대화·분석)' as metric, spend_usd as value
         from grafana.openrouter_cost_daily where $__timeFilter(usage_date::timestamp at time zone 'UTC')
         union all
-        select (usage_date::timestamp at time zone 'Asia/Seoul'), '그레텔 음성 (추정)', est_cost_usd
-        from grafana.tts_audio_daily where $__timeFilter(usage_date::timestamp at time zone 'Asia/Seoul')
+        select (usage_date::timestamp at time zone 'Asia/Seoul'), '구글 (' || basis || ')', cost_usd
+        from grafana.google_cost_daily where $__timeFilter(usage_date::timestamp at time zone 'Asia/Seoul')
         order by 1
       SQL
       defaults    = { unit = "currencyUSD", decimals = 2 }
@@ -99,7 +103,20 @@ locals {
       description = "추정 단가는 source에 '추정'으로 표시. 가격표를 확인하면 운영 DB finops_unit_price만 고치면 된다."
       type        = "table"
       sql         = "select provider as \"서비스\", unit as \"단위\", usd_per_unit as \"달러/단위\", source as \"근거\", updated_at as \"고친 때\" from grafana.finops_unit_price order by 1, 2"
-      pos         = { x = 0, y = 14, w = 24, h = 5 }
+      pos         = { x = 0, y = 14, w = 12, h = 7 }
+    }
+    i_gcp_sku = {
+      title       = "구글 청구 내역 (기간 안, 서비스·항목별)"
+      description = "구글 클라우드 실제 청구액(크레딧 뺀 순비용). 결제 계정의 BigQuery 내보내기를 6시간마다 가져온다 - 하루 정도 늦다."
+      type        = "table"
+      sql         = <<-SQL
+        select service as "서비스", sku as "항목", round(sum(cost_usd), 4) as "비용"
+        from grafana.gcp_cost_daily
+        where usage_date between ($__timeFrom()::timestamptz at time zone 'America/Los_Angeles')::date and ($__timeTo()::timestamptz at time zone 'America/Los_Angeles')::date
+        group by 1, 2 having round(sum(cost_usd), 4) <> 0 order by 3 desc
+      SQL
+      overrides   = [{ matcher = { id = "byName", options = "비용" }, properties = [{ id = "unit", value = "currencyUSD" }, { id = "decimals", value = 4 }] }]
+      pos         = { x = 12, y = 14, w = 12, h = 7 }
     }
   }
 }
