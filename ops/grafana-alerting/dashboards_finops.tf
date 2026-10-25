@@ -51,13 +51,15 @@ locals {
     }
     e_cost_per_play = {
       title       = "체험 1회당 AI 비용"
-      description = "기간 안 (OpenRouter 사용액 + 구글 비용(실제, 없는 날은 추정)) ÷ 실제 이용자(BETA) 이야기 시작 수."
+      description = "기간 안 (OpenRouter 사용액 + 구글 비용(실제, 없는 날은 추정) + Higgsfield 삽화 추정) ÷ 실제 이용자(BETA) 이야기 시작 수."
       type        = "stat"
       sql         = <<-SQL
         select round(((select coalesce(sum(spend_usd), 0) from grafana.openrouter_cost_daily
                         where usage_date between ($__timeFrom()::timestamptz at time zone 'UTC')::date and ($__timeTo()::timestamptz at time zone 'UTC')::date)
                      + (select coalesce(sum(cost_usd), 0) from grafana.google_cost_daily
                         where usage_date between ($__timeFrom()::timestamptz at time zone 'Asia/Seoul')::date and ($__timeTo()::timestamptz at time zone 'Asia/Seoul')::date))
+                     + (select coalesce(sum(est_cost_usd), 0) from grafana.higgsfield_cost_daily
+                        where usage_date between ($__timeFrom()::timestamptz at time zone 'Asia/Seoul')::date and ($__timeTo()::timestamptz at time zone 'Asia/Seoul')::date)
                     / nullif((select count(distinct session_id) from grafana.story_events
                               where event_name = 'STORY_STARTED' and traffic_type = 'BETA' and $__timeFilter(occurred_at)), 0), 3) as "1회당"
       SQL
@@ -76,6 +78,9 @@ locals {
         union all
         select (usage_date::timestamp at time zone 'Asia/Seoul'), '구글 (' || basis || ')', cost_usd
         from grafana.google_cost_daily where $__timeFilter(usage_date::timestamp at time zone 'Asia/Seoul')
+        union all
+        select (usage_date::timestamp at time zone 'Asia/Seoul'), 'Higgsfield 실시간 삽화 (추정)', est_cost_usd
+        from grafana.higgsfield_cost_daily where $__timeFilter(usage_date::timestamp at time zone 'Asia/Seoul')
         order by 1
       SQL
       defaults    = { unit = "currencyUSD", decimals = 2 }
@@ -117,6 +122,43 @@ locals {
       SQL
       overrides   = [{ matcher = { id = "byName", options = "비용" }, properties = [{ id = "unit", value = "currencyUSD" }, { id = "decimals", value = 4 }] }]
       pos         = { x = 12, y = 14, w = 12, h = 7 }
+    }
+    j_month_total = {
+      title       = "이번 달 전체 (지금까지)"
+      description = "OpenRouter(UTC 달) + 구글(실제, 없는 날은 추정) + Higgsfield 삽화(추정) + Railway(이번 결제 기간) + 고정 월 요금(입력한 것만)."
+      type        = "stat"
+      sql         = <<-SQL
+        select round(coalesce((select usage_monthly_usd from grafana.openrouter_latest), 0)
+             + coalesce((select sum(cost_usd) from grafana.google_cost_daily where usage_date >= date_trunc('month', now() at time zone 'Asia/Seoul')::date), 0)
+             + coalesce((select sum(est_cost_usd) from grafana.higgsfield_cost_daily where usage_date >= date_trunc('month', now() at time zone 'Asia/Seoul')::date), 0)
+             + coalesce((select period_usd from grafana.railway_latest), 0)
+             + coalesce((select sum(usd_per_month) from grafana.finops_fixed_monthly), 0), 2) as "이번 달"
+      SQL
+      defaults    = { unit = "currencyUSD", decimals = 2, noValue = "-" }
+      pos         = { x = 0, y = 21, w = 6, h = 5 }
+    }
+    k_railway = {
+      title       = "Railway 서버 (이번 결제 기간)"
+      description = "백엔드 서버 사용액(CPU·메모리·전송). 결제 기간은 매달 21일 기준. 기간 끝 예상은 지금까지 속도로 계산."
+      type        = "stat"
+      sql         = "select period_usd as \"지금까지\", projected_usd as \"기간 끝 예상\" from grafana.railway_latest"
+      defaults    = { unit = "currencyUSD", decimals = 2, noValue = "-" }
+      pos         = { x = 6, y = 21, w = 6, h = 5 }
+    }
+    l_higgsfield = {
+      title       = "Higgsfield 실시간 삽화 이번 달 (추정)"
+      description = "아이 말로 새로 그린 그림 수(성공만) × 장당 단가(추정, 단가표). 잔액·사용 내역 API가 없어 콘솔에서 맞춰 본다."
+      type        = "stat"
+      sql         = "select coalesce(sum(images), 0) as \"그림\", round(coalesce(sum(est_cost_usd), 0), 2) as \"추정 비용\" from grafana.higgsfield_cost_daily where usage_date >= date_trunc('month', now() at time zone 'Asia/Seoul')::date"
+      overrides   = [{ matcher = { id = "byName", options = "추정 비용" }, properties = [{ id = "unit", value = "currencyUSD" }, { id = "decimals", value = 2 }] }]
+      pos         = { x = 12, y = 21, w = 6, h = 5 }
+    }
+    m_fixed = {
+      title       = "고정 월 요금 (직접 입력)"
+      description = "플랜 요금처럼 매달 같은 돈. 운영 DB finops_fixed_monthly에서 고친다 - 비어 있으면 '입력 필요'."
+      type        = "table"
+      sql         = "select provider as \"서비스\", coalesce(usd_per_month::text, '입력 필요') as \"달러/월\", note as \"메모\" from grafana.finops_fixed_monthly order by 1"
+      pos         = { x = 18, y = 21, w = 6, h = 5 }
     }
   }
 }
