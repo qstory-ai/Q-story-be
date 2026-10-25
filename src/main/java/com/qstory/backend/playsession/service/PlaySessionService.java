@@ -5,6 +5,8 @@ import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.ContactInfoMasker;
 import com.qstory.backend.identity.security.CurrentUser;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -12,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -203,36 +206,62 @@ public class PlaySessionService {
         return jdbc.query(
                 "select t.* from play_turn t join play_session s on s.id = t.session_id "
                         + "where t.session_id = ? and s.user_id = ? order by t.seq",
-                (rs, rowNum) -> {
-                    Map<String, Object> turn = new LinkedHashMap<>();
-                    turn.put("seq", rs.getInt("seq"));
-                    turn.put("occurredAt", rs.getTimestamp("occurred_at").toInstant().toString());
-                    put(turn, "sceneId", rs.getString("scene_id"));
-                    put(turn, "visualId", rs.getString("visual_id"));
-                    put(turn, "anchorId", rs.getString("anchor_id"));
-                    put(turn, "entryMode", rs.getString("entry_mode"));
-                    put(turn, "role", rs.getString("role"));
-                    put(turn, "speaker", rs.getString("speaker"));
-                    put(turn, "characterSpeakerId", rs.getString("character_speaker_id"));
-                    put(turn, "text", rs.getString("text"));
-                    put(turn, "inputMode", rs.getString("input_mode"));
-                    put(turn, "transcriptEdited", (Boolean) rs.getObject("transcript_edited"));
-                    put(turn, "fixed", (Boolean) rs.getObject("fixed"));
-                    put(turn, "helpStep", (Integer) rs.getObject("help_step"));
-                    put(turn, "replyKind", rs.getString("reply_kind"));
-                    put(turn, "proposedFamilyId", rs.getString("proposed_family_id"));
-                    put(turn, "replyAudioPlayed", (Boolean) rs.getObject("reply_audio_played"));
-                    put(turn, "event", rs.getString("event"));
-                    put(turn, "familyId", rs.getString("family_id"));
-                    put(turn, "viaSuggestion", (Boolean) rs.getObject("via_suggestion"));
-                    put(turn, "suggestionLabel", rs.getString("suggestion_label"));
-                    put(turn, "resultVisualId", rs.getString("result_visual_id"));
-                    put(turn, "latencyMs", (Integer) rs.getObject("latency_ms"));
-                    put(turn, "errorCode", rs.getString("error_code"));
-                    put(turn, "attemptTurns", (Integer) rs.getObject("attempt_turns"));
-                    return turn;
-                },
+                (rs, rowNum) -> turnRow(rs),
                 sessionId, ownerUserId);
+    }
+
+    /**
+     * 로그인하지 않은 데모 회차의 대화 전부(데모 리포트 분석용, demo_report_analysis). 주인이 없는 회차만 읽는다 - 계정으로 옮겨진
+     * 회차는 그 계정의 리포트가 맡는다.
+     */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> listAnonymousTurns(UUID sessionId) {
+        if (sessionId == null) return List.of();
+        return jdbc.query(
+                "select t.* from play_turn t join play_session s on s.id = t.session_id "
+                        + "where t.session_id = ? and s.user_id is null order by t.seq",
+                (rs, rowNum) -> turnRow(rs),
+                sessionId);
+    }
+
+    /** 데모 회차의 이야기 id - 주인 없는 회차이고 betaSessionId가 맞을 때만(남의 데모 회차 id만 알아서는 못 연다). */
+    @Transactional(readOnly = true)
+    public Optional<String> anonymousStoryId(UUID sessionId, UUID betaSessionId) {
+        if (sessionId == null || betaSessionId == null) return Optional.empty();
+        List<String> rows = jdbc.queryForList(
+                "select story_id from play_session where id = ? and user_id is null and beta_session_id = ?",
+                String.class, sessionId, betaSessionId);
+        return rows.stream().findFirst();
+    }
+
+    private Map<String, Object> turnRow(ResultSet rs) throws SQLException {
+        Map<String, Object> turn = new LinkedHashMap<>();
+        turn.put("seq", rs.getInt("seq"));
+        turn.put("occurredAt", rs.getTimestamp("occurred_at").toInstant().toString());
+        put(turn, "sceneId", rs.getString("scene_id"));
+        put(turn, "visualId", rs.getString("visual_id"));
+        put(turn, "anchorId", rs.getString("anchor_id"));
+        put(turn, "entryMode", rs.getString("entry_mode"));
+        put(turn, "role", rs.getString("role"));
+        put(turn, "speaker", rs.getString("speaker"));
+        put(turn, "characterSpeakerId", rs.getString("character_speaker_id"));
+        put(turn, "text", rs.getString("text"));
+        put(turn, "inputMode", rs.getString("input_mode"));
+        put(turn, "transcriptEdited", (Boolean) rs.getObject("transcript_edited"));
+        put(turn, "fixed", (Boolean) rs.getObject("fixed"));
+        put(turn, "helpStep", (Integer) rs.getObject("help_step"));
+        put(turn, "replyKind", rs.getString("reply_kind"));
+        put(turn, "proposedFamilyId", rs.getString("proposed_family_id"));
+        put(turn, "replyAudioPlayed", (Boolean) rs.getObject("reply_audio_played"));
+        put(turn, "event", rs.getString("event"));
+        put(turn, "familyId", rs.getString("family_id"));
+        put(turn, "viaSuggestion", (Boolean) rs.getObject("via_suggestion"));
+        put(turn, "suggestionLabel", rs.getString("suggestion_label"));
+        put(turn, "resultVisualId", rs.getString("result_visual_id"));
+        put(turn, "latencyMs", (Integer) rs.getObject("latency_ms"));
+        put(turn, "errorCode", rs.getString("error_code"));
+        put(turn, "attemptTurns", (Integer) rs.getObject("attempt_turns"));
+        return turn;
     }
 
     /**
