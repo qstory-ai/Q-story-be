@@ -139,7 +139,7 @@ locals {
     }
     k_railway = {
       title       = "Railway 서버 (이번 결제 기간)"
-      description = "백엔드 서버 사용액(CPU·메모리·전송). 결제 기간은 매달 21일 기준. 기간 끝 예상은 지금까지 속도로 계산."
+      description = "백엔드 서버 사용액(CPU·메모리·전송, Railway 공개 단가). 결제 기간은 매달 21일 기준. 기간 끝 예상은 Railway가 낸 값."
       type        = "stat"
       sql         = "select period_usd as \"지금까지\", projected_usd as \"기간 끝 예상\" from grafana.railway_latest"
       defaults    = { unit = "currencyUSD", decimals = 2, noValue = "-" }
