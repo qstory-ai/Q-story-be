@@ -186,6 +186,42 @@ locals {
       logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"client.error\" [5m]))"
       threshold   = var.client_error_threshold
     }
+    # OpenRouter 키 거부·잔액 부족 - 한 건만 나와도 울린다. 10/22~24에 키가 막혀(401 "User not found") 2일 반 동안 그레텔이
+    # 답을 못 했는데, 한산해서 5분에 몇 건씩만 나와 openrouter-provider-failure(건수 기준)가 울리지 않았다.
+    openrouter-auth-failure = {
+      severity    = "critical"
+      summary     = "OpenRouter가 키를 거부하거나 잔액이 없다고 해요(401·402·403) - 그레텔이 답을 못 하고 있어요."
+      description = <<-EOT
+        OpenRouter 대시보드에서 키가 켜져 있는지, 잔액이 남았는지 본다. 키를 새로 만들었으면 서버 환경 변수 OPENROUTER_API_KEY를 바꾼다.
+      EOT
+      logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"openrouter-http.failed\" |~ \"status=(401|402|403)\" [10m]))"
+      threshold   = 0
+      pending     = "0s"
+    }
+    # 요청 급증 - 최근 5분 요청 수가 지난 1시간 5분 평균의 몇 배인지. 분모에 상수를 더해 한산할 때(평균이 거의 0) 몇 건만
+    # 늘어도 울리지 않게 한다(예: 평균 10건이면 5분에 120건을 넘어야 울림).
+    request-spike = {
+      severity    = "warning"
+      summary     = "API 요청이 갑자기 늘었어요 - 최근 5분이 지난 1시간 평균의 ${var.request_spike_ratio}배를 넘었어요."
+      description = <<-EOT
+        http.request 로그 기준 전체 요청. 행사·QR·홍보로 사람이 몰린 건지, 한 곳에서 반복 호출(봇·스크립트)인지 가른다.
+        rate-limit.blocked가 같이 늘면 반복 호출 쪽. 비용이 드는 대화 요청은 ai-request-spike가 따로 본다.
+      EOT
+      logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"http.request\" [5m])) / (sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"http.request\" [1h])) / 12 + 30)"
+      threshold   = var.request_spike_ratio
+    }
+    # 그레텔 대화 요청 급증 - LLM·음성 비용이 바로 늘어나는 경로라 따로 본다(10분 평균 기준, 한산할 때 오탐을 막는 상수 5).
+    ai-request-spike = {
+      severity      = "warning"
+      summary       = "그레텔 대화 요청이 갑자기 늘었어요 - 최근 10분이 지난 2시간 평균의 ${var.request_spike_ratio}배를 넘었어요."
+      description   = <<-EOT
+        /v1/companion-chat/messages 기준. 요청마다 OpenRouter(LLM)와 Gemini 음성 비용이 든다. 그라파나 'Q-Story 비용'에서
+        오늘 사용액·음성 호출을 보고, 실제 이용자 몰림인지 반복 호출인지 회차 코드·IP로 가른다.
+      EOT
+      logql         = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"route=/v1/companion-chat/messages\" [10m])) / (sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"route=/v1/companion-chat/messages\" [2h])) / 12 + 5)"
+      threshold     = var.request_spike_ratio
+      range_seconds = 900
+    }
   }
 
   # 규칙마다 다른 값만 위에 적고, 나머지는 기본값으로 채운다(대부분 "5분에 N건 넘으면").

@@ -165,3 +165,9 @@ variable "prometheus_datasource_uid" {
   type        = string
   default     = "grafanacloud-prom"
 }
+
+variable "request_spike_ratio" {
+  description = "요청 급증 알림 - 최근 구간 요청 수가 평균(+작은 상수)의 몇 배를 넘으면 울릴지"
+  type        = number
+  default     = 3
+}
