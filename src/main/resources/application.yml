@@ -221,10 +221,8 @@ qstory:
     # 비우면 서비스 계정 JSON의 project_id를 쓴다.
     project-id: ${QSTORY_FCM_PROJECT_ID:}
   finops:
-    # 그라파나 "Q-Story 비용" - Railway 이번 결제 기간 사용액(finops/service/RailwayUsageClient). 계정 토큰과 워크스페이스 ID가
-    # 둘 다 있어야 켜진다.
+    # 그라파나 "Q-Story 비용" - Railway 이번 결제 기간 사용액(finops/service/RailwayUsageClient). 프로젝트 토큰이 있어야 켜진다.
     railway-api-token: ${QSTORY_RAILWAY_API_TOKEN:}
-    railway-workspace-id: ${QSTORY_RAILWAY_WORKSPACE_ID:}
   ga:
     # GA4 일일 집계 가져오기(analytics/service/GaImportService) - Grafana "Q-Story 유입 → 전환" 대시보드용.
     # 서비스 계정 키 JSON 원문 또는 그 base64(GA 속성에 '뷰어' 이상 권한). 키나 속성 ID가 비어 있으면 조용히 꺼진다.
