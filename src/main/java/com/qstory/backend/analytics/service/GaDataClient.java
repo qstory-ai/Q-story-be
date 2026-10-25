@@ -218,7 +218,7 @@ public class GaDataClient {
     }
 
     /** JSON 원문이면 그대로, 아니면 base64(일반·URL-safe, 줄바꿈 허용)로 풀어 본다. 둘 다 아니면 null. */
-    static String decodeServiceAccount(String raw) {
+    public static String decodeServiceAccount(String raw) {
         String trimmed = raw.trim();
         if (trimmed.startsWith("{")) {
             return trimmed;
