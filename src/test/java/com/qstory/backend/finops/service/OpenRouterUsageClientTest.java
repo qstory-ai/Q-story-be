@@ -38,7 +38,7 @@ class OpenRouterUsageClientTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(client.fetch()).thenReturn(Optional.empty());
 
-        new ProviderCostSnapshotJob(client, jdbc).snapshot();
+        new ProviderCostSnapshotJob(client, mock(RailwayUsageClient.class), jdbc).snapshot();
 
         verify(jdbc, never()).update(anyString(), (Object[]) org.mockito.ArgumentMatchers.any());
     }
@@ -49,7 +49,7 @@ class OpenRouterUsageClientTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(client.fetch()).thenReturn(Optional.of(new OpenRouterUsageClient.Usage(11.1, 0.09, 10.8, 20.0)));
 
-        new ProviderCostSnapshotJob(client, jdbc).snapshot();
+        new ProviderCostSnapshotJob(client, mock(RailwayUsageClient.class), jdbc).snapshot();
 
         verify(jdbc).update(ProviderCostSnapshotJob.INSERT, 11.1, 0.09, 10.8, 20.0);
     }
