@@ -484,10 +484,24 @@ public class OpenRouterClient {
             /** TRY_FAIL일 때만 - 시도 장면 줄(내레이터·인물). 그 밖에는 빈 목록. responseText는 이 장면 뒤 그레텔이 묻는 말이다. */
             List<SceneLine> attemptScene,
             /** TRY_FAIL일 때만 - 막힌 줄(3번째 줄)과 같은 모습의 배경 그림 id(요청의 후보 중 하나). 맞는 그림이 없으면 null. */
-            String attemptBackdropId) {
+            String attemptBackdropId,
+            com.qstory.backend.extension.learning.LearningFeedback learningFeedback) {
 
         public CompanionReply {
             attemptScene = attemptScene == null ? List.of() : List.copyOf(attemptScene);
+            learningFeedback = learningFeedback == null
+                    ? com.qstory.backend.extension.learning.LearningFeedback.none() : learningFeedback;
+        }
+
+        // QStory Extension Kit: retain the original canonical constructor.
+        public CompanionReply(
+                String interactionMode, String responseText, String speakerId,
+                String topicTag, String toneTag, String valueTag,
+                String replyKind, boolean childWantsToEnd, String childMeaning, boolean asksForHelp,
+                String proposedActionFamilyId, List<SceneLine> attemptScene, String attemptBackdropId) {
+            this(interactionMode, responseText, speakerId, topicTag, toneTag, valueTag, replyKind,
+                    childWantsToEnd, childMeaning, asksForHelp, proposedActionFamilyId, attemptScene,
+                    attemptBackdropId, null);
         }
 
         public CompanionReply(
@@ -892,7 +906,8 @@ public class OpenRouterClient {
                 interactionMode, withoutStoryVocative(terms.apply(routeResultValidator.normalizeKoreanResponseText(responseText))), speakerId,
                 topicTag, toneTag, valueTag,
                 replyKind, !triedAndFailed && value.path("childWantsToEnd").asBoolean(false), terms.apply(childMeaning),
-                asksForHelp, proposed, scene, backdropId);
+                asksForHelp, proposed, scene, backdropId,
+                com.qstory.backend.extension.learning.StoryPalAddon.readFeedback(value));
     }
 
     /** 시도 장면 배경 그림 - 요청의 후보 중 하나일 때만 받는다. NONE·후보 밖·형식이 어긋나면 null(지금 그림 그대로). */
@@ -1111,6 +1126,7 @@ public class OpenRouterClient {
             help.put("totalSteps", dialogue.help().total());
             help.put("hint", dialogue.help().hint());
         }
+        com.qstory.backend.extension.learning.StoryPalAddon.payload(payload, dialogue.learning());
         return payload;
     }
 
@@ -1200,6 +1216,7 @@ public class OpenRouterClient {
                 .add("replyKind").add("childWantsToEnd").add("childMeaning").add("asksForHelp")
                 .add("proposedActionFamilyId");
         schema.put("additionalProperties", false);
+        com.qstory.backend.extension.learning.StoryPalAddon.schema(schema);
         return schema;
     }
 
@@ -1319,7 +1336,8 @@ public class OpenRouterClient {
         lines.add("topicTag/toneTag/valueTag는 아이의 말에서 뚜렷하게 드러날 때만 고르고, 확신이 없으면 null로 둔다.");
         lines.add("응답을 반환하기 전에 한국어 맞춤법·띄어쓰기와 캐릭터 말투 일치를 한 번 확인한다.");
         // 페르소나·금지 지식 문구에 남은 "노파"를 장면에 맞는 호칭으로 바꾼 뒤, 호칭 규칙은 바꾸지 않고 붙인다.
-        String prompt = request.terms().apply(String.join(" ", lines));
+        String prompt = request.terms().apply(
+                com.qstory.backend.extension.learning.StoryPalAddon.prompt(String.join(" ", lines)));
         String namingRule = request.terms().promptRule();
         return namingRule == null ? prompt : prompt + " " + namingRule;
     }

@@ -95,16 +95,15 @@ public class CompanionChatPipelineService {
     public Map<String, Object> transcribe(
             ResolvedCompanionContext context, String sourceMimeType, byte[] audio, RequestDeadline deadline,
             ConversationAttribution attribution) {
-        if (!ProviderReadiness.of(config).stt()) {
+        if (!com.qstory.backend.extension.learning.WhisperAddon.ready(ProviderReadiness.of(config).stt())) {
             return failureEnvelope(
                     ProviderErrorCode.STT_PROVIDER_NOT_CONFIGURED, "stt", false,
                     "실제 음성 인식 공급자가 아직 연결되지 않았어요.");
         }
         try {
             NormalizedAudio normalized = normalizer.normalize(audio, sourceMimeType, deadline);
-            RtzrTranscriptionResult speech = sttClient.transcribe(
-                    normalized.audio(), normalized.extension(), normalized.mimeType(),
-                    context.sttKeywords(), deadline);
+            RtzrTranscriptionResult speech = com.qstory.backend.extension.learning.WhisperAddon.transcribe(
+                    sttClient, normalized, context.sttKeywords(), deadline);
             if (speech.transcript() == null || speech.transcript().isEmpty()) {
                 return failureEnvelope(
                         ProviderErrorCode.NO_SPEECH_DETECTED, "stt", true,
@@ -215,7 +214,9 @@ public class CompanionChatPipelineService {
         conversationRecordService.recordCompanionTurn(
                 context.story().storyId(), context.sceneId(), conversationId, transcript, reply,
                 context.versions().promptVersion() + "+"
-                        + OpenRouterClient.companionPromptVersion(dialogueProperties.tryAndFail()),
+                        + OpenRouterClient.companionPromptVersion(dialogueProperties.tryAndFail())
+                        + (com.qstory.backend.extension.learning.ExtensionFlags.storyPal()
+                                ? "+" + com.qstory.backend.extension.learning.StoryPalAddon.VERSION : ""),
                 attribution, request.attemptActive() ? dialogue.attempt().active().turn() : null);
 
         SynthesizedAudio generatedAudio = null;
@@ -274,6 +275,16 @@ public class CompanionChatPipelineService {
             dialogueResult.put("attempt", attempt);
         }
         result.put("dialogue", dialogueResult);
+        // QStory Extension Kit: learning metadata cannot change story routing.
+        if (com.qstory.backend.extension.learning.ExtensionFlags.storyPal()) {
+            boolean protectedTurn = "GENTLE_REDIRECT".equals(reply.interactionMode())
+                    || List.of("TRY_FAIL", "ATTEMPT_END", "NEW_BRANCH", "CLOSE", "REDIRECT").contains(reply.replyKind())
+                    || reply.proposedActionFamilyId() != null || request.attemptActive();
+            var nextLearning = com.qstory.backend.extension.learning.LearningReducer.next(
+                    dialogue.learning(), reply.learningFeedback(), protectedTurn);
+            result.put("learning", com.qstory.backend.extension.learning.StoryPalAddon.stateMap(nextLearning));
+            result.put("learningPolicyVersion", com.qstory.backend.extension.learning.StoryPalAddon.VERSION);
+        }
         if (generatedAudio != null) {
             result.put("audio", AudioPayload.of(generatedAudio.mimeType(), generatedAudio.audio()));
         }
