@@ -23,7 +23,8 @@ public record DiscordProperties(
         String newsLink,
         Integer geminiTtsDailyLimit,
         String geminiTtsWarnAt,
-        Double openrouterLowBalanceUsd) {
+        Double openrouterLowBalanceUsd,
+        String webhookAlerts) {
 
     public boolean on() {
         return !Boolean.FALSE.equals(enabled);
@@ -38,7 +39,12 @@ public record DiscordProperties(
     }
 
     public boolean limitAlertsOn() {
-        return on() && !Boolean.FALSE.equals(limitAlertsEnabled) && notBlank(webhookNews);
+        return on() && !Boolean.FALSE.equals(limitAlertsEnabled) && notBlank(alertsWebhook());
+    }
+
+    /** #경보 웹훅. 따로 두지 않았으면 예전처럼 #소식으로 보낸다. */
+    public String alertsWebhook() {
+        return notBlank(webhookAlerts) ? webhookAlerts : webhookNews;
     }
 
     public int geminiTtsDailyLimitOrDefault() {

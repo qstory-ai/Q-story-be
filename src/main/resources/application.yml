@@ -241,6 +241,8 @@ qstory:
     webhook-metrics: ${DISCORD_WEBHOOK_METRICS:}
     webhook-deploy: ${DISCORD_WEBHOOK_DEPLOY:}
     webhook-news: ${DISCORD_WEBHOOK_NEWS:}
+    # #경보(한도·비용 경고, 봇 실행 실패). 비우면 #소식으로 보낸다.
+    webhook-alerts: ${DISCORD_WEBHOOK_ALERTS:}
     # 역할 멘션(<@&ID>). 비어 있으면 멘션 없이 보낸다. 운영 = 경영·영업, 개발 = 개발.
     role-ops-id: ${DISCORD_ROLE_OPS_ID:}
     role-dev-id: ${DISCORD_ROLE_DEV_ID:}
