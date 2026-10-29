@@ -1,10 +1,15 @@
 server:
   port: ${PORT:8080}
   address: 0.0.0.0
+  # 배포 때 옛 서버는 종료 신호를 받아도 처리 중인 요청(그레텔 대화·낭독 스트림·실시간 음성 인식)을 마치고 내려간다.
+  # 기다리는 시간은 spring.lifecycle.timeout-per-shutdown-phase - 요청 제한 시간(request-timeout-ms)에 맞춘다.
+  shutdown: graceful
 
 spring:
   application:
     name: q-story-speech-api
+  lifecycle:
+    timeout-per-shutdown-phase: 40s
   # No SPRING_PROFILES_ACTIVE set -> falls back to "dev" (see application-dev.yml/-staging.yml/-prod.yml
   # for what differs per environment: allowed-origins, log level, SQL logging).
   profiles:
