@@ -121,7 +121,7 @@ public class LimitAlertService implements GeminiTtsUsageListener {
     }
 
     private void send(String key, LocalDate day, String text, List<DiscordMention> mentions) {
-        if (!notifier.send(DiscordChannel.NEWS, text, mentions)) {
+        if (!notifier.send(DiscordChannel.ALERTS, text, mentions)) {
             state.unmark(key, day);
         }
     }
