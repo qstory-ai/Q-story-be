@@ -79,6 +79,14 @@ public class CompanionChatController {
         this.replyStreaming = replyStreaming;
     }
 
+    // QStory Extension Kit: StoryPal 나이대를 아이 프로필에서 채운다. 없으면(테스트 등) 요청 그대로.
+    private com.qstory.backend.extension.learning.LearningAgeResolver learningAgeResolver;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setLearningAgeResolver(com.qstory.backend.extension.learning.LearningAgeResolver resolver) {
+        this.learningAgeResolver = resolver;
+    }
+
     @Operation(
             summary = "Send one companion-chat message",
             description = "Anchor-independent free chat with the story's character - never branches the story. "
@@ -129,6 +137,13 @@ public class CompanionChatController {
                 storyId, sceneId, speakerId, caller);
         ConversationAttribution attribution = attributionParser.fromBody(body, ConversationInputMode.TEXT, caller);
         DialogueInput dialogue = DialogueInput.fromBody(body);
+        if (learningAgeResolver != null) {
+            var learning = learningAgeResolver.apply(dialogue.learning(), attribution);
+            if (learning != dialogue.learning()) {
+                dialogue = new DialogueInput(dialogue.history(), dialogue.scene(), dialogue.executedActions(),
+                        dialogue.anchorId(), dialogue.wrapUp(), dialogue.help(), dialogue.attempt(), learning);
+            }
+        }
         Anchor inviteAnchor = dialogue.isInvite()
                 ? storyRegistryService.inviteAnchor(context.story(), dialogue.anchorId(), sceneId)
                 : null;
