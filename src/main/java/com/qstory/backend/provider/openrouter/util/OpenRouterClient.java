@@ -1,5 +1,6 @@
 package com.qstory.backend.provider.openrouter.util;
 import com.qstory.backend.provider.openrouter.FewShotExample;
+import com.qstory.backend.provider.ProviderHttp;
 import com.qstory.backend.common.log.LogEvents;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -9,7 +10,6 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.story.service.RoutePromptService;
-import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.common.util.RequestDeadline;
@@ -18,7 +18,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import com.qstory.backend.story.ChildFacingTerms;
 import com.qstory.backend.story.CompanionPersona;
@@ -342,7 +341,7 @@ public class OpenRouterClient {
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
                 boolean detailPresent = readErrorDetail(response.body()) != null;
-                logProviderHttpFailure("generateCompanionReply", response.statusCode(), response.body());
+                ProviderHttp.logHttpFailure(log, LogEvents.OPENROUTER_HTTP_FAILED, "generateCompanionReply", response.statusCode(), response.body());
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_RESPONSE_FAILED,
                         detailPresent ? "아이의 말에 답을 준비하지 못했어요." : "AI 응답 서버에 연결하지 못했어요.",
@@ -355,13 +354,8 @@ public class OpenRouterClient {
                     ? objectMapper.readTree(contentNode.asText())
                     : contentNode;
             return requireValidCompanionReply(parsed, request);
-        } catch (ProviderException | AbortException known) {
-            throw known;
-        } catch (HttpTimeoutException timeout) {
-            throw new AbortException("request-timeout");
         } catch (Exception error) {
-            throw new ProviderException(
-                    ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.", true, error);
+            throw ProviderHttp.asProviderFailure(error, ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.");
         }
     }
 
@@ -391,7 +385,7 @@ public class OpenRouterClient {
             if (response.statusCode() / 100 != 2) {
                 byte[] failureBody = body.readNBytes(FAILURE_BODY_LOG_LIMIT * 4);
                 boolean detailPresent = readErrorDetail(failureBody) != null;
-                logProviderHttpFailure("streamCompanionReply", response.statusCode(), failureBody);
+                ProviderHttp.logHttpFailure(log, LogEvents.OPENROUTER_HTTP_FAILED, "streamCompanionReply", response.statusCode(), failureBody);
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_RESPONSE_FAILED,
                         detailPresent ? "아이의 말에 답을 준비하지 못했어요." : "AI 응답 서버에 연결하지 못했어요.",
@@ -461,13 +455,8 @@ public class OpenRouterClient {
                         ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.");
             }
             return requireValidCompanionReply(objectMapper.readTree(content.toString()), request);
-        } catch (ProviderException | AbortException known) {
-            throw known;
-        } catch (HttpTimeoutException timeout) {
-            throw new AbortException("request-timeout");
         } catch (Exception error) {
-            throw new ProviderException(
-                    ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.", true, error);
+            throw ProviderHttp.asProviderFailure(error, ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.");
         } finally {
             closeQuietly(body);
         }
@@ -1186,25 +1175,6 @@ public class OpenRouterClient {
     }
 
     /**
-     * OpenRouter 호출(채팅완성/이미지 생성 전부 공유)이 2xx가 아닌 상태로 실패했을 때 실제
-     * 원인을 서버 로그에 남긴다 - 사용자에게는 항상 안전한 고정 문구만 내려가므로, 이 로그가
-     * 없으면 429 미만(예: 401/403/400 - 잘못된 키, 잘못된 파라미터, 요청 형식)으로 실패했는지조차
-     * 운영 중엔 알 방법이 없다. API 키는 헤더에만 실리고 본문에는 없으므로 응답 본문을 그대로
-     * 남겨도 새지 않는다. 태그(openrouter-http.failed)를 모든 호출 지점이 공유하므로, Grafana에서
-     * `{app="qstory-backend"} |= LogEvents.OPENROUTER_HTTP_FAILED` 하나로 채팅완성/이미지 생성 실패를
-     * 전부 모아 볼 수 있다.
-     */
-    private void logProviderHttpFailure(String context, int statusCode, byte[] responseBody) {
-        String bodySnippet = new String(responseBody, StandardCharsets.UTF_8);
-        if (bodySnippet.length() > FAILURE_BODY_LOG_LIMIT) {
-            bodySnippet = bodySnippet.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)";
-        }
-        log.warn(
-                LogEvents.OPENROUTER_HTTP_FAILED + " context={} status={} retryable={} responseBody={}",
-                context, statusCode, statusCode >= 429, bodySnippet);
-    }
-
-    /**
      * generateCompanionReply()는 자신의 고정된 스키마(CompanionReply)에 강하게 결합돼 있어 재사용하기
      * 어렵다. live-branch 생성처럼 다른 JSON 스키마를 쓰는 호출자를 위해, 요청 조립·에러 처리 배관(plumbing)만
      * 일반화한 것이다 - 스키마 자체는 호출자가 만든다.
@@ -1237,7 +1207,7 @@ public class OpenRouterClient {
                     .build();
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
-                logProviderHttpFailure("generateStructuredCompletion:" + schemaName, response.statusCode(), response.body());
+                ProviderHttp.logHttpFailure(log, LogEvents.OPENROUTER_HTTP_FAILED, "generateStructuredCompletion:" + schemaName, response.statusCode(), response.body());
                 throw new ProviderException(
                         failureCode, failureSafeDetail, response.statusCode() == 400 || response.statusCode() >= 429);
             }
@@ -1246,17 +1216,11 @@ public class OpenRouterClient {
             JsonNode contentNode = payload.path("choices").path(0).path("message").path("content");
             return new StructuredCompletion(
                     contentNode.isTextual() ? objectMapper.readTree(contentNode.asText()) : contentNode, used);
-        } catch (ProviderException | AbortException known) {
-            throw known;
-        } catch (HttpTimeoutException timeout) {
-            throw new AbortException("request-timeout");
-        } catch (JsonProcessingException malformed) {
-            // 응답 파싱 실패는 네트워크 장애가 아니라 스키마/응답 형식 버그일 가능성이 높다 - 무조건
-            // retryable=true로 두면 이런 버그가 재시도 뒤에 숨어버린다(CONTENT_MAX_ATTEMPTS만큼
-            // 조용히 반복되다 결국 같은 실패로 끝난다).
-            throw new ProviderException(failureCode, failureSafeDetail, false, malformed);
         } catch (Exception error) {
-            throw new ProviderException(failureCode, failureSafeDetail, true, error);
+            // 응답 파싱 실패는 네트워크 장애가 아니라 스키마/응답 형식 버그일 가능성이 높다 - 무조건
+            // retryable=true로 두면 이런 버그가 재시도 뒤에 숨어버린다(조용히 반복되다 결국 같은 실패로 끝난다).
+            throw ProviderHttp.asProviderFailure(
+                    error, failureCode, failureSafeDetail, !(error instanceof JsonProcessingException));
         }
     }
 
@@ -1332,7 +1296,7 @@ public class OpenRouterClient {
                     .build();
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() / 100 != 2) {
-                logProviderHttpFailure("generateImage", response.statusCode(), response.body());
+                ProviderHttp.logHttpFailure(log, LogEvents.OPENROUTER_HTTP_FAILED, "generateImage", response.statusCode(), response.body());
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_IMAGE_FAILED, "삽화를 만들지 못했어요.", response.statusCode() >= 429);
             }
@@ -1354,13 +1318,8 @@ public class OpenRouterClient {
                 throw new ProviderException(ProviderErrorCode.OPENROUTER_IMAGE_INVALID, "삽화 형식을 확인하지 못했어요.");
             }
             return new GeneratedImage(bytes, mimeType);
-        } catch (ProviderException | AbortException known) {
-            throw known;
-        } catch (HttpTimeoutException timeout) {
-            throw new AbortException("request-timeout");
         } catch (Exception error) {
-            throw new ProviderException(
-                    ProviderErrorCode.OPENROUTER_IMAGE_NETWORK_FAILED, "삽화 생성 서버에 연결하지 못했어요.", true, error);
+            throw ProviderHttp.asProviderFailure(error, ProviderErrorCode.OPENROUTER_IMAGE_NETWORK_FAILED, "삽화 생성 서버에 연결하지 못했어요.");
         }
     }
 
