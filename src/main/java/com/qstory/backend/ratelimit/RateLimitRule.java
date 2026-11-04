@@ -48,6 +48,8 @@ public enum RateLimitRule {
     PLAY_SESSION_TURNS("play-session-turns", 60, Duration.ofMinutes(1), Scope.PER_CLIENT),
     BETA_EVENTS("beta-events", 120, Duration.ofMinutes(1), Scope.PER_CLIENT),
     CLIENT_ERRORS("client-errors", 120, Duration.ofMinutes(1), Scope.PER_CLIENT),
+    /** 주소를 바꿔 가며 보내도 에러 로그가 넘치지 않게 - 서버 전체. */
+    CLIENT_ERRORS_GLOBAL("client-errors-global", 600, Duration.ofMinutes(1), Scope.GLOBAL),
     RECORDING_CONSENTS("recording-consents", 30, Duration.ofHours(1), Scope.PER_CLIENT),
     LAUNCH_NOTIFICATIONS("launch-notifications", 10, Duration.ofHours(1), Scope.PER_CLIENT),
     PARTNERSHIP_INQUIRIES("partnership-inquiries", 5, Duration.ofHours(1), Scope.PER_CLIENT),

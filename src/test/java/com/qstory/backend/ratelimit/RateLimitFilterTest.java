@@ -51,6 +51,8 @@ class RateLimitFilterTest {
         for (String stt : List.of("/v1/companion-chat/transcriptions/base64", "/v1/stt/stream-tickets")) {
             assertThat(RateLimitFilter.rulesFor("POST", stt)).containsExactly(RateLimitRule.STT, RateLimitRule.STT_GLOBAL);
         }
+        assertThat(RateLimitFilter.rulesFor("POST", "/v1/client-errors"))
+                .containsExactly(RateLimitRule.CLIENT_ERRORS, RateLimitRule.CLIENT_ERRORS_GLOBAL);
         assertThat(RateLimitFilter.rulesFor("POST", "/v1/auth/login")).containsExactly(RateLimitRule.LOGIN_CLIENT);
         assertThat(RateLimitFilter.rulesFor("POST", "/v1/auth/oauth/kakao")).containsExactly(RateLimitRule.LOGIN_CLIENT);
         assertThat(RateLimitFilter.rulesFor("POST", "/v1/auth/signup/parent")).containsExactly(RateLimitRule.SIGNUP);

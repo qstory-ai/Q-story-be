@@ -1,6 +1,7 @@
 package com.qstory.backend.reportanalysis.service;
 
 import com.qstory.backend.playsession.service.PlaySessionService;
+import com.qstory.backend.common.enums.SessionKind;
 import com.qstory.backend.story.service.StoryContentAssemblyService;
 import java.util.List;
 import java.util.Map;
@@ -59,7 +60,7 @@ public class DemoReportAnalysisWorker {
                 return;
             }
             Map<String, Object> result = analysisService.analyze(new ReportAnalysisService.Input(
-                    "HOME", turns, content, job.readFromSceneId(), job.readThroughSceneId()));
+                    SessionKind.HOME, turns, content, job.readFromSceneId(), job.readThroughSceneId()));
             store.finish(sessionId, "READY", analysisService.modelId(), ReportAnalysisService.PROMPT_VERSION, result, null);
             log.info("demo-report-analysis.ready observations={} duration_ms={}",
                     ((List<?>) result.get("observations")).size(), System.currentTimeMillis() - startedAt);
