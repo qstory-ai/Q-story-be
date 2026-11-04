@@ -1,7 +1,7 @@
 package com.qstory.backend.storyreport.service;
 
 import com.qstory.backend.common.util.TeacherName;
-import com.qstory.backend.common.enums.SessionKind;
+import com.qstory.backend.storyreport.SessionKind;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.common.error.ApiException;

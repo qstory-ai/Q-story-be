@@ -1,4 +1,4 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.story;
 
 /**
  * 라우팅 프롬프트 YAML의 단계(RoutePromptService.requireStage 참고). 옛 3단계 질문 라우팅이 쓰던 구분이고

@@ -1,4 +1,4 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.story;
 
 /**
  * StoryVisualReferencePack.kind - fe/q-story-web의 visual-generation-contract.ts에 있는

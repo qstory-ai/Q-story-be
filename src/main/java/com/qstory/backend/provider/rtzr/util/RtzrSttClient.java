@@ -1,5 +1,6 @@
 package com.qstory.backend.provider.rtzr.util;
 import com.qstory.backend.provider.rtzr.RtzrTranscriptionResult;
+import com.qstory.backend.common.log.LogEvents;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -234,7 +235,7 @@ public class RtzrSttClient {
 
     /**
      * OpenRouterClient.logProviderHttpFailure와 같은 취지 - 인증/제출/폴링 HTTP 실패에 공통 태그
-     * (rtzr-http.failed)를 붙여 Grafana에서 `|= "rtzr-http.failed"` 하나로 모든 Rtzr HTTP 실패를 모아
+     * (rtzr-http.failed)를 붙여 Grafana에서 `|= LogEvents.RTZR_HTTP_FAILED` 하나로 모든 Rtzr HTTP 실패를 모아
      * 볼 수 있게 한다. Rtzr 응답 본문은 인증 토큰을 포함하지 않으므로(토큰은 헤더에만) 잘라 남긴다.
      */
     private void logRtzrHttpFailure(String context, int statusCode, byte[] responseBody) {
@@ -243,7 +244,7 @@ public class RtzrSttClient {
             bodySnippet = bodySnippet.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)";
         }
         log.warn(
-                "rtzr-http.failed context={} status={} retryable={} responseBody={}",
+                LogEvents.RTZR_HTTP_FAILED + " context={} status={} retryable={} responseBody={}",
                 context, statusCode, statusCode >= 429, bodySnippet);
     }
 
@@ -256,7 +257,7 @@ public class RtzrSttClient {
         if (bodySnippet.length() > FAILURE_BODY_LOG_LIMIT) {
             bodySnippet = bodySnippet.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)";
         }
-        log.warn("rtzr-transcription.failed submissionId={} responseBody={}", submissionId, bodySnippet);
+        log.warn(LogEvents.RTZR_TRANSCRIPTION_FAILED + " submissionId={} responseBody={}", submissionId, bodySnippet);
     }
 
     private JsonNode safeJson(byte[] body) {

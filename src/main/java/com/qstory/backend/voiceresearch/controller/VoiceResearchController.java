@@ -3,7 +3,7 @@ import com.qstory.backend.voiceresearch.service.VoiceResearchService;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.qstory.backend.common.enums.CoverageStatus;
+import com.qstory.backend.voiceresearch.CoverageStatus;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.FailureBody;

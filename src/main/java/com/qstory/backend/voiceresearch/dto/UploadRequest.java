@@ -1,6 +1,6 @@
 package com.qstory.backend.voiceresearch.dto;
 
-import com.qstory.backend.common.enums.CoverageStatus;
+import com.qstory.backend.voiceresearch.CoverageStatus;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.web.multipart.MultipartFile;

@@ -1,6 +1,5 @@
 package com.qstory.backend.conversationrecord;
 
-import com.qstory.backend.common.enums.ConversationInputMode;
 import com.qstory.backend.identity.security.CurrentUser;
 import java.util.UUID;
 

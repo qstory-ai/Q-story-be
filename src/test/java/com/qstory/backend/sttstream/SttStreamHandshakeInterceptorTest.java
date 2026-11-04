@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.qstory.backend.common.enums.ConversationInputMode;
+import com.qstory.backend.conversationrecord.ConversationInputMode;
 import com.qstory.backend.common.util.SecureTokenGenerator;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.config.SttStreamProperties;

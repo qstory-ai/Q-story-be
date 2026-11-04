@@ -1,6 +1,6 @@
 package com.qstory.backend.companionchat.entity;
 
-import com.qstory.backend.common.enums.CompanionInteractionMode;
+import com.qstory.backend.companionchat.CompanionInteractionMode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

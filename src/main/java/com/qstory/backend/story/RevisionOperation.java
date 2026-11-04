@@ -1,4 +1,4 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.story;
 
 /** 저작(authoring) 편집이 대상을 어떻게 변경했는지. story_revision.operation을 그대로 반영한다. */
 public enum RevisionOperation {

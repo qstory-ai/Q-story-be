@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.qstory.backend.common.enums.ConversationInputMode;
+import com.qstory.backend.conversationrecord.ConversationInputMode;
 import com.qstory.backend.conversationrecord.ConversationAttribution;
 import com.qstory.backend.provider.rtzr.util.RtzrStreamingClient;
 import java.time.Instant;

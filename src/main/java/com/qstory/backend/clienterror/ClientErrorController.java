@@ -1,6 +1,7 @@
 package com.qstory.backend.clienterror;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.qstory.backend.common.log.LogEvents;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
@@ -61,7 +62,7 @@ public class ClientErrorController {
             throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "요청 형식이 올바르지 않아요.");
         }
         log.warn(
-                "client.error kind={} route={} story_id={} scene_id={} release={} browser={} message={} stack={}",
+                LogEvents.CLIENT_ERROR + " kind={} route={} story_id={} scene_id={} release={} browser={} message={} stack={}",
                 kind,
                 token(body.path("route").asText(""), "unknown"),
                 token(body.path("story_id").asText(""), "-"),

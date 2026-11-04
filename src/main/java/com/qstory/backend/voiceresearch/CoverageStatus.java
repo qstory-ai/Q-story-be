@@ -1,5 +1,6 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.voiceresearch;
 
+import com.qstory.backend.story.StoryAvailability;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;

@@ -1,7 +1,7 @@
 package com.qstory.backend.story.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.qstory.backend.common.enums.RoutePromptStageKind;
+import com.qstory.backend.story.RoutePromptStageKind;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.provider.openrouter.FewShotExample;

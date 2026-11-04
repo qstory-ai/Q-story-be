@@ -1,4 +1,4 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.story;
 
 /** 스토리 에셋의 종류(story_asset.category). slug는 타입 정보를 담지 않으므로 종류는 이 값으로만 판단한다. */
 public enum AssetCategory {

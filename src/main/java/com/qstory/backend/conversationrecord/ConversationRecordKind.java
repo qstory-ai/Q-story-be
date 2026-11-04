@@ -1,4 +1,4 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.conversationrecord;
 
 /** conversation_record 한 행이 무엇을 담는지. 발화 하나가 STT 행과 답변 행 두 개로 남을 수 있다. */
 public enum ConversationRecordKind {

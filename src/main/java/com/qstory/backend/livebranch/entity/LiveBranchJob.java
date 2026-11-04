@@ -1,6 +1,6 @@
 package com.qstory.backend.livebranch.entity;
 
-import com.qstory.backend.common.enums.LiveBranchJobStatus;
+import com.qstory.backend.livebranch.LiveBranchJobStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

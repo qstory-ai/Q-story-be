@@ -1,6 +1,7 @@
 package com.qstory.backend.common.web;
 
 import jakarta.servlet.FilterChain;
+import com.qstory.backend.common.log.LogEvents;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -27,7 +28,7 @@ public class RequestIdFilter extends OncePerRequestFilter {
 
     public static final String REQUEST_ID_ATTRIBUTE = "qstoryRequestId";
 
-    private static final Logger log = LoggerFactory.getLogger("http.request");
+    private static final Logger log = LoggerFactory.getLogger(LogEvents.HTTP_REQUEST);
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -48,7 +49,7 @@ public class RequestIdFilter extends OncePerRequestFilter {
         } finally {
             if (!request.getRequestURI().startsWith("/health")) {
                 log.info(
-                        "http.request method={} route={} status={} duration_ms={} request_id={}",
+                        LogEvents.HTTP_REQUEST + " method={} route={} status={} duration_ms={} request_id={}",
                         request.getMethod(),
                         routeOf(request),
                         response.getStatus(),

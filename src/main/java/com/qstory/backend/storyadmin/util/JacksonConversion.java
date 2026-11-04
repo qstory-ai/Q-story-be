@@ -1,4 +1,4 @@
-package com.qstory.backend.common.util;
+package com.qstory.backend.storyadmin.util;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;

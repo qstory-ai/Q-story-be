@@ -1,7 +1,7 @@
 package com.qstory.backend.conversationrecord.service;
 
-import com.qstory.backend.common.enums.ConversationInputMode;
-import com.qstory.backend.common.enums.ConversationRecordKind;
+import com.qstory.backend.conversationrecord.ConversationInputMode;
+import com.qstory.backend.conversationrecord.ConversationRecordKind;
 import com.qstory.backend.common.util.ContactInfoMasker;
 import com.qstory.backend.conversationrecord.ConversationAttribution;
 import com.qstory.backend.conversationrecord.entity.ConversationRecord;

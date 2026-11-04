@@ -1,11 +1,11 @@
 package com.qstory.backend.storyadmin.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.qstory.backend.common.enums.RevisionOperation;
-import com.qstory.backend.common.enums.RevisionTarget;
+import com.qstory.backend.story.RevisionOperation;
+import com.qstory.backend.story.RevisionTarget;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
-import com.qstory.backend.common.util.JacksonConversion;
+import com.qstory.backend.storyadmin.util.JacksonConversion;
 import com.qstory.backend.story.entity.StoryRevision;
 import com.qstory.backend.story.entity.StoryScene;
 import com.qstory.backend.story.entity.StorySegment;
