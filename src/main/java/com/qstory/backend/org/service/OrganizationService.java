@@ -1,6 +1,7 @@
 package com.qstory.backend.org.service;
 
 import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.org.OrganizationAccess;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.entity.AppUser;
@@ -174,9 +175,7 @@ public class OrganizationService {
 
     /** ClassService가 반을 생성/조회할 때 동일한 소유권 검사를 재사용할 수 있도록 패키지 가시성으로 둔다. */
     Organization requireOwned(CurrentUser caller, UUID organizationId) {
-        if (!organizationId.equals(caller.orgId())) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 유치원에 접근할 권한이 없어요.", 403);
-        }
+        OrganizationAccess.requireDirectorOf(caller, organizationId);
         return organizationRepository.findById(organizationId)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "유치원을 찾을 수 없어요.", 404));
     }

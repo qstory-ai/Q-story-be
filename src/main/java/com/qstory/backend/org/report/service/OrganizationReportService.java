@@ -1,6 +1,7 @@
 package com.qstory.backend.org.report.service;
 
 import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.org.OrganizationAccess;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.org.entity.ClassGroup;
@@ -90,9 +91,7 @@ public class OrganizationReportService {
     }
 
     private void requireOwnedByCaller(CurrentUser caller, UUID organizationId) {
-        if (caller.orgId() == null || !caller.orgId().equals(organizationId)) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 기관의 리포트를 볼 권한이 없어요.", 403);
-        }
+        OrganizationAccess.requireDirectorOf(caller, organizationId);
         if (!organizationRepository.existsById(organizationId)) {
             throw ApiException.contractError(ErrorCode.NOT_FOUND, "기관을 찾을 수 없어요.", 404);
         }

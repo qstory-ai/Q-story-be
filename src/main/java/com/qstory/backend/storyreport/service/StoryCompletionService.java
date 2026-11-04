@@ -1,6 +1,7 @@
 package com.qstory.backend.storyreport.service;
 
 import com.qstory.backend.common.util.TeacherName;
+import com.qstory.backend.common.enums.SessionKind;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.common.error.ApiException;
@@ -346,16 +347,16 @@ public class StoryCompletionService {
         if (!isSessionOwner && !isDirector && !isVisibleToParent(id, caller)) {
             throw ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404);
         }
-        boolean staffView = isDirector || (isSessionOwner && !"HOME".equals(completion.sessionKind()));
+        boolean staffView = isDirector || (isSessionOwner && completion.sessionKind() != SessionKind.HOME);
         // 대화는 기록을 남긴 계정의 회차일 때만 붙인다(보안 점검 H1) - 기록에 남의 회차 id가 적혀 있어도 읽히지 않는다.
         UUID recordOwnerId = completion.getUser().getId();
         List<Map<String, Object>> turns = playSessionService.listTurns(completion.getSessionId(), recordOwnerId);
         boolean turnsAvailable = playSessionService.isOwnedBy(completion.getSessionId(), recordOwnerId);
-        if ("CLASS".equals(completion.sessionKind()) && !staffView) {
+        if (completion.sessionKind() == SessionKind.CLASS && !staffView) {
             // 반 수업 대화는 어느 아이 말인지 모르고, 다른 아이 말 원문은 부모에게 공개하지 않는다.
             turns = turns.stream().map(StoryCompletionService::withoutChildText).toList();
         }
-        StoryCompletionDetail.TeacherNote note = "HOME".equals(completion.sessionKind())
+        StoryCompletionDetail.TeacherNote note = completion.sessionKind() == SessionKind.HOME
                 ? null
                 : new StoryCompletionDetail.TeacherNote(
                         staffView ? completion.getTeacherNoteInternal() : null, completion.getTeacherNoteForParents());
@@ -381,7 +382,7 @@ public class StoryCompletionService {
 
     private List<StoryCompletionDetail.LinkedChild> linkedChildren(CurrentUser caller, StoryCompletion completion) {
         if (caller.role() != Role.PARENT) return List.of();
-        if ("HOME".equals(completion.sessionKind())) {
+        if (completion.sessionKind() == SessionKind.HOME) {
             Child child = completion.getChild();
             return child == null || !completion.getUser().getId().equals(caller.userId())
                     ? List.of()
@@ -398,7 +399,7 @@ public class StoryCompletionService {
             CurrentUser caller, UUID id, String internal, String forParents) {
         StoryCompletion completion = repository.findById(id)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404));
-        if (!completion.getUser().getId().equals(caller.userId()) || "HOME".equals(completion.sessionKind())) {
+        if (!completion.getUser().getId().equals(caller.userId()) || completion.sessionKind() == SessionKind.HOME) {
             throw ApiException.contractError(ErrorCode.NOT_FOUND, "기록을 찾을 수 없어요.", 404);
         }
         if ((internal != null && internal.length() > TEACHER_NOTE_MAX)
@@ -430,7 +431,7 @@ public class StoryCompletionService {
      */
     static boolean isVisibleToDirector(CurrentUser caller, StoryCompletion completion) {
         if (caller.role() != Role.DIRECTOR || caller.orgId() == null) return false;
-        if ("HOME".equals(completion.sessionKind())) return false;
+        if (completion.sessionKind() == SessionKind.HOME) return false;
         if (completion.getOrganization() != null) {
             return caller.orgId().equals(completion.getOrganization().getId());
         }

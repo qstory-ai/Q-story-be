@@ -1,6 +1,7 @@
 package com.qstory.backend.org.tutor.service;
 
 import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.org.OrganizationAccess;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.org.entity.ClassGroup;
@@ -77,9 +78,7 @@ public class OrganizationTutorInsightService {
     }
 
     private void requireLinkedTutor(CurrentUser caller, UUID organizationId, UUID tutorId) {
-        if (caller.orgId() == null || !caller.orgId().equals(organizationId)) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 기관에 접근할 권한이 없어요.", 403);
-        }
+        OrganizationAccess.requireDirectorOf(caller, organizationId);
         organizationTutorRepository.findByOrganization_IdAndTutor_Id(organizationId, tutorId)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "이 기관에 소속된 선생님이 아니에요.", 404));
     }

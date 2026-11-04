@@ -138,6 +138,7 @@ qstory:
       play-session-turns: { requests: 60, window: 1m }
       beta-events: { requests: 120, window: 1m }
       client-errors: { requests: 120, window: 1m }
+      client-errors-global: { requests: 600, window: 1m }
       recording-consents: { requests: 30, window: 1h }
       launch-notifications: { requests: 10, window: 1h }
       completion-surveys: { requests: 10, window: 1h }

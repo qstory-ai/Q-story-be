@@ -12,14 +12,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.identity.service.AuthService;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
-import com.qstory.backend.identity.security.JwtService;
-import com.qstory.backend.identity.service.ConsentService;
-import com.qstory.backend.identity.service.UserSummaryFactory;
-import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.org.entity.Organization;
@@ -38,7 +35,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 /** 보안 점검 H3 - 담임·원장이 잘못된 보호자 연결을 끊는다. 학생은 명단에 남고, 끊긴 보호자에게는 지난 리포트 열람권을 남기지 않는다. */
 class ClassServiceUnlinkParentTest {
@@ -48,11 +44,18 @@ class ClassServiceUnlinkParentTest {
     private final StoryCompletionRepository completions = mock(StoryCompletionRepository.class);
     private final NotificationPublisher notifications = mock(NotificationPublisher.class);
     private final ClassService service = new ClassService(
-            classGroups, students, mock(OrganizationTutorRepository.class), mock(AppUserRepository.class),
-            mock(OrganizationService.class), mock(JoinCodeGenerator.class), mock(AuthValidator.class),
-            mock(PasswordEncoder.class), mock(JwtService.class), mock(TutorStudentService.class),
-            mock(UserSummaryFactory.class), completions, mock(LessonRepository.class),
-            mock(ClassHomeroomHistoryService.class), mock(ConsentService.class), notifications,
+            classGroups,
+            students,
+            mock(OrganizationTutorRepository.class),
+            mock(AppUserRepository.class),
+            mock(OrganizationService.class),
+            mock(JoinCodeGenerator.class),
+            mock(AuthService.class),
+            mock(TutorStudentService.class),
+            completions,
+            mock(LessonRepository.class),
+            mock(ClassHomeroomHistoryService.class),
+            notifications,
             mock(StudentClassHistoryService.class));
 
     private final Organization org = Organization.builder().id(UUID.randomUUID()).name("햇살유치원").build();

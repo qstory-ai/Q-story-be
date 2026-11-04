@@ -16,7 +16,7 @@ public record ClassStudentReportResponse(
     public static ClassStudentReportResponse of(StoryCompletion completion) {
         return new ClassStudentReportResponse(
                 completion.getId(), completion.getStoryId(), completion.getCompletedAt(),
-                completion.getDurationSeconds(), completion.sessionKind(),
+                completion.getDurationSeconds(), completion.sessionKind().name(),
                 completion.getLesson() == null ? null : completion.getLesson().getId(),
                 completion.getUser().getId(), completion.getUser().getDisplayName(),
                 completion.getClassGroup() == null ? null : completion.getClassGroup().getId(),
