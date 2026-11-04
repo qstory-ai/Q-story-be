@@ -6,7 +6,7 @@ spring:
   application:
     name: q-story-speech-api
   # No SPRING_PROFILES_ACTIVE set -> falls back to "dev" (see application-dev.yml/-staging.yml/-prod.yml
-  # for what differs per environment: allowed-origins, log level, SQL logging).
+  # for what differs per environment: log level, SQL logging, rate-limit client IP header).
   profiles:
     default: dev
   servlet:
@@ -62,6 +62,8 @@ spring:
 qstory:
   # dev·staging·prod 프로필 yml이 각자 덮어쓰므로 이 기본값은 그 밖의 프로필로 띄울 때만 쓰인다. 옛 출처(chatgpt.site 시범판,
   # start.·dev.·demo.api.)는 뺐다 - 운영 값은 application-prod.yml과 Railway의 ALLOWED_ORIGINS가 정한다.
+  # 브라우저 출처 허용 목록 - 배포 환경은 Railway의 ALLOWED_ORIGINS가 통째로 정한다(프로필 yml에는 없다). 아래는 그 변수가
+  # 없을 때(로컬)의 기본값. 네이티브 앱 출처는 native-origins에 따로 두고 SecurityConfig가 합친다.
   allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006,http://localhost:5173,http://127.0.0.1:5173,https://qstory.ai.kr,https://www.qstory.ai.kr,https://play.qstory.ai.kr,https://demo.qstory.ai.kr}
   # 태블릿·폰 네이티브 앱(Capacitor WebView)의 출처 - fe/q-story-web/capacitor.config.ts의
   # server.hostname(app.qstory.ai.kr)에 Android는 https, iOS는 capacitor 스킴이 붙는다.
@@ -198,7 +200,8 @@ qstory:
     story-image-bucket: ${SUPABASE_STORY_IMAGE_BUCKET:qstory-story-images}
     profile-image-bucket: ${SUPABASE_PROFILE_IMAGE_BUCKET:qstory-profile-images}
   admin:
-    story-import-token: ${QSTORY_STORY_IMPORT_TOKEN:}
+    # 운영자 엔드포인트(X-Admin-Token)의 공유 비밀값. 예전 이름(QSTORY_STORY_IMPORT_TOKEN)도 당분간 읽는다.
+    token: ${QSTORY_ADMIN_TOKEN:${QSTORY_STORY_IMPORT_TOKEN:}}
   conversation-record:
     # 아이의 발화 원문·캐릭터 답을 남기는 conversation_record(db/schema/052)의 보존 일수.
     # ConversationRecordRetentionScheduler가 매일 이보다 오래된 행을 지운다. 0 이하 = 삭제 안 함.

@@ -90,7 +90,7 @@ public class AuthController {
     @ResponseStatus(HttpStatus.CREATED)
     public AuthResponse signupStaff(
             @Parameter(in = ParameterIn.HEADER, name = "X-Admin-Token", required = true,
-                    description = "Shared secret, must equal qstory.admin.story-import-token") HttpServletRequest httpRequest,
+                    description = "Shared secret, must equal qstory.admin.token") HttpServletRequest httpRequest,
             @RequestBody SignupOrganizationOwnerRequest request) {
         adminTokenGuard.require(httpRequest);
         return authService.signupStaff(request);

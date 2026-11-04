@@ -35,7 +35,6 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -65,8 +64,7 @@ public class CompanionChatController {
             AppProperties config, ObjectMapper objectMapper,
             StoryRegistryService storyRegistryService, CompanionChatPipelineService pipeline,
             CompanionChatTurnRepository turnRepository, CurrentUserResolver currentUserResolver,
-            ConversationAttributionParser attributionParser,
-            @Value("${qstory.voice-streaming.companion-reply:true}") boolean replyStreaming) {
+            ConversationAttributionParser attributionParser) {
         this.config = config;
         this.objectMapper = objectMapper;
         this.storyRegistryService = storyRegistryService;
@@ -74,7 +72,7 @@ public class CompanionChatController {
         this.turnRepository = turnRepository;
         this.currentUserResolver = currentUserResolver;
         this.attributionParser = attributionParser;
-        this.replyStreaming = replyStreaming;
+        this.replyStreaming = config.voiceStreaming().companionReply();
     }
 
     @Operation(

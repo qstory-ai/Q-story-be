@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qstory.backend.common.error.ProviderErrorCode;
+import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.common.enums.SessionKind;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
@@ -16,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -88,12 +88,10 @@ public class ReportAnalysisService {
     private final ObjectMapper objectMapper;
     private final String modelId;
 
-    public ReportAnalysisService(
-            OpenRouterClient openRouterClient, ObjectMapper objectMapper,
-            @Value("${qstory.providers.openrouter.llm-model:google/gemini-3.6-flash}") String modelId) {
+    public ReportAnalysisService(OpenRouterClient openRouterClient, ObjectMapper objectMapper, AppProperties config) {
         this.openRouterClient = openRouterClient;
         this.objectMapper = objectMapper;
-        this.modelId = modelId;
+        this.modelId = config.providers().openRouter().llmModel();
     }
 
     public String modelId() {

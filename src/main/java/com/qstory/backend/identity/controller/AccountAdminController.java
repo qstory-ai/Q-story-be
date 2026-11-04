@@ -44,13 +44,13 @@ public class AccountAdminController {
                     content = @Content(schema = @Schema(example = "{\"ok\":true,\"dryRun\":false,\"found\":3,\"erased\":3,\"failed\":0}"))),
             @ApiResponse(responseCode = "403", description = "Missing/incorrect X-Admin-Token",
                     content = @Content(schema = @Schema(implementation = FailureBody.class))),
-            @ApiResponse(responseCode = "500", description = "qstory.admin.story-import-token is not configured on this instance",
+            @ApiResponse(responseCode = "500", description = "qstory.admin.token is not configured on this instance",
                     content = @Content(schema = @Schema(implementation = FailureBody.class)))
     })
     @PostMapping("/v1/admin/accounts/erase-legacy-deleted")
     public Map<String, Object> eraseLegacyDeleted(
             @Parameter(in = ParameterIn.HEADER, name = "X-Admin-Token", required = true,
-                    description = "Shared secret, must equal qstory.admin.story-import-token") HttpServletRequest request,
+                    description = "Shared secret, must equal qstory.admin.token") HttpServletRequest request,
             @Parameter(description = "true: only count the matching accounts, change nothing")
             @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun) {
         adminTokenGuard.require(request);
