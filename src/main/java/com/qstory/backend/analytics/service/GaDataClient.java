@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qstory.backend.config.GaProperties;
+import com.qstory.backend.common.util.ServiceAccountJson;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -14,7 +15,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.function.Function;
 import org.slf4j.Logger;
@@ -202,7 +202,7 @@ public class GaDataClient {
             log.info("ga-import.disabled reason={}", killed ? "kill-switch" : "not-configured");
             return null;
         }
-        String json = decodeServiceAccount(properties.serviceAccountJson());
+        String json = ServiceAccountJson.decode(properties.serviceAccountJson());
         if (json == null) {
             log.warn("ga-import.disabled reason=invalid-service-account detail=not-json-or-base64");
             return null;
@@ -215,25 +215,6 @@ public class GaDataClient {
             log.warn("ga-import.disabled reason=invalid-service-account detail={}", invalid.getClass().getSimpleName());
             return null;
         }
-    }
-
-    /** JSON 원문이면 그대로, 아니면 base64(일반·URL-safe, 줄바꿈 허용)로 풀어 본다. 둘 다 아니면 null. */
-    public static String decodeServiceAccount(String raw) {
-        String trimmed = raw.trim();
-        if (trimmed.startsWith("{")) {
-            return trimmed;
-        }
-        for (Base64.Decoder decoder : new Base64.Decoder[] {Base64.getMimeDecoder(), Base64.getUrlDecoder()}) {
-            try {
-                String decoded = new String(decoder.decode(trimmed), StandardCharsets.UTF_8).trim();
-                if (decoded.startsWith("{")) {
-                    return decoded;
-                }
-            } catch (IllegalArgumentException notBase64) {
-                // 다음 디코더로.
-            }
-        }
-        return null;
     }
 
     /** GA 호출 실패. 메시지는 짧은 사유(상태 코드·GA 오류 상태)만 - 키·토큰은 넣지 않는다. */

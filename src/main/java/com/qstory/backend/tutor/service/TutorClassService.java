@@ -116,7 +116,7 @@ public class TutorClassService {
                 .organization(organization)
                 .tutor(tutor)
                 .name(request.name().trim())
-                .joinCode(generateUniqueJoinCode())
+                .joinCode(joinCodeGenerator.generateUniqueClassCode(classGroupRepository))
                 .createdAt(Instant.now())
                 .build());
         homeroomHistoryService.start(saved, tutor, saved.getCreatedAt());
@@ -137,10 +137,5 @@ public class TutorClassService {
                     ErrorCode.CLASS_ARCHIVED, "지난 반이라 수업을 더 만들 수 없어요. 원장 선생님께 확인해 주세요.", 409);
         }
         return classGroup;
-    }
-
-    private String generateUniqueJoinCode() {
-        return joinCodeGenerator.generateUnique(classGroupRepository::existsByJoinCode,
-                () -> ApiException.contractError(ErrorCode.INTERNAL_ERROR, "반 코드를 생성하지 못했어요. 다시 시도해 주세요.", 500));
     }
 }

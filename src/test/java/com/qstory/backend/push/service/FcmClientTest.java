@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.config.FcmProperties;
+import com.qstory.backend.common.util.ServiceAccountJson;
 import java.io.ByteArrayOutputStream;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -187,12 +188,12 @@ class FcmClientTest {
     @Test
     void serviceAccountJsonMayBeRawOrBase64() {
         String json = "{\"type\":\"service_account\",\"project_id\":\"p\"}";
-        assertEquals(json, FcmClient.Setup.decodeServiceAccount("  " + json + "\n"));
-        assertEquals(json, FcmClient.Setup.decodeServiceAccount(
+        assertEquals(json, ServiceAccountJson.decode("  " + json + "\n"));
+        assertEquals(json, ServiceAccountJson.decode(
                 Base64.getEncoder().encodeToString(json.getBytes(StandardCharsets.UTF_8))));
-        assertEquals(json, FcmClient.Setup.decodeServiceAccount(
+        assertEquals(json, ServiceAccountJson.decode(
                 Base64.getMimeEncoder().encodeToString(json.getBytes(StandardCharsets.UTF_8))));
-        assertNull(FcmClient.Setup.decodeServiceAccount("bm90IGpzb24="));
+        assertNull(ServiceAccountJson.decode("bm90IGpzb24="));
     }
 
     @Test

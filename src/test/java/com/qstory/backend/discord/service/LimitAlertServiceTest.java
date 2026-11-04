@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.qstory.backend.config.DiscordProperties;
+import com.qstory.backend.finops.service.OpenRouterUsageClient;
 import com.qstory.backend.discord.repository.DiscordStateRepository;
 import java.time.Clock;
 import java.time.Instant;
@@ -31,7 +32,7 @@ class LimitAlertServiceTest {
     private final DiscordNotifier notifier = mock(DiscordNotifier.class);
     private final DiscordStateRepository state = mock(DiscordStateRepository.class);
     private final DiscordJobRunner jobs = mock(DiscordJobRunner.class);
-    private final OpenRouterBalanceClient openRouter = mock(OpenRouterBalanceClient.class);
+    private final OpenRouterUsageClient openRouter = mock(OpenRouterUsageClient.class);
     private final LimitAlertService service = new LimitAlertService(
             properties, notifier, state, jobs, openRouter, Clock.fixed(NOW, ZoneOffset.UTC));
 

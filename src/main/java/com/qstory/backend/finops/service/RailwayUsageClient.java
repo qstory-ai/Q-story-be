@@ -1,5 +1,6 @@
 package com.qstory.backend.finops.service;
 
+import com.qstory.backend.config.AppProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -12,7 +13,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -44,8 +45,12 @@ public class RailwayUsageClient {
     private final ObjectMapper objectMapper;
     private final String token;
 
-    public RailwayUsageClient(
-            HttpClient httpClient, ObjectMapper objectMapper, @Value("${qstory.finops.railway-api-token:}") String token) {
+    @Autowired
+    public RailwayUsageClient(HttpClient httpClient, ObjectMapper objectMapper, AppProperties config) {
+        this(httpClient, objectMapper, config.finops() == null ? null : config.finops().railwayApiToken());
+    }
+
+    RailwayUsageClient(HttpClient httpClient, ObjectMapper objectMapper, String token) {
         this.http = httpClient;
         this.objectMapper = objectMapper;
         this.token = token;

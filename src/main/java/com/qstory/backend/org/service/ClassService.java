@@ -101,7 +101,7 @@ public class ClassService {
                 .organization(organization)
                 .tutor(homeroom)
                 .name(name)
-                .joinCode(generateUniqueJoinCode())
+                .joinCode(joinCodeGenerator.generateUniqueClassCode(classGroupRepository))
                 .createdAt(Instant.now())
                 .build());
         if (homeroom != null) {
@@ -540,10 +540,5 @@ public class ClassService {
 
     private static ApiException forbidden() {
         return ApiException.contractError(ErrorCode.FORBIDDEN, "이 반에 접근할 권한이 없어요.", 403);
-    }
-
-    private String generateUniqueJoinCode() {
-        return joinCodeGenerator.generateUnique(classGroupRepository::existsByJoinCode,
-                () -> ApiException.contractError(ErrorCode.INTERNAL_ERROR, "반 코드를 생성하지 못했어요. 다시 시도해 주세요.", 500));
     }
 }

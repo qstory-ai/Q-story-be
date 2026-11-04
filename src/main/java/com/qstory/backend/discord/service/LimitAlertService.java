@@ -1,6 +1,7 @@
 package com.qstory.backend.discord.service;
 
 import com.qstory.backend.config.DiscordProperties;
+import com.qstory.backend.finops.service.OpenRouterUsageClient;
 import com.qstory.backend.discord.repository.DiscordStateRepository;
 import com.qstory.backend.provider.gemini.util.GeminiTtsClient;
 import com.qstory.backend.provider.gemini.util.GeminiTtsUsageListener;
@@ -32,13 +33,13 @@ public class LimitAlertService implements GeminiTtsUsageListener {
     private final DiscordNotifier notifier;
     private final DiscordStateRepository state;
     private final DiscordJobRunner jobs;
-    private final OpenRouterBalanceClient openRouter;
+    private final OpenRouterUsageClient openRouter;
     private final Clock clock;
 
     @Autowired
     public LimitAlertService(
             DiscordProperties properties, DiscordNotifier notifier, DiscordStateRepository state, DiscordJobRunner jobs,
-            OpenRouterBalanceClient openRouter, GeminiTtsClient primaryTts) {
+            OpenRouterUsageClient openRouter, GeminiTtsClient primaryTts) {
         this(properties, notifier, state, jobs, openRouter, Clock.systemUTC());
         // 주입되는 것은 @Primary(기본 키) 인스턴스 - 미리 만들기 전용 키 인스턴스는 세지 않는다.
         primaryTts.setUsageListener(this);
@@ -46,7 +47,7 @@ public class LimitAlertService implements GeminiTtsUsageListener {
 
     LimitAlertService(
             DiscordProperties properties, DiscordNotifier notifier, DiscordStateRepository state, DiscordJobRunner jobs,
-            OpenRouterBalanceClient openRouter, Clock clock) {
+            OpenRouterUsageClient openRouter, Clock clock) {
         this.properties = properties;
         this.notifier = notifier;
         this.state = state;

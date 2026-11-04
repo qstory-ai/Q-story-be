@@ -26,7 +26,6 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
@@ -66,18 +65,11 @@ public class GeminiTtsClient {
     /** 호출 수 세기(하루 한도 경고) - 기본 키 인스턴스에만 GeminiTtsUsageTracker가 건다. 바로 돌아와야 한다. */
     private volatile GeminiTtsUsageListener usageListener = GeminiTtsUsageListener.NONE;
 
+    /** 기본 키 인스턴스 - 스트리밍·음량 설정은 qstory.voice-streaming / qstory.voice-loudness에서 읽는다. */
     @Autowired
-    public GeminiTtsClient(
-            HttpClient httpClient, ObjectMapper objectMapper, AppProperties config,
-            @Value("${qstory.voice-streaming.tts:true}") boolean streaming,
-            @Value("${qstory.voice-loudness.enabled:true}") boolean loudnessEnabled,
-            @Value("${qstory.voice-loudness.target-lufs:-17}") double loudnessTargetLufs) {
-        this(httpClient, objectMapper, config, config.providers().gemini().apiKey(), streaming,
-                loudnessEnabled ? loudnessTargetLufs : null);
-    }
-
     public GeminiTtsClient(HttpClient httpClient, ObjectMapper objectMapper, AppProperties config) {
-        this(httpClient, objectMapper, config, config.providers().gemini().apiKey(), false);
+        this(httpClient, objectMapper, config, config.providers().gemini().apiKey(), config.voiceStreaming().tts(),
+                config.voiceLoudness().targetOrNull());
     }
 
     /**
