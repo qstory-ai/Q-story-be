@@ -172,13 +172,65 @@ public class CompanionChatPipelineService {
                     ProviderErrorCode.RESPONSE_PROVIDER_NOT_CONFIGURED, "response", false,
                     "대화 공급자가 아직 연결되지 않았어요.");
         }
+        // 스트리밍으로 답 문장이 이미 나갔는지 - 나간 뒤 실패하면 프런트가 그 문장으로 마무리하므로 대체 답을 또 보내지 않는다.
+        boolean[] textSent = {false};
+        Consumer<String> trackedOnResponseText = onResponseText == null ? null : text -> {
+            textSent[0] = true;
+            onResponseText.accept(text);
+        };
         try {
             return respondToTranscript(
                     context, conversationId, transcript, dialogue, inviteAnchor, deferAudio, deadline, attribution,
-                    onResponseText);
+                    trackedOnResponseText);
         } catch (Exception error) {
-            return failedResult(error);
+            Map<String, Object> failure = failedResult(error);
+            // 도움(힌트) 요청은 프런트가 미리 녹음한 도움 대사로 돌아가므로 실패를 그대로 알린다.
+            if (textSent[0] || dialogue.isHelp()) {
+                return failure;
+            }
+            return fallbackReply(context, deferAudio, failure, error);
         }
+    }
+
+    /**
+     * LLM이 답을 못 만들었을 때(공급자 장애·키 거절·잔액 부족·시간 초과) 그레텔이 하는 준비된 한 줄. 대화를 오류 화면으로
+     * 끊지 않고 아이 차례로 돌려서 다시 말하게 한다. 답을 꾸며 내지 않고 되묻기만 한다.
+     */
+    static final String FALLBACK_REPLY_TEXT = "음, 잠깐 생각이 안 났어. 한 번만 더 말해 줄래?";
+
+    /**
+     * 준비된 한 줄을 평범한 답(ANSWER) 모양으로 돌려준다 - 프런트는 보통 답처럼 말풍선을 띄우고 같은 목소리 설정으로 음성을
+     * 받는다(deferAudio). 음성(TTS)은 LLM과 다른 공급자라 LLM 장애에도 보통 살아 있다. 어떤 실패였는지는 fallback에 같이
+     * 내려 보내 운영 지표에 남기고(프런트 dialogue_step REPLY fallback_code), 여기서도 경고 로그를 남긴다
+     * (Grafana: |= "companion-chat.fallback-reply"). 대화 원장·태그 행은 남기지 않는다(LLM 답이 아니다).
+     */
+    private Map<String, Object> fallbackReply(
+            ResolvedCompanionContext context, boolean deferAudio, Map<String, Object> failure, Exception error) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> detail = (Map<String, Object>) failure.get("failure");
+        log.warn("companion-chat.fallback-reply storyId={} sceneId={} code={} stage={} cause={}",
+                context.story().storyId(), context.sceneId(), detail.get("code"), detail.get("stage"), error.toString());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", true);
+        result.put("responseText", FALLBACK_REPLY_TEXT);
+        result.put("safety", Map.of("mode", CompanionInteractionMode.ANSWER.name()));
+        Map<String, Object> dialogueResult = new LinkedHashMap<>();
+        dialogueResult.put("replyKind", "ANSWER");
+        dialogueResult.put("childWantsToEnd", false);
+        dialogueResult.put("childMeaning", "");
+        dialogueResult.put("asksForHelp", false);
+        dialogueResult.put("proposedActionFamilyId", null);
+        result.put("dialogue", dialogueResult);
+        result.put("speakerId", context.primarySpeakerId());
+        Map<String, Object> fallback = new LinkedHashMap<>();
+        fallback.put("code", detail.get("code"));
+        fallback.put("stage", detail.get("stage"));
+        result.put("fallback", fallback);
+        // 예전 클라이언트(deferAudio 없음)에는 음성 없이 글만 간다 - 프런트가 글만 보여 준다.
+        if (deferAudio) {
+            result.put("audioDeferred", true);
+        }
+        return result;
     }
 
     private Map<String, Object> respondToTranscript(
