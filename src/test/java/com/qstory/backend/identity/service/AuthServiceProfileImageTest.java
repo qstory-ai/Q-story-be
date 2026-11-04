@@ -48,7 +48,7 @@ class AuthServiceProfileImageTest {
 
     AuthServiceProfileImageTest() {
         when(config.supabase()).thenReturn(
-                new AppProperties.Supabase("https://example.supabase.co", "key", null, null, null, null, "profiles-bucket"));
+                new AppProperties.Supabase("https://example.supabase.co", "key", null, null, null, "profiles-bucket"));
         when(users.findByIdAndDeletedAtIsNull(tutor.getId())).thenReturn(Optional.of(tutor));
         when(storage.upload(anyString(), anyString(), any(), anyString())).thenReturn(true);
     }

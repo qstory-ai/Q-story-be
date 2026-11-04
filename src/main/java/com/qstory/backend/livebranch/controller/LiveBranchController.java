@@ -24,9 +24,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 프런트엔드가 RouteDecision.liveBranchJobId로 받은 작업 id를 폴링하는 표면
- * (QuestionPipelineService/LiveBranchGenerationService 참고). 다른 질문 파이프라인 엔드포인트와
- * 마찬가지로 아이 대상 공개 엔드포인트라 별도 역할 게이트가 없다.
+ * 그레텔이 새 선택지를 제안(NEW_BRANCH)하고 아이가 수락하면 프런트엔드가 여기로 생성을 넣고 작업 id를 폴링한다
+ * (LiveBranchGenerationService 참고). 아이 대상 공개 엔드포인트라 별도 역할 게이트가 없다.
  */
 @Tag(name = "Live branch", description = "Poll the status of a real-time live-branch generation job")
 @RestController

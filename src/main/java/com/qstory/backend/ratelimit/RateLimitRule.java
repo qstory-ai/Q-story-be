@@ -25,8 +25,6 @@ public enum RateLimitRule {
     COMPANION_CHAT_GLOBAL("companion-chat-global", 1200, Duration.ofHours(1), Scope.GLOBAL),
     STT("stt", 40, Duration.ofMinutes(5), Scope.PER_CLIENT),
     STT_GLOBAL("stt-global", 1500, Duration.ofHours(1), Scope.GLOBAL),
-    QUESTION_ROUTE("question-route", 30, Duration.ofMinutes(5), Scope.PER_CLIENT),
-    QUESTION_ROUTE_GLOBAL("question-route-global", 1200, Duration.ofHours(1), Scope.GLOBAL),
 
     // ---- 로그인·가입·비밀번호(보안 점검 M2)
     /** 로그인·소셜 로그인 - 주소마다. */

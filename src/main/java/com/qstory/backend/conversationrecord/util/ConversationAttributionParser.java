@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 요청에서 선택적 세션 식별자(sessionId/childId/tutorStudentId/lessonId/inputMode)를 꺼낸다.
- * JSON 본문이 있는 라우트는 본문 필드로, 원시 오디오 바이트가 본문인 /v1/transcriptions·/v1/questions는
+ * JSON 본문이 있는 라우트는 본문 필드로, 원시 오디오 바이트가 본문인 라우트는
  * x-qstory-* 헤더로 받는다 - 리소스 컨텍스트(storyId 등)를 받는 방식과 같은 관례다.
  *
  * <p>전부 선택 사항이며 잘못된 UUID는 요청을 거절하지 않고 null로 둔다: 기록은 부가 기능이라

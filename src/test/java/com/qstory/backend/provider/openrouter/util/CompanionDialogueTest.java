@@ -8,7 +8,6 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.qstory.backend.choicecopy.service.ChoiceCopyService;
 import com.qstory.backend.companionchat.DialogueInput;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.story.ActionFamily;
@@ -30,7 +29,7 @@ class CompanionDialogueTest {
         when(prompts.requirePrompt(anyString()))
                 .thenReturn(new RoutePromptService.Prompt("system", "instruction", "위험한 행동은 막는다."));
         return new OpenRouterClient(
-                HttpClient.newHttpClient(), objectMapper, new RouteResultValidator(mock(ChoiceCopyService.class)),
+                HttpClient.newHttpClient(), objectMapper, new ResponseTextNormalizer(),
                 prompts, mock(AppProperties.class, RETURNS_DEEP_STUBS));
     }
 

@@ -1,4 +1,4 @@
-package com.qstory.backend.question.dto;
+package com.qstory.backend.provider.audio;
 
 import java.util.Base64;
 

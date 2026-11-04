@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * route_classifier가 NEW_CHOICES를 고르면(QuestionRoutingService 참고) 새 선택지 생성을 큐에
+ * 그레텔 대화에서 새 선택지 제안(NEW_BRANCH)을 아이가 수락하면 새 선택지 생성을 큐에
  * 넣는다. 클래스명은 Phase 1("새 분기 1개") 때 그대로지만 역할은 Phase 2부터 "최대 3개의 새 선택지"로
  * 넓어졌다 - 실제 생성(최대 3개 병렬 LLM/이미지 호출 + 커밋)은 별도 빈인 LiveBranchExecutionWorker의
  * @Async 메서드가 수행한다 - 같은 빈 안에서 @Async 메서드를 self-invocation 하면 Spring의 프록시가
@@ -66,7 +66,7 @@ public class LiveBranchGenerationService {
 
     public String enqueue(StoryContext storyContext, String transcript, int questionRound, UUID sessionId) {
         if (!storyContext.liveBranchGeneration()) {
-            // QuestionRoutingService가 이미 막지만, 꺼진 질문 지점에는 어떤 경로로도 새 분기를 쌓지 않는다.
+            // CompanionChatPipelineService가 이미 막지만, 꺼진 질문 지점에는 어떤 경로로도 새 분기를 쌓지 않는다.
             log.info("live-branch.disabled storyId={} anchorId={}", storyContext.storyId(), storyContext.anchorId());
             return null;
         }

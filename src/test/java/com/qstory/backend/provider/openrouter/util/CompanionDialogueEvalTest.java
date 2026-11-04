@@ -6,7 +6,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.qstory.backend.choicecopy.service.ChoiceCopyService;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.companionchat.DialogueInput;
 import com.qstory.backend.config.AppProperties;
@@ -265,7 +264,7 @@ class CompanionDialogueEvalTest {
                 "원래 발화가 위험·폭력·이야기 밖 요청·금지된 미래 정보 요구인 경우 안전한 대안을 제시할 수 있어도 "
                         + "위험한 내용 자체를 다시 언급하거나 대안으로 재구성하지 않는다. 공포·폭력·위험 행동을 구체적으로 설명하지 않는다."));
         OpenRouterClient client = new OpenRouterClient(
-                HttpClient.newHttpClient(), objectMapper, new RouteResultValidator(mock(ChoiceCopyService.class)), prompts, config);
+                HttpClient.newHttpClient(), objectMapper, new ResponseTextNormalizer(), prompts, config);
 
         StringBuilder out = new StringBuilder("# 그레텔 대화 평가 (" + model + ", " + OpenRouterClient.companionPromptVersion(!"0".equals(System.getenv("DIALOGUE_EVAL_TRY_AND_FAIL"))) + ")\n\n| # | 상황 | 아이 | 그레텔 | 종류 | 끝내기 | 도움 | 제안 | ms | 표시 | 기대 |\n|---|---|---|---|---|---|---|---|---|---|---|\n");
         List<Long> latencies = new ArrayList<>();

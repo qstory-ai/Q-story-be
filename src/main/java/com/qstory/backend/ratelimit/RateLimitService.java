@@ -180,8 +180,8 @@ public class RateLimitService {
     static String safeDetail(RateLimitRule rule, long retryAfterSeconds) {
         String wait = waitPhrase(retryAfterSeconds);
         return switch (rule) {
-            case TTS, TTS_ANONYMOUS_HOURLY, COMPANION_CHAT, COMPANION_CHAT_GLOBAL, STT, STT_GLOBAL,
-                    QUESTION_ROUTE, QUESTION_ROUTE_GLOBAL -> "그레텔이 잠깐 쉬고 있어. 잠시 후에 다시 말해 줘.";
+            case TTS, TTS_ANONYMOUS_HOURLY, COMPANION_CHAT, COMPANION_CHAT_GLOBAL, STT, STT_GLOBAL ->
+                    "그레텔이 잠깐 쉬고 있어. 잠시 후에 다시 말해 줘.";
             case LOGIN_CLIENT, LOGIN_ACCOUNT, LOGIN_ID ->
                     "로그인 시도가 너무 많아요. " + wait + " 다시 시도해 주세요.";
             case SIGNUP, SIGNUP_STAFF -> "가입 요청이 너무 많아요. " + wait + " 다시 시도해 주세요.";

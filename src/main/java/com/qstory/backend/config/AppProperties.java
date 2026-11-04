@@ -81,7 +81,7 @@ public record AppProperties(
      *                          OpenRouter가 이 순서대로 넘겨 받는다. 비어 있으면 기본 모델만 쓴다. 이미지 모델에는 쓰지 않는다.
      */
     public record OpenRouter(
-            String apiKey, String llmModel, String safetyModel, String imageModel, List<String> llmFallbackModels) {
+            String apiKey, String llmModel, String imageModel, List<String> llmFallbackModels) {
         public OpenRouter {
             llmFallbackModels = llmFallbackModels == null ? List.of() : llmFallbackModels.stream()
                     .filter(model -> model != null && !model.isBlank())
@@ -115,7 +115,6 @@ public record AppProperties(
             String url,
             String serviceRoleKey,
             String voiceResearchBucket,
-            String shadowAssetsBucket,
             String storyAudioBucket,
             String storyImageBucket,
             String profileImageBucket) {

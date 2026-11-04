@@ -41,10 +41,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             new Route("POST", "^/v1/narrations(/stream)?$", RateLimitRule.TTS),
             new Route("POST", "^/v1/companion-chat/messages$",
                     RateLimitRule.COMPANION_CHAT, RateLimitRule.COMPANION_CHAT_GLOBAL),
-            new Route("POST", "^/v1/(transcriptions(/base64)?|companion-chat/transcriptions/base64|stt/stream-tickets)$",
+            new Route("POST", "^/v1/(companion-chat/transcriptions/base64|stt/stream-tickets)$",
                     RateLimitRule.STT, RateLimitRule.STT_GLOBAL),
-            new Route("POST", "^/v1/questions/route$",
-                    RateLimitRule.QUESTION_ROUTE, RateLimitRule.QUESTION_ROUTE_GLOBAL),
             // 로그인·가입·비밀번호
             new Route("POST", "^/v1/auth/(login|oauth/google|oauth/kakao)$", RateLimitRule.LOGIN_CLIENT),
             new Route("POST", "^/v1/auth/signup/(organization|parent|tutor)$", RateLimitRule.SIGNUP),

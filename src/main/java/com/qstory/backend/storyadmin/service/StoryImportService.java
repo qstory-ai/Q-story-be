@@ -425,8 +425,8 @@ public class StoryImportService {
     }
 
     /**
-     * Phase 2의 3단계 파이프라인(safety_scope_gate/route_classifier/content_generator) 전용
-     * 프롬프트. 콘텐츠 빌드 파이프라인이 아직 packageData.prompt.stages를 만들어 보내지 않을 수
+     * 라우팅 프롬프트 YAML의 단계별(safety/classifier/generator) 프롬프트. 옛 질문 라우팅이 쓰던 것이고 지금은
+     * 저장만 한다. 콘텐츠 빌드 파이프라인이 아직 packageData.prompt.stages를 만들어 보내지 않을 수
      * 있으므로 그 필드가 없으면 조용히 건너뛰고, 이미
      * 시드 마이그레이션이 채워 둔 route_prompt_stage 행을 그대로 둔다. 기대하는 모양:
      * {@code prompt.stages.{safety,classifier,generator} = {system: string[], examples: [{input, output}]}}.
