@@ -1,7 +1,7 @@
 package com.qstory.backend.realtimeimage.entity;
 
-import com.qstory.backend.common.enums.RealtimeImageKind;
-import com.qstory.backend.common.enums.RealtimeImageStatus;
+import com.qstory.backend.realtimeimage.RealtimeImageKind;
+import com.qstory.backend.realtimeimage.RealtimeImageStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

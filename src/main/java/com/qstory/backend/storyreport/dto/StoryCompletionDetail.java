@@ -1,7 +1,7 @@
 package com.qstory.backend.storyreport.dto;
 
 import com.qstory.backend.storyreport.entity.StoryCompletion;
-import com.qstory.backend.common.enums.SessionKind;
+import com.qstory.backend.storyreport.SessionKind;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;

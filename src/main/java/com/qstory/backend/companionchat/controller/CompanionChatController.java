@@ -16,7 +16,7 @@ import com.qstory.backend.companionchat.repository.CompanionChatTurnRepository;
 import com.qstory.backend.companionchat.service.CompanionChatPipelineService;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.security.CurrentUserResolver;
-import com.qstory.backend.common.enums.ConversationInputMode;
+import com.qstory.backend.conversationrecord.ConversationInputMode;
 import com.qstory.backend.conversationrecord.ConversationAttribution;
 import com.qstory.backend.conversationrecord.util.ConversationAttributionParser;
 import com.qstory.backend.story.service.StoryRegistryService;

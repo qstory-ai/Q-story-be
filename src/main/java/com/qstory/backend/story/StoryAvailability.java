@@ -1,4 +1,4 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.story;
 
 import java.util.List;
 

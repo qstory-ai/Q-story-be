@@ -1,6 +1,6 @@
 package com.qstory.backend.realtimeimage.repository;
 
-import com.qstory.backend.common.enums.RealtimeImageStatus;
+import com.qstory.backend.realtimeimage.RealtimeImageStatus;
 import com.qstory.backend.realtimeimage.entity.RealtimeImage;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;

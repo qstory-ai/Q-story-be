@@ -1,5 +1,6 @@
-package com.qstory.backend.common.util;
+package com.qstory.backend.identity.service;
 
+import com.qstory.backend.common.storage.SupabaseStorageClient;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

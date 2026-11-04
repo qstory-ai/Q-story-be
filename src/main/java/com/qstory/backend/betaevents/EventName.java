@@ -1,4 +1,4 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.betaevents;
 
 /** 베타 퍼널/텔레메트리 이벤트. 각각 발생시킬 수 있는 소스가 고정되어 있다. */
 public enum EventName {

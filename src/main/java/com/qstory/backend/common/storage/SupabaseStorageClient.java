@@ -1,4 +1,4 @@
-package com.qstory.backend.common.util;
+package com.qstory.backend.common.storage;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

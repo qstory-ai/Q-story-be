@@ -1,7 +1,7 @@
 package com.qstory.backend.reportanalysis.service;
 
 import com.qstory.backend.playsession.service.PlaySessionService;
-import com.qstory.backend.common.enums.SessionKind;
+import com.qstory.backend.storyreport.SessionKind;
 import com.qstory.backend.story.service.StoryContentAssemblyService;
 import java.util.List;
 import java.util.Map;

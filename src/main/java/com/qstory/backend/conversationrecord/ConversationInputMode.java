@@ -1,4 +1,4 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.conversationrecord;
 
 /** 아이의 발화가 어떻게 들어왔는지. VOICE는 STT 결과, TEXT는 직접 입력. */
 public enum ConversationInputMode {

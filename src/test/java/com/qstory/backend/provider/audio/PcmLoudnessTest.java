@@ -1,4 +1,4 @@
-package com.qstory.backend.common.util;
+package com.qstory.backend.provider.audio;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;

@@ -1,6 +1,6 @@
 package com.qstory.backend.story.repository;
 
-import com.qstory.backend.common.enums.FamilyOrigin;
+import com.qstory.backend.story.FamilyOrigin;
 import com.qstory.backend.story.entity.StoryActionFamily;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;

@@ -1,7 +1,7 @@
 package com.qstory.backend.story.service;
 
-import com.qstory.backend.common.enums.AssetCategory;
-import com.qstory.backend.common.util.SupabaseStorageClient;
+import com.qstory.backend.story.AssetCategory;
+import com.qstory.backend.common.storage.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
 import org.springframework.stereotype.Component;
 

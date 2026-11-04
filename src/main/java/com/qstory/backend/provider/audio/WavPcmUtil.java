@@ -1,4 +1,4 @@
-package com.qstory.backend.common.util;
+package com.qstory.backend.provider.audio;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;

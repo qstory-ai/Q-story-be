@@ -1,6 +1,7 @@
 package com.qstory.backend.push.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.qstory.backend.common.log.LogEvents;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qstory.backend.config.FcmProperties;
@@ -162,7 +163,7 @@ public class FcmClient {
     }
 
     private FcmSendResult failed(String token, int status, String reason, boolean tokenDead, PushMessage message) {
-        log.warn("fcm.send-failed status={} reason={} disabled={} kind={} tokenHash={}",
+        log.warn(LogEvents.FCM_SEND_FAILED + " status={} reason={} disabled={} kind={} tokenHash={}",
                 status, reason, tokenDead, message.kind(), tokenHash(token));
         return new FcmSendResult(
                 tokenDead ? FcmSendResult.Outcome.TOKEN_INVALID : FcmSendResult.Outcome.FAILED, status, reason);

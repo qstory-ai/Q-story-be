@@ -1,4 +1,4 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.story;
 
 /**
  * StoryActionFamily가 어떻게 생겨났는지 - StoryImportService의 재임포트가 어떤 family를 삭제 후

@@ -1,4 +1,4 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.companionchat;
 
 import java.util.Arrays;
 import java.util.List;

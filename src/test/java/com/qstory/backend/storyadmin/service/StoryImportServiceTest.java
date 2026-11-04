@@ -10,7 +10,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.choicecopy.service.ChoiceCopyRegistry;
-import com.qstory.backend.common.enums.FamilyOrigin;
+import com.qstory.backend.story.FamilyOrigin;
 import com.qstory.backend.story.entity.Story;
 import com.qstory.backend.story.entity.StoryAnchor;
 import com.qstory.backend.story.entity.StoryAsset;

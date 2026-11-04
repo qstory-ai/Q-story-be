@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.config.AppProperties;
-import com.qstory.backend.common.enums.SessionKind;
+import com.qstory.backend.storyreport.SessionKind;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
 import com.qstory.backend.story.ChildFacingTerms;

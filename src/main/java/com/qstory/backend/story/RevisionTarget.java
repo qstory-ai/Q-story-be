@@ -1,4 +1,4 @@
-package com.qstory.backend.common.enums;
+package com.qstory.backend.story;
 
 /** 저작(authoring) 편집이 변경한 대상. story_revision.target_type을 그대로 반영한다. */
 public enum RevisionTarget {
