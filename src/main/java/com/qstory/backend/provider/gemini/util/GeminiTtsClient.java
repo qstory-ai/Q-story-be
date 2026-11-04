@@ -2,9 +2,9 @@ package com.qstory.backend.provider.gemini.util;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.qstory.backend.common.log.LogEvents;
+import com.qstory.backend.provider.ProviderHttp;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.provider.audio.PcmLoudness;
@@ -19,7 +19,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
@@ -137,7 +136,7 @@ public class GeminiTtsClient {
             }
             if (response.statusCode() / 100 != 2) {
                 byte[] failureBody = body.readNBytes(FAILURE_BODY_LOG_LIMIT * 4);
-                logProviderHttpFailure("synthesizeStream", response.statusCode(), failureBody);
+                ProviderHttp.logHttpFailure(log, LogEvents.GEMINI_HTTP_FAILED, "synthesizeStream", response.statusCode(), failureBody);
                 throw new ProviderException(
                         ProviderErrorCode.GEMINI_TTS_FAILED, "답변 음성을 만들지 못했어요.", response.statusCode() >= 429);
             }
@@ -161,17 +160,13 @@ public class GeminiTtsClient {
                     ? pcm
                     : PcmLoudness.leveling(pcm, pcm.sampleRate(), loudnessTargetLufs);
             return new SynthesizedAudioStream(audio, "audio/pcm", pcm.sampleRate(), PCM_CHANNELS, PCM_BIT_DEPTH, null);
-        } catch (ProviderException | AbortException known) {
-            closeQuietly(body);
-            throw known;
-        } catch (HttpTimeoutException timeout) {
-            closeQuietly(body);
-            throw new AbortException("request-timeout");
         } catch (Exception error) {
             closeQuietly(body);
-            log.warn(LogEvents.GEMINI_TTS_STREAM_FAILED + " context=synthesizeStream reason={}", error.toString());
-            throw new ProviderException(
-                    ProviderErrorCode.GEMINI_TTS_NETWORK_FAILED, "답변 음성 서버에 연결하지 못했어요.", true, error);
+            if (ProviderHttp.isUnexpected(error)) {
+                log.warn(LogEvents.GEMINI_TTS_STREAM_FAILED + " context=synthesizeStream reason={}", error.toString());
+            }
+            throw ProviderHttp.asProviderFailure(
+                    error, ProviderErrorCode.GEMINI_TTS_NETWORK_FAILED, "답변 음성 서버에 연결하지 못했어요.");
         }
     }
 
@@ -214,7 +209,7 @@ public class GeminiTtsClient {
                 usageListener.onRateLimited();
             }
             if (response.statusCode() / 100 != 2) {
-                logProviderHttpFailure(context, response.statusCode(), response.body());
+                ProviderHttp.logHttpFailure(log, LogEvents.GEMINI_HTTP_FAILED, context, response.statusCode(), response.body());
                 throw new ProviderException(
                         ProviderErrorCode.GEMINI_TTS_FAILED, "답변 음성을 만들지 못했어요.", response.statusCode() >= 429);
             }
@@ -226,13 +221,8 @@ public class GeminiTtsClient {
             // 호출 한 번마다 한 줄 - Grafana가 하루 사용량을 한도(무료 100회/일)와 비교한다. 문장은 남기지 않는다.
             log.info(LogEvents.GEMINI_TTS_OK + " context={} model={} chars={} audio_bytes={}", context, ttsModel, text.length(), pcm.length);
             return pcm;
-        } catch (ProviderException | AbortException known) {
-            throw known;
-        } catch (HttpTimeoutException timeout) {
-            throw new AbortException("request-timeout");
         } catch (Exception error) {
-            throw new ProviderException(
-                    ProviderErrorCode.GEMINI_TTS_NETWORK_FAILED, "답변 음성 서버에 연결하지 못했어요.", true, error);
+            throw ProviderHttp.asProviderFailure(error, ProviderErrorCode.GEMINI_TTS_NETWORK_FAILED, "답변 음성 서버에 연결하지 못했어요.");
         }
     }
 
@@ -285,18 +275,4 @@ public class GeminiTtsClient {
                 context, statusCode, bodySnippet);
     }
 
-    /**
-     * 2xx가 아닌 실패의 실제 원인을 서버 로그에 남긴다 - OpenRouterClient.logProviderHttpFailure와
-     * 같은 이유(사용자에게는 고정 안전 문구만 내려가므로, 이 로그가 없으면 401/400 같은 설정
-     * 오류인지조차 운영 중엔 알 수 없다). API 키는 헤더에만 실리므로 본문을 그대로 남겨도 새지 않는다.
-     */
-    private void logProviderHttpFailure(String context, int statusCode, byte[] responseBody) {
-        String bodySnippet = new String(responseBody, StandardCharsets.UTF_8);
-        if (bodySnippet.length() > FAILURE_BODY_LOG_LIMIT) {
-            bodySnippet = bodySnippet.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)";
-        }
-        log.warn(
-                LogEvents.GEMINI_HTTP_FAILED + " context={} status={} retryable={} responseBody={}",
-                context, statusCode, statusCode >= 429, bodySnippet);
-    }
 }
