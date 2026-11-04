@@ -31,7 +31,7 @@ import com.qstory.backend.provider.openrouter.SynthesizedAudio;
 import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
 import com.qstory.backend.provider.rtzr.RtzrTranscriptionResult;
 import com.qstory.backend.provider.rtzr.util.RtzrSttClient;
-import com.qstory.backend.question.dto.AudioPayload;
+import com.qstory.backend.provider.audio.AudioPayload;
 import com.qstory.backend.story.service.StoryRegistryService.ResolvedCompanionContext;
 import com.qstory.backend.voicecast.service.VoiceCastService;
 import java.time.Instant;
@@ -45,8 +45,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 구조적으로는 QuestionPipelineService.respondToTranscript와 쌍둥이 - LLM 호출 한 번, TTS 호출
- * 한 번 - 이지만 앵커와 무관하며 anchors/families/options는 절대 반환하지 않고 응답과 그
+ * LLM 호출 한 번, TTS 호출 한 번. 앵커와 무관하며 anchors/families/options는 절대 반환하지 않고 응답과 그
  * 오디오만 반환한다. LLM 라우팅은 여전히 OpenRouter, TTS는 GeminiTtsClient(직접 호출)로 나뉜다.
  */
 @Service
@@ -88,9 +87,8 @@ public class CompanionChatPipelineService {
     }
 
     /**
-     * QuestionPipelineService.transcribeRecording과 같은 3단계(정규화 → STT → 빈 transcript 체크)를
-     * 따르지만, 앵커 기반 FallbackPlan은 만들지 않는다 - 컴패니언 챗에는 애초에 분기/패밀리 개념이
-     * 없기 때문에(클래스 상단 주석 참고) 실패 시에도 이 클래스의 단순 failureEnvelope만 반환한다.
+     * 정규화 → STT → 빈 transcript 체크의 3단계. 컴패니언 챗에는 분기/패밀리 개념이 없기 때문에
+     * (클래스 상단 주석 참고) 실패 시에도 이 클래스의 단순 failureEnvelope만 반환한다.
      */
     public Map<String, Object> transcribe(
             ResolvedCompanionContext context, String sourceMimeType, byte[] audio, RequestDeadline deadline,

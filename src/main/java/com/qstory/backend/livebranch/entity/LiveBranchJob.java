@@ -21,9 +21,8 @@ import org.hibernate.annotations.UuidGenerator;
 import org.hibernate.type.SqlTypes;
 
 /**
- * 아이 질문이 안전하지만 어떤 기존 콘텐츠에도 연결되지 못했을 때 route_classifier가 NEW_CHOICES를
- * 고르면(QuestionRoutingService 참고) 큐에 들어가는 실시간 새 선택지 생성 작업. ShadowFamilyDraft와
- * 달리 생성 결과 JSON을 여기에 스테이징하지 않는다 - 성공하면 LiveBranchExecutionWorker가 바로 실제
+ * 그레텔 대화에서 아이 말이 기존 선택지 어디에도 닿지 않아 새 선택지를 만들기로 하면(LiveBranchGenerationService.enqueue)
+ * 큐에 들어가는 실시간 새 선택지 생성 작업. 생성 결과 JSON을 여기에 스테이징하지 않는다 - 성공하면 LiveBranchExecutionWorker가 바로 실제
  * 콘텐츠 테이블(story_action_family/story_fallback_segment/story_asset)에 커밋하기 때문이다. 이
  * 테이블은 그 작업의 생명주기(QUEUED -> GENERATING -> READY|FAILED)만 추적한다.
  *

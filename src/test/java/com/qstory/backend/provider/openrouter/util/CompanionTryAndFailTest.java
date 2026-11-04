@@ -10,7 +10,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.qstory.backend.choicecopy.service.ChoiceCopyService;
 import com.qstory.backend.companionchat.DialogueInput;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.story.ActionFamily;
@@ -40,7 +39,7 @@ class CompanionTryAndFailTest {
         when(prompts.requirePrompt(anyString()))
                 .thenReturn(new RoutePromptService.Prompt("system", "instruction", "위험한 행동은 막는다."));
         return new OpenRouterClient(
-                HttpClient.newHttpClient(), objectMapper, new RouteResultValidator(mock(ChoiceCopyService.class)),
+                HttpClient.newHttpClient(), objectMapper, new ResponseTextNormalizer(),
                 prompts, mock(AppProperties.class, RETURNS_DEEP_STUBS));
     }
 

@@ -124,8 +124,6 @@ qstory:
       companion-chat-global: { requests: 1200, window: 1h }
       stt: { requests: 40, window: 5m }
       stt-global: { requests: 1500, window: 1h }
-      question-route: { requests: 30, window: 5m }
-      question-route-global: { requests: 1200, window: 1h }
       login-client: { requests: 30, window: 15m }
       login-account: { requests: 10, window: 15m }
       login-id: { requests: 50, window: 1h }
@@ -154,9 +152,6 @@ qstory:
     open-router:
       api-key: ${OPENROUTER_API_KEY:}
       llm-model: ${OPENROUTER_LLM_MODEL:google/gemini-3.6-flash}
-      # 3단계 라우팅 파이프라인의 1단계(safety_scope_gate) 전용 - 빠르고 저렴한 모델. 따로 지정하지
-      # 않으면 llm-model과 같은 모델을 쓴다.
-      safety-model: ${OPENROUTER_SAFETY_MODEL:${OPENROUTER_LLM_MODEL:google/gemini-3.6-flash}}
       image-model: ${OPENROUTER_IMAGE_MODEL:google/gemini-3.1-flash-image}
       # 텍스트(JSON 스키마) 호출의 대체 모델(쉼표로 구분, 순서대로). 기본 모델이 한도 초과·장애로 실패하면
       # OpenRouter가 다음 모델로 넘긴다. 비우면 대체 없이 기본 모델만 쓴다. 이미지 모델에는 쓰지 않는다.
@@ -193,7 +188,6 @@ qstory:
     url: ${SUPABASE_URL:}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
     voice-research-bucket: ${SUPABASE_VOICE_RESEARCH_BUCKET:qstory-voice-research}
-    shadow-assets-bucket: ${SUPABASE_SHADOW_ASSETS_BUCKET:qstory-shadow-assets}
     # 임포트된 정적 내레이션/브릿지 오디오(`<slug>/audio/x.mp3`, fe `npm run assets:upload`가 올림)와
     # 편집된 문장에서 재렌더링된 내레이션(`<storyId>/<segmentId>.mp3`)이 함께 사는 공개 버킷.
     # GET /v1/stories/{id}/content의 asset.url은 여기 공개 URL이다(StoryAssetUrls).

@@ -1,9 +1,8 @@
 package com.qstory.backend.common.enums;
 
 /**
- * Phase 2의 3단계 프롬프트 파이프라인(RoutePromptService.requireStage 참고) 중 하나를 가리킨다.
- * SAFETY(안전게이트) -> CLASSIFIER(라우트 분류기) -> GENERATOR(콘텐츠 생성기) 순서로 호출된다
- * (QuestionRoutingService 참고).
+ * 라우팅 프롬프트 YAML의 단계(RoutePromptService.requireStage 참고). 옛 3단계 질문 라우팅이 쓰던 구분이고
+ * 지금은 스토리 임포트가 그대로 저장만 한다.
  */
 public enum RoutePromptStageKind {
     SAFETY,

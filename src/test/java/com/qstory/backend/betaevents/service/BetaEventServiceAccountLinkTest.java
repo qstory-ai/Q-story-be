@@ -10,7 +10,6 @@ import com.qstory.backend.betaevents.repository.BetaEventRepository;
 import com.qstory.backend.betaevents.util.BetaEventValidator;
 import com.qstory.backend.common.enums.EventName;
 import com.qstory.backend.common.enums.EventSource;
-import com.qstory.backend.shadow.service.ShadowIntentCollectionService;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -22,7 +21,7 @@ class BetaEventServiceAccountLinkTest {
 
     private final BetaEventRepository repository = mock(BetaEventRepository.class);
     private final BetaEventService service = new BetaEventService(
-            repository, mock(ShadowIntentCollectionService.class), TransactionOperations.withoutTransaction());
+            repository, TransactionOperations.withoutTransaction());
     private final UUID sessionId = UUID.randomUUID();
 
     private StorySession sessionOwnedBy(UUID userId) {

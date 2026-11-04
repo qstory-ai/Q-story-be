@@ -9,7 +9,6 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.qstory.backend.choicecopy.service.ChoiceCopyService;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.story.ChildFacingTerms;
 import com.qstory.backend.story.service.RoutePromptService;
@@ -33,7 +32,7 @@ class OpenRouterModelFallbackTest {
         RoutePromptService prompts = mock(RoutePromptService.class);
         when(prompts.requirePrompt(anyString())).thenReturn(new RoutePromptService.Prompt("system", "instruction", "안전 규칙"));
         return new OpenRouterClient(
-                mock(HttpClient.class), objectMapper, new RouteResultValidator(mock(ChoiceCopyService.class)),
+                mock(HttpClient.class), objectMapper, new ResponseTextNormalizer(),
                 prompts, config);
     }
 
@@ -105,9 +104,9 @@ class OpenRouterModelFallbackTest {
     @Test
     void appPropertiesNormalizesTheFallbackList() {
         var openRouter = new AppProperties.OpenRouter(
-                "key", PRIMARY, PRIMARY, "img", Arrays.asList(" anthropic/claude-haiku-4.5 ", "", null,
+                "key", PRIMARY, "img", Arrays.asList(" anthropic/claude-haiku-4.5 ", "", null,
                         "anthropic/claude-haiku-4.5"));
         assertThat(openRouter.llmFallbackModels()).containsExactly("anthropic/claude-haiku-4.5");
-        assertThat(new AppProperties.OpenRouter("key", PRIMARY, PRIMARY, "img", null).llmFallbackModels()).isEmpty();
+        assertThat(new AppProperties.OpenRouter("key", PRIMARY, "img", null).llmFallbackModels()).isEmpty();
     }
 }

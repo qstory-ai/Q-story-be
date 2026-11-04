@@ -15,19 +15,10 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 /**
- * ShadowFamilyGenerationService(구, staff 트리거, 단일 family, 스테이징 테이블)와
- * LiveBranchExecutionWorker(신규, 비동기, family 최대 3개 동시, 실제 콘텐츠 테이블)가 공유하는
- * "LLM draft 생성 하네스"(draft 요청 -> 검증 -> 자동 검수 게이트 -> 재시도) 공통 로직을 모은 것.
- *
- * <p>두 서비스는 서로 다른 도메인 모델을 갖는다 - Shadow는 하드코딩된 AnchorContract(bare label,
- * 예: "GRETEL"), LiveBranch는 StoryAnchor/StoryCast(접두 speakerId, 예: "HG-SPK-GRETEL", 자세한 매핑은
- * StoryCast.speakerId 문서 참고)를 쓴다. 그래서 이 클래스는 "허용 인물 목록"을 하나의 정규화된 형식으로
- * 강제하지 않는다 - 각 호출자가 자기 draft가 실제로 담고 있는 형식 그대로 Collection&lt;String&gt;을
- * 넘기게 하고, 이 클래스는 그 값들을 그대로 비교만 한다. 두 서비스의 validationIssue()가 검사 순서까지
- * 서로 달라(예: Shadow는 proposedFamilyId/location 검사가 그 사이에 끼어 있고, LiveBranch는 이미지 인물
- * 검사가 beats 검사 뒤에 온다) 하나의 고정 순서로 합치면 여러 문제가 동시에 있는 초안에서 재시도
- * 피드백으로 돌아가는 "첫 실패 사유" 문구가 달라질 수 있으므로, 검사 하나하나를 별도 메서드로 쪼개
- * 각 서비스가 자신의 기존 순서대로 조합해 부르게 한다.
+ * LiveBranchExecutionWorker가 쓰는 "LLM draft 생성 하네스"(draft 요청 -> 검증 -> 자동 검수 게이트 -> 재시도)의
+ * 공통 로직. 허용 인물 목록은 호출자가 자기 draft가 실제로 담고 있는 형식(StoryCast speakerId, 예: "HG-SPK-GRETEL")
+ * 그대로 Collection&lt;String&gt;으로 넘기고, 이 클래스는 그 값들을 그대로 비교만 한다. 검사 하나하나를 별도 메서드로
+ * 쪼개 두어 호출자가 자기 순서대로 조합해 부른다.
  */
 @Component
 public class FamilyDraftHarness {
@@ -48,7 +39,7 @@ public class FamilyDraftHarness {
     }
 
     /**
-     * 아이 발화를 DB에 남기기 전에 이메일/전화/URL/이름을 지운다 - Shadow(160자)와 LiveBranch(400자)는
+     * 아이 발화를 DB에 남기기 전에 이메일/전화/URL/이름을 지운다 - 호출자는
      * 저장 필드 길이만 다르고 나머지 규칙은 완전히 같아서 maxLength만 호출자가 정한다.
      */
     public String redact(String value, int maxLength) {
@@ -70,7 +61,7 @@ public class FamilyDraftHarness {
 
     /**
      * 자동 LLM 검수 게이트 호출 - pass 조건과 실패 시 issues 폴백 문구는 두 호출자가 완전히 동일하다.
-     * {@code payload}에는 호출자가 자신의 식별 필드(예: Shadow의 "anchorId", LiveBranch의 "anchorSlot")를
+     * {@code payload}에는 호출자가 자신의 식별 필드(예: "anchorSlot")를
      * 미리 채워 넣어야 한다 - "draft" 필드는 여기서 채운다.
      */
     public List<String> reviewGateIssues(
@@ -139,7 +130,7 @@ public class FamilyDraftHarness {
     /**
      * imageBrief.characters가 최소 1명 이상이고 전부 허용 목록 안에 있는지 검사한다.
      * {@code allowedCharacters}는 호출자가 실제로 draft에 채워 넣은 것과 같은 형식이어야 한다
-     * (Shadow는 bare label, LiveBranch는 접두 speakerId - 클래스 문서 참고).
+     * (접두 speakerId - 클래스 문서 참고).
      */
     public String imageCharactersIssue(JsonNode draft, Collection<String> allowedCharacters) {
         JsonNode imageBrief = draft.path("imageBrief");
@@ -204,7 +195,7 @@ public class FamilyDraftHarness {
 
     /**
      * 두 서비스의 buildImagePrompt()가 공유하는 고정 템플릿 줄들. {@code locationOrSceneLine}은
-     * 호출자가 이미 완성한 한 줄을 그대로 넣는다(Shadow는 "Location: ...", LiveBranch는
+     * 호출자가 이미 완성한 한 줄을 그대로 넣는다(LiveBranch는
      * "Scene: ..." - 서로 다른 소스에서 온 값이라 이 클래스가 대신 만들지 않는다). 반환된 리스트는
      * 가변(mutable)이라 LiveBranch가 character-identity-rules 줄을 추가로 append할 수 있다.
      */

@@ -44,7 +44,7 @@ locals {
       severity    = "warning"
       summary     = "OpenRouter(TTS/채팅완성/이미지) 호출 실패가 5분간 ${var.provider_failure_threshold}건을 넘었어요."
       description = <<-EOT
-        LLM/이미지 프로바이더 실패. 상위(QuestionRoutingService/LiveBranchExecutionWorker)가 재시도로 흡수
+        LLM/이미지 프로바이더 실패. 상위(CompanionChatPipelineService/LiveBranchExecutionWorker)가 재시도로 흡수
         가능한 범위지만 지속되면 사용자에게 실패 응답이 노출됨. context= 값으로 어느 호출인지 좁힐 수 있음.
       EOT
       logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"openrouter-http.failed\" [5m]))"

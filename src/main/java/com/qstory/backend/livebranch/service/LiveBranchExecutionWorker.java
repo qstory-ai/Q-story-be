@@ -479,7 +479,7 @@ public class LiveBranchExecutionWorker {
         jobRepository.save(job);
     }
 
-    /** 이미지 생성이 특히 느릴 수 있어 실시간 라우팅용 기본값보다 여유 있게 잡는다(ShadowFamilyGenerationService와 동일). */
+    /** 이미지 생성이 특히 느릴 수 있어 실시간 라우팅용 기본값보다 여유 있게 잡는다. */
     private RequestDeadline freshDeadline() {
         return harness.freshDeadline(config.requestTimeoutMs());
     }
@@ -509,11 +509,10 @@ public class LiveBranchExecutionWorker {
     /**
      * 스타일/인물 연속성을 위한 참조 이미지. 실제 StoryAsset 파일은 프런트엔드 정적 사이트에 상대
      * 경로로 배포되어 이 백엔드가 직접 HTTP로 가져올 방법이 없으므로(base URL 설정이 아예 없음),
-     * ShadowFamilyGenerationService가 이미 이 세 앵커(A/B/C)에 대해 검증해 둔 클래스패스 참조
-     * 이미지를 그대로 재사용한다 - 앵커가 늘어나면 이 리소스도 함께 추가해야 한다.
+     * 세 앵커(A/B/C)용으로 번들한 클래스패스 참조 이미지를 쓴다 - 앵커가 늘어나면 이 리소스도 함께 추가해야 한다.
      */
     private byte[] readReferenceImage(String slot) {
-        try (InputStream stream = new ClassPathResource("shadow-reference/HG-Q-" + slot + ".jpg").getInputStream()) {
+        try (InputStream stream = new ClassPathResource("livebranch-reference/HG-Q-" + slot + ".jpg").getInputStream()) {
             return stream.readAllBytes();
         } catch (IOException error) {
             throw new IllegalStateException("no bundled reference image for slot " + slot, error);
@@ -581,15 +580,11 @@ public class LiveBranchExecutionWorker {
     }
 
     /**
-     * 통과하면 null, 아니면 재시도 사유 문자열 - ShadowFamilyGenerationService.validationIssue()와 같은
-     * 역할(그쪽엔 없는 proposedFamilyId/location/B슬롯 검사가 없을 뿐, 공통 검사는 FamilyDraftHarness에
-     * 위임한다). 검사 순서는 기존 그대로 유지한다(Shadow와 순서가 다르지만 그것도 기존 동작이다).
+     * 통과하면 null, 아니면 재시도 사유 문자열. 공통 검사는 FamilyDraftHarness에 위임한다. 검사 순서는 기존 그대로 유지한다.
      *
      * <p>imageBrief.characters/dialogue.speaker는 이 스토리의 StoryCast speakerId 값(예:
      * "HG-SPK-GRETEL", StoryCast.speakerId 문서 참고)이고, anchor.getAllowedSpeakerIds()도 같은
-     * speakerId 형식이다(draftSchema()의 enum이 LLM 출력을 이 형식으로 강제한다) - Shadow의
-     * bare-label(contract.allowedCharacters())과는 다른 표현이지만 각자 자기 draft의 실제 형식과
-     * 맞다.
+     * speakerId 형식이다(draftSchema()의 enum이 LLM 출력을 이 형식으로 강제한다).
      */
     private String validationIssue(JsonNode draft, StoryAnchor anchor, Set<String> rejoinCandidates) {
         String rejoinIssue = harness.rejoinAnchorIssue(draft, rejoinCandidates);

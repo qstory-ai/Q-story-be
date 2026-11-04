@@ -58,7 +58,7 @@ class VoiceResearchServiceAccountConsentTest {
     VoiceResearchServiceAccountConsentTest() {
         AppProperties config = mock(AppProperties.class);
         when(config.supabase()).thenReturn(
-                new AppProperties.Supabase("https://example.supabase.co", "key", "voice-bucket", null, null, null, null));
+                new AppProperties.Supabase("https://example.supabase.co", "key", "voice-bucket", null, null, null));
         service = new VoiceResearchService(validator, repository, storageClient, config, consentService,
                 new TransactionTemplate(mock(PlatformTransactionManager.class)));
         when(repository.savePreference(any())).thenAnswer(invocation -> invocation.getArgument(0));

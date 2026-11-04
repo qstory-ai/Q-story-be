@@ -13,7 +13,6 @@ import com.qstory.backend.common.error.ProviderException;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.story.ChildFacingTerms;
-import com.qstory.backend.choicecopy.service.ChoiceCopyService;
 import com.qstory.backend.story.service.RoutePromptService;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -70,7 +69,7 @@ class CompanionReplyStreamingTest {
         when(response.body()).thenReturn(new ByteArrayInputStream(sseBody.getBytes(StandardCharsets.UTF_8)));
         when(httpClient.send(captor.capture(), any(HttpResponse.BodyHandler.class))).thenReturn((HttpResponse) response);
         return new OpenRouterClient(
-                httpClient, objectMapper, new RouteResultValidator(mock(ChoiceCopyService.class)), prompts, config);
+                httpClient, objectMapper, new ResponseTextNormalizer(), prompts, config);
     }
 
     private static OpenRouterClient.CompanionRequest request() {

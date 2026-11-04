@@ -17,7 +17,6 @@ import org.springframework.stereotype.Component;
 /**
  * service role key로 인증하는, Supabase Storage REST API용 얇은(thin) 클라이언트다.
  * 이 백엔드는 자체 Postgres 스키마를 직접 소유하고 있지만, voice-research와
- * shadow-generation이 만들어내는 오디오/이미지 blob에 대해서는 여전히 Supabase Storage를 쓴다.
  */
 @Component
 public class SupabaseStorageClient {
@@ -67,7 +66,7 @@ public class SupabaseStorageClient {
     }
 
     /**
-     * shadowAssetsBucket처럼 비공개(public=false)인 bucket에서 시간 제한이 있는 다운로드 URL을
+     * voiceResearchBucket처럼 비공개(public=false)인 bucket에서 시간 제한이 있는 다운로드 URL을
      * 받는다 - upload()가 쓰는 storyAudioBucket과 달리 이 bucket은 영구 public URL이 없다.
      * 실패하면 null을 반환한다(호출자는 이미지/오디오 없이 대본만이라도 저장할지 판단할 수 있다).
      */

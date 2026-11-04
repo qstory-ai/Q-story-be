@@ -6,8 +6,6 @@ import com.qstory.backend.common.util.ContactInfoMasker;
 import com.qstory.backend.conversationrecord.ConversationAttribution;
 import com.qstory.backend.conversationrecord.entity.ConversationRecord;
 import com.qstory.backend.conversationrecord.repository.ConversationRecordRepository;
-import com.qstory.backend.provider.openrouter.RouteDecision;
-import com.qstory.backend.provider.openrouter.RouteOption;
 import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -45,42 +43,6 @@ public class ConversationRecordService {
         this.repository = repository;
         this.transaction = new TransactionTemplate(transactionManager);
         this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-    }
-
-    /** 질문 지점 녹음의 STT 결과. 아직 답은 없다. */
-    public void recordQuestionTranscript(
-            String storyId, String sceneId, String anchorId, int questionRound,
-            String transcript, String locale, String sourceMimeType, ConversationAttribution attribution) {
-        save(base(ConversationRecordKind.QUESTION_TRANSCRIPT, storyId, sceneId, attribution.withInputMode(ConversationInputMode.VOICE))
-                .anchorId(anchorId)
-                .questionRound(questionRound)
-                .locale(locale)
-                .sourceMimeType(sourceMimeType)
-                .childText(ContactInfoMasker.mask(transcript))
-                .build());
-    }
-
-    /** 질문 지점의 발화가 라우팅되어 캐릭터의 답이 정해진 결과. */
-    public void recordQuestionRoute(
-            String storyId, String sceneId, String anchorId, int questionRound,
-            String transcript, String locale, String sourceMimeType,
-            RouteDecision decision, ConversationAttribution attribution) {
-        save(base(ConversationRecordKind.QUESTION_ROUTE, storyId, sceneId, attribution)
-                .anchorId(anchorId)
-                .questionRound(questionRound)
-                .locale(locale)
-                .sourceMimeType(sourceMimeType)
-                .childText(ContactInfoMasker.mask(transcript))
-                .responseText(decision.responseText())
-                .speakerId(decision.speakerId())
-                .route(decision.route())
-                .actionFamilyId(decision.actionFamilyId())
-                .coverageStatus(decision.coverageStatus())
-                .childRelevantMeaning(truncate(ContactInfoMasker.mask(decision.childRelevantMeaning()), 500))
-                .options(optionsOf(decision.options()))
-                .modelId(decision.modelId())
-                .promptVersion(decision.storyVersions() == null ? null : decision.storyVersions().promptVersion())
-                .build());
     }
 
     /** 상시 대화 녹음의 STT 결과. */
@@ -178,19 +140,6 @@ public class ConversationRecordService {
             log.warn("conversation-record.failed kind={} storyId={} reason={}",
                     record.getKind(), record.getStoryId(), error.toString());
         }
-    }
-
-    private static List<Map<String, Object>> optionsOf(List<RouteOption> options) {
-        if (options == null || options.isEmpty()) return null;
-        return options.stream().map(option -> {
-            Map<String, Object> map = new LinkedHashMap<>();
-            map.put("id", option.id());
-            map.put("label", option.label());
-            map.put("meaning", option.meaning());
-            map.put("actionFamilyId", option.actionFamilyId());
-            map.put("branchLine", option.branchLine());
-            return map;
-        }).toList();
     }
 
     private static String truncate(String value, int max) {

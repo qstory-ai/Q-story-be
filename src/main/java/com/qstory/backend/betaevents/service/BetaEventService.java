@@ -8,7 +8,6 @@ import com.qstory.backend.common.enums.EventSource;
 import com.qstory.backend.common.enums.TrafficType;
 import com.qstory.backend.betaevents.entity.StoryEvent;
 import com.qstory.backend.betaevents.entity.StorySession;
-import com.qstory.backend.shadow.service.ShadowIntentCollectionService;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -29,14 +28,12 @@ public class BetaEventService {
     private static final String STORY_ID = "hansel-gretel";
 
     private final BetaEventRepository repository;
-    private final ShadowIntentCollectionService shadowIntentCollectionService;
     private final TransactionOperations transactions;
 
     public BetaEventService(
-            BetaEventRepository repository, ShadowIntentCollectionService shadowIntentCollectionService,
+            BetaEventRepository repository,
             TransactionOperations transactions) {
         this.repository = repository;
-        this.shadowIntentCollectionService = shadowIntentCollectionService;
         this.transactions = transactions;
     }
 
@@ -94,7 +91,7 @@ public class BetaEventService {
         }
         repository.saveSession(session);
 
-        StoryEvent savedEvent = repository.saveEvent(StoryEvent.builder()
+        repository.saveEvent(StoryEvent.builder()
                 .id(event.eventId())
                 .session(session)
                 .eventName(event.eventName())
@@ -103,10 +100,6 @@ public class BetaEventService {
                 .receivedAt(now)
                 .metadata(event.metadata())
                 .build());
-
-        if (event.eventName() == EventName.QUESTION_RESULT) {
-            shadowIntentCollectionService.collectFromQuestionResultEvent(savedEvent, session);
-        }
     }
 
     private void applyEventToSession(StorySession session, BetaEventValidator.ParsedEvent event, Instant now) {

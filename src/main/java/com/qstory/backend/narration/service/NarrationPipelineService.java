@@ -11,7 +11,7 @@ import com.qstory.backend.provider.ProviderReadiness;
 import com.qstory.backend.provider.gemini.util.GeminiTtsClient;
 import com.qstory.backend.provider.openrouter.SynthesizedAudio;
 import com.qstory.backend.provider.openrouter.SynthesizedAudioStream;
-import com.qstory.backend.question.dto.AudioPayload;
+import com.qstory.backend.provider.audio.AudioPayload;
 import com.qstory.backend.story.CastEntry;
 import com.qstory.backend.story.service.StoryRegistryService.ResolvedNarrationContext;
 import com.qstory.backend.voicecast.service.VoiceCastService;

@@ -260,7 +260,7 @@ class AccountErasureServiceTest {
         String objectName = "profiles/" + tutor.getId() + "/a.png";
         tutor.setProfileImageObjectName(objectName);
         tutor.setProfileImageUrl("https://x/" + objectName);
-        when(config.supabase()).thenReturn(new AppProperties.Supabase("u", "k", null, null, null, null, "profile-images"));
+        when(config.supabase()).thenReturn(new AppProperties.Supabase("u", "k", null, null, null, "profile-images"));
         when(storage.delete("profile-images", objectName)).thenReturn(true);
 
         service.erase(tutor);
@@ -276,7 +276,7 @@ class AccountErasureServiceTest {
         AppUser tutor = user(Role.TUTOR);
         String objectName = "profiles/" + tutor.getId() + "/a.png";
         tutor.setProfileImageObjectName(objectName);
-        when(config.supabase()).thenReturn(new AppProperties.Supabase("u", "k", null, null, null, null, "profile-images"));
+        when(config.supabase()).thenReturn(new AppProperties.Supabase("u", "k", null, null, null, "profile-images"));
         when(storage.delete("profile-images", objectName)).thenReturn(false);
 
         service.erase(tutor);
