@@ -1,6 +1,7 @@
 package com.qstory.backend.ratelimit;
 
 import com.qstory.backend.common.util.DigestUtil;
+import com.qstory.backend.common.log.LogEvents;
 import com.qstory.backend.identity.security.CurrentUser;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Clock;
@@ -158,7 +159,7 @@ public class RateLimitService {
             suppressedLogs.incrementAndGet();
             return;
         }
-        log.warn("rate-limit.blocked group={} key={} suppressed={}", group, hashKey(key), suppressedLogs.getAndSet(0));
+        log.warn(LogEvents.RATE_LIMIT_BLOCKED + " group={} key={} suppressed={}", group, hashKey(key), suppressedLogs.getAndSet(0));
     }
 
     /** 로그용 키 - 주소·계정 id 원문을 남기지 않는다. 같은 키는 같은 값이라 한 클라이언트가 반복하는지는 보인다. */

@@ -1,14 +1,15 @@
 package com.qstory.backend.provider.gemini.util;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.qstory.backend.common.log.LogEvents;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
-import com.qstory.backend.common.util.PcmLoudness;
+import com.qstory.backend.provider.audio.PcmLoudness;
 import com.qstory.backend.common.util.RequestDeadline;
-import com.qstory.backend.common.util.WavPcmUtil;
+import com.qstory.backend.provider.audio.WavPcmUtil;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.provider.openrouter.SynthesizedAudio;
 import com.qstory.backend.provider.openrouter.SynthesizedAudioStream;
@@ -26,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
@@ -66,18 +66,11 @@ public class GeminiTtsClient {
     /** 호출 수 세기(하루 한도 경고) - 기본 키 인스턴스에만 GeminiTtsUsageTracker가 건다. 바로 돌아와야 한다. */
     private volatile GeminiTtsUsageListener usageListener = GeminiTtsUsageListener.NONE;
 
+    /** 기본 키 인스턴스 - 스트리밍·음량 설정은 qstory.voice-streaming / qstory.voice-loudness에서 읽는다. */
     @Autowired
-    public GeminiTtsClient(
-            HttpClient httpClient, ObjectMapper objectMapper, AppProperties config,
-            @Value("${qstory.voice-streaming.tts:true}") boolean streaming,
-            @Value("${qstory.voice-loudness.enabled:true}") boolean loudnessEnabled,
-            @Value("${qstory.voice-loudness.target-lufs:-17}") double loudnessTargetLufs) {
-        this(httpClient, objectMapper, config, config.providers().gemini().apiKey(), streaming,
-                loudnessEnabled ? loudnessTargetLufs : null);
-    }
-
     public GeminiTtsClient(HttpClient httpClient, ObjectMapper objectMapper, AppProperties config) {
-        this(httpClient, objectMapper, config, config.providers().gemini().apiKey(), false);
+        this(httpClient, objectMapper, config, config.providers().gemini().apiKey(), config.voiceStreaming().tts(),
+                config.voiceLoudness().targetOrNull());
     }
 
     /**
@@ -151,7 +144,7 @@ public class GeminiTtsClient {
             long[] firstAudioMs = {-1};
             GeminiSsePcmStream pcm = new GeminiSsePcmStream(body, objectMapper, PCM_SAMPLE_RATE, summary ->
                     // 호출 한 번마다 한 줄 - Grafana가 하루 사용량을 한도와 비교한다(synthesize()와 같은 태그). 문장은 남기지 않는다.
-                    log.info("gemini-tts.ok context=synthesizeStream model={} chars={} audio_bytes={} first_audio_ms={} total_ms={} completed={}",
+                    log.info(LogEvents.GEMINI_TTS_OK + " context=synthesizeStream model={} chars={} audio_bytes={} first_audio_ms={} total_ms={} completed={}",
                             ttsModel, text.length(), summary.audioBytes(), firstAudioMs[0],
                             (System.nanoTime() - startedAt) / 1_000_000, summary.completed()));
             // 소리가 멈춘 채 연결만 남는 경우를 대비해 요청 시간 예산이 끝나면 닫는다 - HttpClient의 timeout은
@@ -160,7 +153,7 @@ public class GeminiTtsClient {
                     .execute(() -> closeQuietly(pcm));
             if (!pcm.awaitFirstAudio()) {
                 closeQuietly(pcm);
-                log.warn("gemini-tts.empty-audio context=synthesizeStream status={}", response.statusCode());
+                log.warn(LogEvents.GEMINI_TTS_EMPTY_AUDIO + " context=synthesizeStream status={}", response.statusCode());
                 throw new ProviderException(ProviderErrorCode.GEMINI_TTS_EMPTY, "답변 음성이 비어 있어요.");
             }
             firstAudioMs[0] = (System.nanoTime() - startedAt) / 1_000_000;
@@ -176,7 +169,7 @@ public class GeminiTtsClient {
             throw new AbortException("request-timeout");
         } catch (Exception error) {
             closeQuietly(body);
-            log.warn("gemini-tts.stream-failed context=synthesizeStream reason={}", error.toString());
+            log.warn(LogEvents.GEMINI_TTS_STREAM_FAILED + " context=synthesizeStream reason={}", error.toString());
             throw new ProviderException(
                     ProviderErrorCode.GEMINI_TTS_NETWORK_FAILED, "답변 음성 서버에 연결하지 못했어요.", true, error);
         }
@@ -231,7 +224,7 @@ public class GeminiTtsClient {
                 throw new ProviderException(ProviderErrorCode.GEMINI_TTS_EMPTY, "답변 음성이 비어 있어요.");
             }
             // 호출 한 번마다 한 줄 - Grafana가 하루 사용량을 한도(무료 100회/일)와 비교한다. 문장은 남기지 않는다.
-            log.info("gemini-tts.ok context={} model={} chars={} audio_bytes={}", context, ttsModel, text.length(), pcm.length);
+            log.info(LogEvents.GEMINI_TTS_OK + " context={} model={} chars={} audio_bytes={}", context, ttsModel, text.length(), pcm.length);
             return pcm;
         } catch (ProviderException | AbortException known) {
             throw known;
@@ -288,7 +281,7 @@ public class GeminiTtsClient {
             bodySnippet = bodySnippet.substring(0, limit) + "...(truncated)";
         }
         log.warn(
-                "gemini-tts.empty-audio context={} status={} responseBody={}",
+                LogEvents.GEMINI_TTS_EMPTY_AUDIO + " context={} status={} responseBody={}",
                 context, statusCode, bodySnippet);
     }
 
@@ -303,7 +296,7 @@ public class GeminiTtsClient {
             bodySnippet = bodySnippet.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)";
         }
         log.warn(
-                "gemini-http.failed context={} status={} retryable={} responseBody={}",
+                LogEvents.GEMINI_HTTP_FAILED + " context={} status={} retryable={} responseBody={}",
                 context, statusCode, statusCode >= 429, bodySnippet);
     }
 }

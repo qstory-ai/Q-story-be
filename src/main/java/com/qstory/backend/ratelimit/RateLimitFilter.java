@@ -55,7 +55,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             new Route("POST", "^/v1/session-recordings/chunks$", RateLimitRule.RECORDING_CHUNKS),
             new Route("POST", "^/v1/play-sessions/" + UUID + "/turns$", RateLimitRule.PLAY_SESSION_TURNS),
             new Route("POST", "^/v1/beta-events$", RateLimitRule.BETA_EVENTS),
-            new Route("POST", "^/v1/client-errors$", RateLimitRule.CLIENT_ERRORS),
+            new Route("POST", "^/v1/client-errors$", RateLimitRule.CLIENT_ERRORS, RateLimitRule.CLIENT_ERRORS_GLOBAL),
             new Route("POST", "^/v1/(recording-consents|me/recording-consent)$", RateLimitRule.RECORDING_CONSENTS),
             new Route("POST", "^/v1/launch-notifications$", RateLimitRule.LAUNCH_NOTIFICATIONS),
             new Route("POST", "^/v1/partnership-inquiries$", RateLimitRule.PARTNERSHIP_INQUIRIES),

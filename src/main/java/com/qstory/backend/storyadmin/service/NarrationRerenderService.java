@@ -1,11 +1,11 @@
 package com.qstory.backend.storyadmin.service;
 
-import com.qstory.backend.common.enums.AssetCategory;
-import com.qstory.backend.common.enums.RevisionOperation;
-import com.qstory.backend.common.enums.RevisionTarget;
+import com.qstory.backend.story.AssetCategory;
+import com.qstory.backend.story.RevisionOperation;
+import com.qstory.backend.story.RevisionTarget;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
-import com.qstory.backend.common.util.SupabaseStorageClient;
+import com.qstory.backend.common.storage.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.provider.openrouter.SynthesizedAudio;

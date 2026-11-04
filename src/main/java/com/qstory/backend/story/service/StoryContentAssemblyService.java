@@ -1,6 +1,6 @@
 package com.qstory.backend.story.service;
 
-import com.qstory.backend.common.enums.FamilyOrigin;
+import com.qstory.backend.story.FamilyOrigin;
 import com.qstory.backend.story.ActionFamily;
 import com.qstory.backend.story.CastEntry;
 import com.qstory.backend.story.Anchor;

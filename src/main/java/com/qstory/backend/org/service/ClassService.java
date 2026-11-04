@@ -9,10 +9,7 @@ import com.qstory.backend.identity.dto.SignupOrganizationOwnerRequest;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
-import com.qstory.backend.identity.security.JwtService;
-import com.qstory.backend.identity.service.ConsentService;
-import com.qstory.backend.identity.service.UserSummaryFactory;
-import com.qstory.backend.identity.util.AuthValidator;
+import com.qstory.backend.identity.service.AuthService;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassReportResponse;
@@ -43,7 +40,6 @@ import org.springframework.data.domain.PageRequest;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,15 +57,11 @@ public class ClassService {
     private final AppUserRepository userRepository;
     private final OrganizationService organizationService;
     private final JoinCodeGenerator joinCodeGenerator;
-    private final AuthValidator authValidator;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtService jwtService;
+    private final AuthService authService;
     private final TutorStudentService tutorStudentService;
-    private final UserSummaryFactory userSummaryFactory;
     private final StoryCompletionRepository storyCompletionRepository;
     private final LessonRepository lessonRepository;
     private final ClassHomeroomHistoryService homeroomHistoryService;
-    private final ConsentService consentService;
     private final NotificationPublisher notificationPublisher;
     private final StudentClassHistoryService classHistoryService;
 
@@ -80,13 +72,11 @@ public class ClassService {
             ClassGroupRepository classGroupRepository, TutorStudentRepository tutorStudentRepository,
             OrganizationTutorRepository organizationTutorRepository, AppUserRepository userRepository,
             OrganizationService organizationService, JoinCodeGenerator joinCodeGenerator,
-            AuthValidator authValidator, PasswordEncoder passwordEncoder, JwtService jwtService,
-            TutorStudentService tutorStudentService, UserSummaryFactory userSummaryFactory,
+            AuthService authService, TutorStudentService tutorStudentService,
             StoryCompletionRepository storyCompletionRepository, LessonRepository lessonRepository,
-            ClassHomeroomHistoryService homeroomHistoryService, ConsentService consentService,
+            ClassHomeroomHistoryService homeroomHistoryService,
             NotificationPublisher notificationPublisher, StudentClassHistoryService classHistoryService) {
         this.classHistoryService = classHistoryService;
-        this.consentService = consentService;
         this.notificationPublisher = notificationPublisher;
         this.classGroupRepository = classGroupRepository;
         this.tutorStudentRepository = tutorStudentRepository;
@@ -94,11 +84,8 @@ public class ClassService {
         this.userRepository = userRepository;
         this.organizationService = organizationService;
         this.joinCodeGenerator = joinCodeGenerator;
-        this.authValidator = authValidator;
-        this.passwordEncoder = passwordEncoder;
-        this.jwtService = jwtService;
+        this.authService = authService;
         this.tutorStudentService = tutorStudentService;
-        this.userSummaryFactory = userSummaryFactory;
         this.storyCompletionRepository = storyCompletionRepository;
         this.lessonRepository = lessonRepository;
         this.homeroomHistoryService = homeroomHistoryService;
@@ -114,7 +101,7 @@ public class ClassService {
                 .organization(organization)
                 .tutor(homeroom)
                 .name(name)
-                .joinCode(generateUniqueJoinCode())
+                .joinCode(joinCodeGenerator.generateUniqueClassCode(classGroupRepository))
                 .createdAt(Instant.now())
                 .build());
         if (homeroom != null) {
@@ -354,24 +341,15 @@ public class ClassService {
         return completions.stream().map(ClassReportResponse::of).toList();
     }
 
-    /** 반 코드로 학부모 계정을 만들고 아이를 그 반의 학생으로 올린다 - 가입과 동시에 연결된다. */
+    /** 반 코드로 학부모 계정을 만들고 아이를 그 반의 학생으로 올린다 - 가입과 동시에 연결된다. 계정 생성은 가입과 같은 길(AuthService). */
     @Transactional
     public AuthResponse join(JoinClassRequest request) {
         ClassGroup classGroup = resolveClassGroup(request.classCode());
-        authValidator.validateSignup(new SignupOrganizationOwnerRequest(
-                request.loginId(), request.email(), request.password(), request.displayName(), request.consents()));
-        consentService.requireSignupConsents(request.consents(), Role.PARENT);
-
-        AppUser parent = AppUser.builder()
-                .role(Role.PARENT)
-                .loginId(request.loginId().trim().toLowerCase())
-                .email(request.email().trim().toLowerCase())
-                .passwordHash(passwordEncoder.encode(request.password()))
-                .displayName(request.displayName().trim())
-                .createdAt(Instant.now())
-                .build();
-        parent = userRepository.saveOrThrowDuplicate(parent, "이미 사용 중인 아이디예요.");
-        consentService.recordSignup(parent, request.consents(), "CLASS_JOIN_SIGNUP");
+        AppUser parent = authService.registerAccount(
+                Role.PARENT,
+                new SignupOrganizationOwnerRequest(
+                        request.loginId(), request.email(), request.password(), request.displayName(), request.consents()),
+                "CLASS_JOIN_SIGNUP");
 
         tutorStudentService.enrollParentInClass(
                 parent, classGroup, request.childName(), request.childBirthYear(), null, request.rosterStudentId());
@@ -476,10 +454,7 @@ public class ClassService {
 
     /** 이미 로그인한 학부모에게 다시 발급할 때는 지금 토큰의 로그인 유지 모드를 그대로 쓴다. */
     private AuthResponse authResponse(AppUser parent, boolean rememberMe, java.time.Instant authTime) {
-        return new AuthResponse(
-                jwtService.issue(new CurrentUser(
-                        parent.getId(), Role.PARENT, null, rememberMe, parent.getTokenVersion(), authTime)),
-                userSummaryFactory.of(parent));
+        return authService.issueResponse(parent, rememberMe, authTime);
     }
 
     private ClassGroup resolveClassGroup(String classCode) {
@@ -565,10 +540,5 @@ public class ClassService {
 
     private static ApiException forbidden() {
         return ApiException.contractError(ErrorCode.FORBIDDEN, "이 반에 접근할 권한이 없어요.", 403);
-    }
-
-    private String generateUniqueJoinCode() {
-        return joinCodeGenerator.generateUnique(classGroupRepository::existsByJoinCode,
-                () -> ApiException.contractError(ErrorCode.INTERNAL_ERROR, "반 코드를 생성하지 못했어요. 다시 시도해 주세요.", 500));
     }
 }

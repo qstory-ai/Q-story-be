@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 디스코드 알림 수동 실행(연결 확인용). X-Admin-Token(QSTORY_STORY_IMPORT_TOKEN)으로 막는다. 보낸 결과(채널별 true/false)만
+ * 디스코드 알림 수동 실행(연결 확인용). X-Admin-Token(QSTORY_ADMIN_TOKEN)으로 막는다. 보낸 결과(채널별 true/false)만
  * 돌려주고 웹훅 주소는 돌려주지 않는다.
  */
 @Tag(name = "Discord alerts (internal)", description = "X-Admin-Token protected manual Discord notifications")

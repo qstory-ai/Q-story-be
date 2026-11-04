@@ -1,7 +1,7 @@
 package com.qstory.backend.story.entity;
 
 import com.qstory.backend.choicecopy.ChoiceCopyVariant;
-import com.qstory.backend.common.enums.FamilyOrigin;
+import com.qstory.backend.story.FamilyOrigin;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

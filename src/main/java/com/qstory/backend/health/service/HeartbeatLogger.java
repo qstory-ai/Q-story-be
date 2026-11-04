@@ -1,6 +1,7 @@
 package com.qstory.backend.health.service;
 
 import java.lang.management.ManagementFactory;
+import com.qstory.backend.common.log.LogEvents;
 import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +45,7 @@ public class HeartbeatLogger {
         long usedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024);
         DbPing ping = pingDb();
         log.info(
-                "app.heartbeat uptime_s={} heap_used_mb={} heap_max_mb={} db_ping_ms={} db_ping_min_ms={}{}",
+                LogEvents.APP_HEARTBEAT + " uptime_s={} heap_used_mb={} heap_max_mb={} db_ping_ms={} db_ping_min_ms={}{}",
                 ManagementFactory.getRuntimeMXBean().getUptime() / 1000,
                 usedMb,
                 runtime.maxMemory() / (1024 * 1024),

@@ -1,7 +1,7 @@
 package com.qstory.backend.conversationrecord.util;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.qstory.backend.common.enums.ConversationInputMode;
+import com.qstory.backend.conversationrecord.ConversationInputMode;
 import com.qstory.backend.conversationrecord.ConversationAttribution;
 import com.qstory.backend.identity.security.CurrentUser;
 import jakarta.servlet.http.HttpServletRequest;

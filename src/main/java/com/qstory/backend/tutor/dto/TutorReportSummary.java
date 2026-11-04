@@ -24,7 +24,7 @@ public record TutorReportSummary(
                 completion.getId(), completion.getStoryId(), completion.getCompletedAt(), completion.getDurationSeconds(),
                 studentName,
                 completion.getUser().getDisplayName(),
-                completion.sessionKind(),
+                completion.sessionKind().name(),
                 completion.classNameSnapshot(),
                 completion.getOrganization() == null ? null : completion.getOrganization().getName());
     }

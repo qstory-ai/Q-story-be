@@ -1,7 +1,7 @@
 package com.qstory.backend.livebranch.service;
 
-import com.qstory.backend.common.enums.FamilyOrigin;
-import com.qstory.backend.common.enums.LiveBranchJobStatus;
+import com.qstory.backend.story.FamilyOrigin;
+import com.qstory.backend.livebranch.LiveBranchJobStatus;
 import com.qstory.backend.familydraft.util.FamilyDraftHarness;
 import com.qstory.backend.livebranch.entity.LiveBranchJob;
 import com.qstory.backend.livebranch.repository.LiveBranchJobRepository;

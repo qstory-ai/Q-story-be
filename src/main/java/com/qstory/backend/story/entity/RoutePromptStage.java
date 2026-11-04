@@ -1,6 +1,6 @@
 package com.qstory.backend.story.entity;
 
-import com.qstory.backend.common.enums.RoutePromptStageKind;
+import com.qstory.backend.story.RoutePromptStageKind;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

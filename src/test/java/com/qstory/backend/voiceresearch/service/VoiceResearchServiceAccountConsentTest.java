@@ -17,7 +17,7 @@ import static org.mockito.Mockito.when;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
-import com.qstory.backend.common.util.SupabaseStorageClient;
+import com.qstory.backend.common.storage.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.dto.ConsentRecordRequest;

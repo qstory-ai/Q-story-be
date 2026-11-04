@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qstory.backend.common.error.ProviderErrorCode;
+import com.qstory.backend.config.AppProperties;
+import com.qstory.backend.storyreport.SessionKind;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
 import com.qstory.backend.story.ChildFacingTerms;
@@ -15,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -87,12 +88,10 @@ public class ReportAnalysisService {
     private final ObjectMapper objectMapper;
     private final String modelId;
 
-    public ReportAnalysisService(
-            OpenRouterClient openRouterClient, ObjectMapper objectMapper,
-            @Value("${qstory.providers.openrouter.llm-model:google/gemini-3.6-flash}") String modelId) {
+    public ReportAnalysisService(OpenRouterClient openRouterClient, ObjectMapper objectMapper, AppProperties config) {
         this.openRouterClient = openRouterClient;
         this.objectMapper = objectMapper;
-        this.modelId = modelId;
+        this.modelId = config.providers().openRouter().llmModel();
     }
 
     public String modelId() {
@@ -101,7 +100,7 @@ public class ReportAnalysisService {
 
     /** 분석할 회차. turns는 PlaySessionService.listTurns 모양, content는 GET /v1/stories/{id}/content와 같은 꾸러미. */
     public record Input(
-            String sessionKind, List<Map<String, Object>> turns, JsonNode content,
+            SessionKind sessionKind, List<Map<String, Object>> turns, JsonNode content,
             String readFromSceneId, String readThroughSceneId) {}
 
     /** {observations, cards, commonScenes, notAnalyzed, rejected}. 할 게 없으면 빈 배열들. */
@@ -123,7 +122,7 @@ public class ReportAnalysisService {
         List<Map<String, Object>> rejected = new ArrayList<>();
         ObjectNode storyContext = story.context(readScenes);
 
-        if ("HOME".equals(input.sessionKind()) && !personalTurnIds.isEmpty()) {
+        if (input.sessionKind() == SessionKind.HOME && !personalTurnIds.isEmpty()) {
             ObjectNode extractPayload = objectMapper.createObjectNode();
             extractPayload.set("story", storyContext);
             extractPayload.set("turns", turnsForPrompt(turnsById));
@@ -149,7 +148,7 @@ public class ReportAnalysisService {
         for (Map<String, Object> o : observations) covered.add(String.valueOf(o.get("sceneId")));
         List<String> commonFor = story.anchorScenes().stream()
                 .filter(readScenes::contains)
-                .filter(sceneId -> !"HOME".equals(input.sessionKind()) || !covered.contains(sceneId))
+                .filter(sceneId -> input.sessionKind() != SessionKind.HOME || !covered.contains(sceneId))
                 .toList();
         List<Map<String, Object>> commonScenes = new ArrayList<>();
         if (!commonFor.isEmpty()) {

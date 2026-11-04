@@ -2,10 +2,11 @@
 FROM eclipse-temurin:21-jdk-alpine AS build
 WORKDIR /app
 
-# Cache dependency resolution separately from source changes.
+# Cache dependency resolution separately from source changes - `dependencies` resolves every
+# configuration so the Gradle cache in this layer survives src-only changes.
 COPY gradlew settings.gradle build.gradle ./
 COPY gradle ./gradle
-RUN chmod +x gradlew && ./gradlew --version
+RUN chmod +x gradlew && ./gradlew dependencies --no-daemon -q > /dev/null
 
 COPY src ./src
 RUN ./gradlew bootJar --no-daemon -x test

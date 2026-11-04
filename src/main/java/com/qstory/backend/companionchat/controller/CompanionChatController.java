@@ -16,7 +16,7 @@ import com.qstory.backend.companionchat.repository.CompanionChatTurnRepository;
 import com.qstory.backend.companionchat.service.CompanionChatPipelineService;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.security.CurrentUserResolver;
-import com.qstory.backend.common.enums.ConversationInputMode;
+import com.qstory.backend.conversationrecord.ConversationInputMode;
 import com.qstory.backend.conversationrecord.ConversationAttribution;
 import com.qstory.backend.conversationrecord.util.ConversationAttributionParser;
 import com.qstory.backend.story.service.StoryRegistryService;
@@ -35,7 +35,6 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -65,8 +64,7 @@ public class CompanionChatController {
             AppProperties config, ObjectMapper objectMapper,
             StoryRegistryService storyRegistryService, CompanionChatPipelineService pipeline,
             CompanionChatTurnRepository turnRepository, CurrentUserResolver currentUserResolver,
-            ConversationAttributionParser attributionParser,
-            @Value("${qstory.voice-streaming.companion-reply:true}") boolean replyStreaming) {
+            ConversationAttributionParser attributionParser) {
         this.config = config;
         this.objectMapper = objectMapper;
         this.storyRegistryService = storyRegistryService;
@@ -74,7 +72,7 @@ public class CompanionChatController {
         this.turnRepository = turnRepository;
         this.currentUserResolver = currentUserResolver;
         this.attributionParser = attributionParser;
-        this.replyStreaming = replyStreaming;
+        this.replyStreaming = config.voiceStreaming().companionReply();
     }
 
     @Operation(

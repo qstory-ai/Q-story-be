@@ -4,7 +4,7 @@ import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.DigestUtil;
 import com.qstory.backend.common.util.SecureTokenGenerator;
-import com.qstory.backend.common.util.SupabaseStorageClient;
+import com.qstory.backend.common.storage.SupabaseStorageClient;
 import com.qstory.backend.common.util.TokenValidation;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.OAuthProvider;
@@ -148,6 +148,15 @@ public class AuthService {
     }
 
     private AuthResponse createAccount(Role role, SignupOrganizationOwnerRequest request) {
+        return issueResponse(registerAccount(role, request, "SIGNUP"));
+    }
+
+    /**
+     * 아이디·비밀번호 계정을 하나 만든다(검증 → 가입 동의 → 저장 → 동의 기록). 가입 화면뿐 아니라 반 코드로 들어오는
+     * 학부모 가입(ClassService.join)도 같은 길을 쓴다 - consentSource는 동의 기록에 남는 출처.
+     */
+    @Transactional
+    public AppUser registerAccount(Role role, SignupOrganizationOwnerRequest request, String consentSource) {
         validator.validateSignup(request);
         // STAFF는 내부 계정이라 고객 약관 동의 대상이 아니다.
         boolean needsConsent = role != Role.STAFF;
@@ -166,9 +175,9 @@ public class AuthService {
                 .build();
         user = userRepository.saveOrThrowDuplicate(user, "이미 사용 중인 아이디예요.");
         if (needsConsent) {
-            consentService.recordSignup(user, request.consents(), "SIGNUP");
+            consentService.recordSignup(user, request.consents(), consentSource);
         }
-        return issueResponse(user);
+        return user;
     }
 
     public AuthResponse login(LoginRequest request) {
@@ -488,7 +497,7 @@ public class AuthService {
     }
 
     /** authTime이 null이면 지금이 처음 로그인한 시각이다. */
-    private AuthResponse issueResponse(AppUser user, boolean rememberMe, Instant authTime) {
+    public AuthResponse issueResponse(AppUser user, boolean rememberMe, Instant authTime) {
         CurrentUser currentUser = new CurrentUser(
                 user.getId(), user.getRole(), user.getOrganization() == null ? null : user.getOrganization().getId(),
                 rememberMe, user.getTokenVersion(), authTime);

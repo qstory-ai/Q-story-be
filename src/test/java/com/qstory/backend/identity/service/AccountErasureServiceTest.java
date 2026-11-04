@@ -14,7 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.qstory.backend.bookmark.repository.BookmarkRepository;
-import com.qstory.backend.common.util.SupabaseStorageClient;
+import com.qstory.backend.common.storage.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.conversationrecord.repository.ConversationRecordRepository;
 import com.qstory.backend.feedback.repository.ImprovementFeedbackRepository;
@@ -65,8 +65,8 @@ class AccountErasureServiceTest {
     private final OrganizationTutorService orgTutorService = mock(OrganizationTutorService.class);
     private final SupabaseStorageClient storage = mock(SupabaseStorageClient.class);
     private final AppProperties config = mock(AppProperties.class);
-    private final com.qstory.backend.common.util.StorageDeletionRetry deletionRetry =
-            mock(com.qstory.backend.common.util.StorageDeletionRetry.class);
+    private final com.qstory.backend.identity.service.StorageDeletionRetry deletionRetry =
+            mock(com.qstory.backend.identity.service.StorageDeletionRetry.class);
     private final RecordingConsentService recordingConsent = mock(RecordingConsentService.class);
     private final InteractionService interactions = mock(InteractionService.class);
     private final PushDeviceTokenRepository pushTokens = mock(PushDeviceTokenRepository.class);

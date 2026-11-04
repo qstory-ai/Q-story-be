@@ -1,5 +1,8 @@
 package com.qstory.backend.org.util;
 
+import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.common.error.ErrorCode;
+import com.qstory.backend.org.repository.ClassGroupRepository;
 import java.security.SecureRandom;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -21,6 +24,12 @@ public class JoinCodeGenerator {
             code.append(ALPHABET.charAt(random.nextInt(ALPHABET.length())));
         }
         return code.toString();
+    }
+
+    /** 아직 어느 반도 쓰지 않는 반 코드 - 원장이 만드는 반과 선생님이 만드는 반이 같은 규칙을 쓴다. */
+    public String generateUniqueClassCode(ClassGroupRepository classGroups) {
+        return generateUnique(classGroups::existsByJoinCode,
+                () -> ApiException.contractError(ErrorCode.INTERNAL_ERROR, "반 코드를 생성하지 못했어요. 다시 시도해 주세요.", 500));
     }
 
     /** 아직 쓰이지 않은 코드를 만든다 - 충돌은 드물지만 방어적으로 10회까지만 시도하고 실패하면 onExhausted를 던진다. */

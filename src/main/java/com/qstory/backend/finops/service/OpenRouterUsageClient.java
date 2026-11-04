@@ -10,6 +10,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -35,6 +36,25 @@ public class OpenRouterUsageClient {
         this.http = httpClient;
         this.objectMapper = objectMapper;
         this.apiKey = config.providers().openRouter() == null ? null : config.providers().openRouter().apiKey();
+    }
+
+    /** 남은 잔액(달러) = /credits의 total_credits - total_usage. 디스코드 한도 알림이 쓴다. 못 읽으면 비어 있다. */
+    public OptionalDouble remainingUsd() {
+        if (apiKey == null || apiKey.isBlank()) return OptionalDouble.empty();
+        try {
+            JsonNode credits = get(CREDITS_URL);
+            JsonNode data = credits == null ? null : credits.path("data");
+            if (data == null || !data.path("total_credits").isNumber() || !data.path("total_usage").isNumber()) {
+                return OptionalDouble.empty();
+            }
+            return OptionalDouble.of(data.path("total_credits").asDouble() - data.path("total_usage").asDouble());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return OptionalDouble.empty();
+        } catch (Exception failure) {
+            log.warn("finops.openrouter-usage-failed reason={}", failure.getClass().getSimpleName());
+            return OptionalDouble.empty();
+        }
     }
 
     public Optional<Usage> fetch() {

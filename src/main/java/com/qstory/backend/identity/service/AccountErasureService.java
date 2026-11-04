@@ -1,8 +1,7 @@
 package com.qstory.backend.identity.service;
 
 import com.qstory.backend.bookmark.repository.BookmarkRepository;
-import com.qstory.backend.common.util.StorageDeletionRetry;
-import com.qstory.backend.common.util.SupabaseStorageClient;
+import com.qstory.backend.common.storage.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.conversationrecord.repository.ConversationRecordRepository;
 import com.qstory.backend.feedback.repository.ImprovementFeedbackRepository;

@@ -1,6 +1,7 @@
 package com.qstory.backend.storyreport.dto;
 
 import com.qstory.backend.storyreport.entity.StoryCompletion;
+import com.qstory.backend.storyreport.SessionKind;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -64,7 +65,7 @@ public record StoryCompletionDetail(
             StoryCompletion completion, List<Map<String, Object>> turns, boolean turnsAvailable,
             TeacherNote teacherNote, Map<String, Object> analysis, List<LinkedChild> linkedChildren,
             boolean includeSessionId) {
-        String kind = completion.sessionKind();
+        SessionKind kind = completion.sessionKind();
         return new StoryCompletionDetail(
                 completion.getId(),
                 completion.getStoryId(),
@@ -75,10 +76,10 @@ public record StoryCompletionDetail(
                 completion.getCompanionChatSummary(),
                 completion.getTutorStudent() == null ? null : completion.getTutorStudent().getId(),
                 completion.getLesson() == null ? null : completion.getLesson().getId(),
-                kind,
+                kind.name(),
                 completion.getClassGroup() == null ? null : completion.getClassGroup().getName(),
                 completion.getOrganization() == null ? null : completion.getOrganization().getName(),
-                "HOME".equals(kind) ? null : completion.getUser().getDisplayName(),
+                kind == SessionKind.HOME ? null : completion.getUser().getDisplayName(),
                 completion.getParticipants().size(),
                 completion.getContentVersion(),
                 completion.getEndStatus(),

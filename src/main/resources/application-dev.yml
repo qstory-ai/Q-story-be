@@ -1,7 +1,6 @@
 # Local development. Active by default (see application.yml's spring.profiles.default) - no
 # SPRING_PROFILES_ACTIVE needed for a plain `./gradlew bootRun` or `java -jar app.jar`.
 qstory:
-  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006,http://localhost:5173,http://127.0.0.1:5173}
 
 logging:
   level:

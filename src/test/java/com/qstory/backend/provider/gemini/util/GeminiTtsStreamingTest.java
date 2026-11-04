@@ -11,7 +11,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.common.error.ProviderErrorCode;
 import com.qstory.backend.common.error.ProviderException;
-import com.qstory.backend.common.util.PcmLoudness;
+import com.qstory.backend.provider.audio.PcmLoudness;
 import com.qstory.backend.common.util.RequestDeadline;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.provider.openrouter.SynthesizedAudioStream;

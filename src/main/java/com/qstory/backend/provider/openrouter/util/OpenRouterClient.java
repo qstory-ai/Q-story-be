@@ -1,5 +1,6 @@
 package com.qstory.backend.provider.openrouter.util;
 import com.qstory.backend.provider.openrouter.FewShotExample;
+import com.qstory.backend.common.log.LogEvents;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -585,7 +586,7 @@ public class OpenRouterClient {
             return null;
         }
         String interactionMode = value.path("interactionMode").asText("").trim();
-        if (!com.qstory.backend.common.enums.CompanionInteractionMode.ALL_NAMES.contains(interactionMode)) {
+        if (!com.qstory.backend.companionchat.CompanionInteractionMode.ALL_NAMES.contains(interactionMode)) {
             return null;
         }
         String responseText = value.path("responseText").isTextual() ? value.get("responseText").asText().trim() : "";
@@ -597,11 +598,11 @@ public class OpenRouterClient {
             return null;
         }
         String topicTag = nullableEnumLabel(value.get("topicTag"),
-                com.qstory.backend.common.enums.CompanionTopicTag.ALL_LABELS);
+                com.qstory.backend.companionchat.CompanionTopicTag.ALL_LABELS);
         String toneTag = nullableEnumLabel(value.get("toneTag"),
-                com.qstory.backend.common.enums.CompanionToneTag.ALL_LABELS);
+                com.qstory.backend.companionchat.CompanionToneTag.ALL_LABELS);
         String valueTag = nullableEnumLabel(value.get("valueTag"),
-                com.qstory.backend.common.enums.CompanionValueTag.ALL_LABELS);
+                com.qstory.backend.companionchat.CompanionValueTag.ALL_LABELS);
         String replyKind = value.path("replyKind").asText("").trim();
         if (!replyKinds(request).contains(replyKind)) {
             return null;
@@ -897,7 +898,7 @@ public class OpenRouterClient {
         ObjectNode interactionMode = properties.putObject("interactionMode");
         interactionMode.put("type", "string");
         ArrayNode modeEnum = interactionMode.putArray("enum");
-        com.qstory.backend.common.enums.CompanionInteractionMode.ALL_NAMES.forEach(modeEnum::add);
+        com.qstory.backend.companionchat.CompanionInteractionMode.ALL_NAMES.forEach(modeEnum::add);
 
         if (withBackdrop) {
             ObjectNode backdrop = properties.putObject("attemptBackdropId");
@@ -931,9 +932,9 @@ public class OpenRouterClient {
         ArrayNode speakerEnum = speakerId.putArray("enum");
         allowedSpeakerIds.forEach(speakerEnum::add);
 
-        addNullableLabelEnum(properties, "topicTag", com.qstory.backend.common.enums.CompanionTopicTag.ALL_LABELS);
-        addNullableLabelEnum(properties, "toneTag", com.qstory.backend.common.enums.CompanionToneTag.ALL_LABELS);
-        addNullableLabelEnum(properties, "valueTag", com.qstory.backend.common.enums.CompanionValueTag.ALL_LABELS);
+        addNullableLabelEnum(properties, "topicTag", com.qstory.backend.companionchat.CompanionTopicTag.ALL_LABELS);
+        addNullableLabelEnum(properties, "toneTag", com.qstory.backend.companionchat.CompanionToneTag.ALL_LABELS);
+        addNullableLabelEnum(properties, "valueTag", com.qstory.backend.companionchat.CompanionValueTag.ALL_LABELS);
 
         ObjectNode replyKind = properties.putObject("replyKind");
         replyKind.put("type", "string");
@@ -1190,7 +1191,7 @@ public class OpenRouterClient {
      * 없으면 429 미만(예: 401/403/400 - 잘못된 키, 잘못된 파라미터, 요청 형식)으로 실패했는지조차
      * 운영 중엔 알 방법이 없다. API 키는 헤더에만 실리고 본문에는 없으므로 응답 본문을 그대로
      * 남겨도 새지 않는다. 태그(openrouter-http.failed)를 모든 호출 지점이 공유하므로, Grafana에서
-     * `{app="qstory-backend"} |= "openrouter-http.failed"` 하나로 채팅완성/이미지 생성 실패를
+     * `{app="qstory-backend"} |= LogEvents.OPENROUTER_HTTP_FAILED` 하나로 채팅완성/이미지 생성 실패를
      * 전부 모아 볼 수 있다.
      */
     private void logProviderHttpFailure(String context, int statusCode, byte[] responseBody) {
@@ -1199,7 +1200,7 @@ public class OpenRouterClient {
             bodySnippet = bodySnippet.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)";
         }
         log.warn(
-                "openrouter-http.failed context={} status={} retryable={} responseBody={}",
+                LogEvents.OPENROUTER_HTTP_FAILED + " context={} status={} retryable={} responseBody={}",
                 context, statusCode, statusCode >= 429, bodySnippet);
     }
 
