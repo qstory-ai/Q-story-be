@@ -75,6 +75,24 @@ resource "grafana_rule_group" "backend_uptime" {
       })
     }
 
+    # B: A(시계열)를 마지막 값 하나로 줄인다. 시계열에 바로 threshold를 걸면 "only reduced data can be
+    # alerted on" 평가 오류가 난다(alert_rules.tf의 B와 같은 이유). 값이 하나도 없으면 no data -> Alerting.
+    data {
+      ref_id = "B"
+      relative_time_range {
+        from = 600
+        to   = 0
+      }
+      datasource_uid = "__expr__"
+      model = jsonencode({
+        type       = "reduce"
+        expression = "A"
+        reducer    = "last"
+        settings   = { mode = "dropNN" }
+        refId      = "B"
+      })
+    }
+
     data {
       ref_id = "C"
       relative_time_range {
@@ -84,7 +102,7 @@ resource "grafana_rule_group" "backend_uptime" {
       datasource_uid = "__expr__"
       model = jsonencode({
         type       = "threshold"
-        expression = "A"
+        expression = "B"
         conditions = [{ evaluator = { type = "lt", params = [0.5] } }]
         refId      = "C"
       })
