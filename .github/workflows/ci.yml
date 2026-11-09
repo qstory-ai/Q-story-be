@@ -1,8 +1,8 @@
 # PR·main 푸시마다 도는 기본 검사: JDK 21로 단위 테스트(./gradlew test).
 #
-# 배포는 Railway가 따로 하고(이 워크플로는 배포하지 않는다), Grafana 알림 규칙은 grafana-alerting.yml,
-# 배포 알림은 discord-deploy-notify.yml이 맡는다. 테스트는 DB·외부 API 없이 도는 단위 테스트라
-# 시크릿을 쓰지 않는다. 실패하면 HTML 테스트 리포트를 Artifacts로 올린다.
+# 배포는 가비아 서버가 직접 한다(ops/gabia/autodeploy.sh). 서버가 main 끝 커밋의 이 워크플로 test 결과를 보고
+# 통과한 커밋만 배포하고, 결과를 디스코드 #배포로 보낸다. Grafana 알림 규칙은 grafana-alerting.yml이 맡는다.
+# 테스트는 DB·외부 API 없이 도는 단위 테스트라 시크릿을 쓰지 않는다. 실패하면 HTML 테스트 리포트를 Artifacts로 올린다.
 name: ci
 
 on:

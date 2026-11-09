@@ -1,0 +1,39 @@
+# Q-Story 백엔드 (가비아 Gen2). /opt/qstory 에 둔다.
+# app.env  : 앱 비밀값(Railway에서 옮긴 변수). 깃에 올리지 않는다.
+# .env     : compose 변수(SITE_ADDRESS, JAVA_OPTS, GIT_REF)
+services:
+  app:
+    build:
+      context: ./src
+    image: qstory-be:local
+    env_file: app.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS:-}
+    restart: unless-stopped
+    expose:
+      - "8080"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  caddy_data:
+  caddy_config:

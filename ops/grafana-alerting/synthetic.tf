@@ -89,7 +89,7 @@ resource "grafana_rule_group" "backend_uptime" {
 
     annotations = {
       summary     = "바깥에서 백엔드(/health/ready)에 5분째 절반 넘게 닿지 않아요."
-      description = "프로세스가 죽었거나, DB가 끊겼거나(503), Railway·네트워크 문제. Railway 서비스 상태부터 확인."
+      description = "프로세스가 죽었거나, DB가 끊겼거나(503), 서버·네트워크 문제. 가비아 서버의 docker compose ps부터 확인."
       runbook_url = "https://github.com/qstory-ai/Q-story-be/blob/main/ops/grafana-alerting/README.md#backend-unreachable"
     }
 

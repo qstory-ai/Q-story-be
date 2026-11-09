@@ -1,0 +1,10 @@
+[Unit]
+Description=Check origin main every 2 minutes and deploy new commits
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=2min
+RandomizedDelaySec=15s
+
+[Install]
+WantedBy=timers.target

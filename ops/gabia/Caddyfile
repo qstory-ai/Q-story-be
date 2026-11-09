@@ -1,0 +1,9 @@
+# SITE_ADDRESS가 ":80"이면 IP로 http만 받는다(DNS 전환 전 시험용).
+# 도메인(예: demo.api.qstory.ai.kr)으로 바꾸면 Caddy가 Let's Encrypt 인증서를 자동으로 받는다.
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy app:8080 {
+		# prod 프로필은 rate limit 주소로 X-Real-IP를 읽는다. Railway 에지처럼 매 요청 실제 접속 주소로 덮어쓴다.
+		header_up X-Real-IP {remote_host}
+	}
+}

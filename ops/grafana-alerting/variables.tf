@@ -157,7 +157,7 @@ variable "sm_access_token" {
 variable "backend_public_url" {
   description = "바깥에서 두드릴 백엔드 주소. /health/ready를 붙여 1분마다 확인한다."
   type        = string
-  default     = "https://q-story-be-production.up.railway.app"
+  default     = "https://demo.api.qstory.ai.kr"
 }
 
 variable "prometheus_datasource_uid" {
