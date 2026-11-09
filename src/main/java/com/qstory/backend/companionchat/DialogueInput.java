@@ -30,7 +30,8 @@ public record DialogueInput(
         String anchorId,
         String wrapUp,
         Help help,
-        Attempt attempt) {
+        Attempt attempt,
+        com.qstory.backend.extension.learning.LearningState learning) {
 
     /**
      * @param tried     이 질문 지점에서 이미 만든 시도 장면 수
@@ -72,6 +73,14 @@ public record DialogueInput(
 
     public DialogueInput {
         attempt = attempt == null ? Attempt.NONE : attempt;
+        learning = learning == null ? com.qstory.backend.extension.learning.LearningState.initial("UNKNOWN") : learning;
+    }
+
+    // QStory Extension Kit: preserve all pre-existing constructor call sites.
+    public DialogueInput(
+            List<Turn> history, Scene scene, List<String> executedActions, String anchorId,
+            String wrapUp, Help help, Attempt attempt) {
+        this(history, scene, executedActions, anchorId, wrapUp, help, attempt, null);
     }
 
     public DialogueInput(
@@ -146,7 +155,8 @@ public record DialogueInput(
         String wrapUp = body.path("wrapUp").asText("NONE");
         return new DialogueInput(
                 List.copyOf(history), scene, texts(body.path("executedActions"), 6), anchorId,
-                WRAP_UPS.contains(wrapUp) ? wrapUp : "NONE", help(body.path("help")), attempt(body.path("attempt")));
+                WRAP_UPS.contains(wrapUp) ? wrapUp : "NONE", help(body.path("help")), attempt(body.path("attempt")),
+                com.qstory.backend.extension.learning.StoryPalAddon.readState(body.path("learning")));
     }
 
     /** 시도 장면 상태 - 형식이 어긋나면 시도 장면이 없는 것으로 본다(장면을 지어내지 않는다). */
