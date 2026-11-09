@@ -37,6 +37,11 @@ flock -n 9 || exit 0
 
 . ./.env
 [ -f notify.env ] && . ./notify.env
+# 윈도우에서 만든 env 파일이면 값 끝에 CR이 붙어 curl이 URL을 거부한다. 걸러낸다.
+DISCORD_WEBHOOK_DEPLOY=${DISCORD_WEBHOOK_DEPLOY:-}; DISCORD_WEBHOOK_DEPLOY=${DISCORD_WEBHOOK_DEPLOY%$'\r'}
+DISCORD_ROLE_DEV_ID=${DISCORD_ROLE_DEV_ID:-}; DISCORD_ROLE_DEV_ID=${DISCORD_ROLE_DEV_ID%$'\r'}
+DEPLOY_LABEL=${DEPLOY_LABEL:-}; DEPLOY_LABEL=${DEPLOY_LABEL%$'\r'}
+NOTIFY_SUCCESS=${NOTIFY_SUCCESS:-1}; NOTIFY_SUCCESS=${NOTIFY_SUCCESS%$'\r'}
 REPO=qstory-ai/Q-story-be
 LABEL=${DEPLOY_LABEL:-백엔드(가비아)}
 STATE=.autodeploy
@@ -62,7 +67,7 @@ notify() { # notify ok|hold|fail "본문"
     '{content: ($c | .[0:1990]), flags: $f, allowed_mentions: {parse: [], roles: $r}}')
   for _ in 1 2 3 4; do
     code=$(curl -sS -o "$STATE/discord.out" -w '%{http_code}' -m 15 -H 'content-type: application/json' \
-      -d "$body" "$DISCORD_WEBHOOK_DEPLOY" || echo 000)
+      -d "$body" "$DISCORD_WEBHOOK_DEPLOY") || true  # 연결 실패면 curl이 000을 찍는다
     if [ "$code" = 429 ]; then
       sleep "$(jq -r '(.retry_after // 1) | ceil' "$STATE/discord.out" 2>/dev/null || echo 2)"; sleep 1
       continue
