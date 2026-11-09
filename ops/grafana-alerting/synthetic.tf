@@ -7,7 +7,10 @@
 locals {
   sm_enabled = var.sm_url != "" && var.sm_access_token != ""
   # 이용자와 가까운 공개 프로브부터. 스택에 없는 이름은 건너뛴다.
-  sm_preferred_probes = ["Seoul", "Tokyo", "Singapore"]
+  # Free 플랜은 API 실행이 월 10만 회까지다. 실행 수 = 분당 실행 횟수 x 프로브 수.
+  # 프로브 3곳을 1분마다 돌리면 월 129,600회라 넘는다. 2곳이면 월 86,400회다.
+  # 프로브를 늘리려면 frequency 를 120000 으로 같이 올린다.
+  sm_preferred_probes = ["Seoul", "Tokyo"]
 }
 
 data "grafana_synthetic_monitoring_probes" "all" {
@@ -26,7 +29,7 @@ resource "grafana_synthetic_monitoring_check" "backend_ready" {
   enabled   = true
   frequency = 60000
   timeout   = 10000
-  probes    = length(local.sm_probe_ids) > 0 ? local.sm_probe_ids : slice(values(local.sm_probe_map), 0, min(3, length(local.sm_probe_map)))
+  probes    = length(local.sm_probe_ids) > 0 ? local.sm_probe_ids : slice(values(local.sm_probe_map), 0, min(2, length(local.sm_probe_map)))
 
   labels = {
     service = "qstory-backend"
@@ -41,7 +44,7 @@ resource "grafana_synthetic_monitoring_check" "backend_ready" {
   }
 }
 
-# 프로브 절반 넘게 5분 동안 실패하면 critical. Grafana Cloud 기본 Prometheus(grafanacloud-prom)에 쌓이는
+# 프로브 절반 넘게 5분 동안 실패하면 critical. 프로브가 2곳이라 한 곳만 실패하면(평균 0.5) 울리지 않는다. Grafana Cloud 기본 Prometheus(grafanacloud-prom)에 쌓이는
 # probe_success를 본다.
 resource "grafana_rule_group" "backend_uptime" {
   count            = local.sm_enabled ? 1 : 0
