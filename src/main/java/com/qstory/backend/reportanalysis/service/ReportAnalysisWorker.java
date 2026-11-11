@@ -66,8 +66,10 @@ public class ReportAnalysisWorker {
                 store.finish(completionId, "SKIPPED", null, ReportAnalysisService.PROMPT_VERSION, null, "기록 없음");
                 return;
             }
-            Map<String, Object> result = analysisService.analyze(input.get());
-            store.finish(completionId, "READY", analysisService.modelId(), ReportAnalysisService.PROMPT_VERSION, result, null);
+            ReportAnalysisService.Analysis analysis = analysisService.analyzeWithModel(input.get());
+            Map<String, Object> result = analysis.result();
+            // 설정된 모델이 아니라 실제로 답한 모델(예비 모델로 넘어갔으면 그 모델)을 남긴다(Q-67).
+            store.finish(completionId, "READY", analysis.modelId(), ReportAnalysisService.PROMPT_VERSION, result, null);
             log.info("report-analysis.ready completion_id={} observations={} duration_ms={}",
                     completionId, ((List<?>) result.get("observations")).size(), System.currentTimeMillis() - startedAt);
         } catch (RuntimeException error) {

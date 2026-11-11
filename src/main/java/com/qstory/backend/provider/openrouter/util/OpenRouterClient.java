@@ -243,10 +243,31 @@ public class OpenRouterClient {
             /** TRY_FAIL일 때만 - 시도 장면 줄(내레이터·인물). 그 밖에는 빈 목록. responseText는 이 장면 뒤 그레텔이 묻는 말이다. */
             List<SceneLine> attemptScene,
             /** TRY_FAIL일 때만 - 막힌 줄(3번째 줄)과 같은 모습의 배경 그림 id(요청의 후보 중 하나). 맞는 그림이 없으면 null. */
-            String attemptBackdropId) {
+            String attemptBackdropId,
+            /**
+             * 실제로 답한 모델(OpenRouter 응답의 model). 예비 모델(models 목록)로 넘어갔으면 그 모델이다 - 대화 원장의
+             * model_id로 남겨 어느 모델이 아이에게 답했는지 보이게 한다. 검증만 거친 답(테스트 등)은 null.
+             */
+            String modelId) {
 
         public CompanionReply {
             attemptScene = attemptScene == null ? List.of() : List.copyOf(attemptScene);
+        }
+
+        public CompanionReply(
+                String interactionMode, String responseText, String speakerId,
+                String topicTag, String toneTag, String valueTag,
+                String replyKind, boolean childWantsToEnd, String childMeaning, boolean asksForHelp,
+                String proposedActionFamilyId, List<SceneLine> attemptScene, String attemptBackdropId) {
+            this(interactionMode, responseText, speakerId, topicTag, toneTag, valueTag, replyKind, childWantsToEnd,
+                    childMeaning, asksForHelp, proposedActionFamilyId, attemptScene, attemptBackdropId, null);
+        }
+
+        /** 같은 답에 실제로 답한 모델만 붙인다. */
+        public CompanionReply withModelId(String modelId) {
+            return new CompanionReply(interactionMode, responseText, speakerId, topicTag, toneTag, valueTag, replyKind,
+                    childWantsToEnd, childMeaning, asksForHelp, proposedActionFamilyId, attemptScene, attemptBackdropId,
+                    modelId);
         }
 
         public CompanionReply(
@@ -349,12 +370,12 @@ public class OpenRouterClient {
                         response.statusCode() == 400 || response.statusCode() >= 429);
             }
             JsonNode payload = objectMapper.readTree(response.body());
-            usedModel("generateCompanionReply", llmModel, payload.path("model").asText(null));
+            String used = usedModel("generateCompanionReply", llmModel, payload.path("model").asText(null));
             JsonNode contentNode = payload.path("choices").path(0).path("message").path("content");
             JsonNode parsed = contentNode.isTextual()
                     ? objectMapper.readTree(contentNode.asText())
                     : contentNode;
-            return requireValidCompanionReply(parsed, request);
+            return requireValidCompanionReply(parsed, request).withModelId(used);
         } catch (ProviderException | AbortException known) {
             throw known;
         } catch (HttpTimeoutException timeout) {
@@ -453,14 +474,15 @@ public class OpenRouterClient {
                     }
                 }
             }
+            String used = usedModel("streamCompanionReply", llmModel, responseModel);
             log.info("openrouter.companion-stream model={} first_token_ms={} response_text_ms={} total_ms={}",
-                    usedModel("streamCompanionReply", llmModel, responseModel),
+                    used,
                     firstTokenMs, responseTextMs, (System.nanoTime() - startedAt) / 1_000_000);
             if (content.length() == 0) {
                 throw new ProviderException(
                         ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "아이에게 들려줄 답을 안전하게 확인하지 못했어요.");
             }
-            return requireValidCompanionReply(objectMapper.readTree(content.toString()), request);
+            return requireValidCompanionReply(objectMapper.readTree(content.toString()), request).withModelId(used);
         } catch (ProviderException | AbortException known) {
             throw known;
         } catch (HttpTimeoutException timeout) {
@@ -1222,9 +1244,13 @@ public class OpenRouterClient {
     }
 
     /** 구조화 응답과 실제로 답한 모델(대체 모델로 넘어갔으면 그 모델 - 기록의 modelId로 쓴다). */
-    record StructuredCompletion(JsonNode content, String model) {}
+    public record StructuredCompletion(JsonNode content, String model) {}
 
-    StructuredCompletion structuredCompletion(
+    /**
+     * generateStructuredCompletion()과 같지만 실제로 답한 모델도 함께 돌려준다 - 결과를 저장하면서 model_id를
+     * 남기는 호출자(리포트 분석 등)는 설정된 모델 대신 이 값을 써야 예비 모델로 넘어간 일이 기록에 드러난다.
+     */
+    public StructuredCompletion structuredCompletion(
             String model, String systemPrompt, List<FewShotExample> examples, String userPayloadJson,
             ObjectNode schema, String schemaName, int maxTokens, double temperature,
             ProviderErrorCode failureCode, String failureSafeDetail, RequestDeadline deadline) {

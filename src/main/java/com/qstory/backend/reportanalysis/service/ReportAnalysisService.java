@@ -94,9 +94,19 @@ public class ReportAnalysisService {
         this.modelId = config.providers().openRouter().llmModel();
     }
 
+    /** 설정된 기본 모델 - 분석이 실패해 실제로 답한 모델을 모를 때 기록에 쓴다. */
     public String modelId() {
         return modelId;
     }
+
+    /** report_analysis.model_id(varchar 120)·demo_report_analysis.model_id(varchar 128) 중 짧은 쪽. */
+    static final int MODEL_ID_MAX = 120;
+
+    /**
+     * 분석 결과와 실제로 답한 모델. 한 분석은 LLM을 여러 번 부르고 호출마다 예비 모델로 넘어갈 수 있어서, 답한 모델을
+     * 부른 순서대로 중복 없이 쉼표로 이어 남긴다(예: "a,b"). LLM을 한 번도 부르지 않았으면 설정된 모델.
+     */
+    public record Analysis(Map<String, Object> result, String modelId) {}
 
     /** 분석할 회차. turns는 PlaySessionService.listTurns 모양, content는 GET /v1/stories/{id}/content와 같은 꾸러미. */
     public record Input(
@@ -105,6 +115,12 @@ public class ReportAnalysisService {
 
     /** {observations, cards, commonScenes, notAnalyzed, rejected}. 할 게 없으면 빈 배열들. */
     public Map<String, Object> analyze(Input input) {
+        return analyzeWithModel(input).result();
+    }
+
+    /** analyze()와 같고, 실제로 답한 모델을 함께 돌려준다 - 저장할 때 model_id로 쓴다. */
+    public Analysis analyzeWithModel(Input input) {
+        Set<String> usedModels = new LinkedHashSet<>();
         StoryView story = StoryView.of(input.content());
         List<String> readScenes = story.readScenes(input.readFromSceneId(), input.readThroughSceneId(), input.turns());
         Map<String, Map<String, Object>> turnsById = new LinkedHashMap<>();
@@ -126,7 +142,7 @@ public class ReportAnalysisService {
             ObjectNode extractPayload = objectMapper.createObjectNode();
             extractPayload.set("story", storyContext);
             extractPayload.set("turns", turnsForPrompt(turnsById));
-            JsonNode extracted = call(EXTRACT_SYSTEM, extractPayload, extractSchema(), "q39_extract", 2500);
+            JsonNode extracted = call(usedModels, EXTRACT_SYSTEM, extractPayload, extractSchema(), "q39_extract", 2500);
             for (JsonNode n : extracted.path("notAnalyzed")) {
                 notAnalyzed.add(Map.of("seq", seqOf(n.path("turnId").asText()), "reason", n.path("reason").asText()));
             }
@@ -136,10 +152,10 @@ public class ReportAnalysisService {
                 if (problems.isEmpty()) candidates.add(o);
                 else rejected.add(Map.of("observation", o.path("observation").asText(), "stage", "code", "problems", problems));
             }
-            List<JsonNode> verified = verify(candidates, turnsById, rejected);
+            List<JsonNode> verified = verify(usedModels, candidates, turnsById, rejected);
             if (!verified.isEmpty()) {
                 observations = verified.stream().map(o -> observationOut(o)).toList();
-                cards = cards(storyContext, verified, turnsById);
+                cards = cards(usedModels, storyContext, verified, turnsById);
             }
         }
 
@@ -156,7 +172,7 @@ public class ReportAnalysisService {
             payload.set("story", storyContext);
             payload.set("sceneIds", objectMapper.valueToTree(commonFor));
             payload.set("actualPaths", actualPaths(input.turns(), story));
-            JsonNode common = call(COMMON_SYSTEM, payload, commonSchema(), "q39_common", 2500);
+            JsonNode common = call(usedModels, COMMON_SYSTEM, payload, commonSchema(), "q39_common", 2500);
             for (JsonNode scene : common.path("scenes")) {
                 if (!commonFor.contains(scene.path("sceneId").asText())) continue;
                 commonScenes.add(objectMapper.convertValue(scene, Map.class));
@@ -172,7 +188,14 @@ public class ReportAnalysisService {
         result.put("commonScenes", renamedByScene(commonScenes, scene -> String.valueOf(scene.get("sceneId"))));
         result.put("notAnalyzed", notAnalyzed);
         result.put("rejected", rejected);
-        return result;
+        return new Analysis(result, joinedModelId(usedModels, modelId));
+    }
+
+    static String joinedModelId(Set<String> usedModels, String configured) {
+        if (usedModels.isEmpty()) return configured;
+        String joined = String.join(",", usedModels);
+        // 칸보다 길면 저장(finish) 자체가 실패해 작업이 RUNNING에 남는다 - 잘라서라도 남긴다.
+        return joined.length() <= MODEL_ID_MAX ? joined : joined.substring(0, MODEL_ID_MAX);
     }
 
     static List<Map<String, Object>> renamedByScene(
@@ -201,7 +224,7 @@ public class ReportAnalysisService {
 
     // ── 단계 ───────────────────────────────────────────────────────────────
 
-    private List<JsonNode> verify(List<JsonNode> candidates, Map<String, Map<String, Object>> turnsById, List<Map<String, Object>> rejected) {
+    private List<JsonNode> verify(Set<String> usedModels, List<JsonNode> candidates, Map<String, Map<String, Object>> turnsById, List<Map<String, Object>> rejected) {
         if (candidates.isEmpty()) return List.of();
         ArrayNode items = objectMapper.createArrayNode();
         for (JsonNode o : candidates) {
@@ -217,7 +240,7 @@ public class ReportAnalysisService {
         }
         ObjectNode payload = objectMapper.createObjectNode();
         payload.set("observations", items);
-        JsonNode verdicts = call(VERIFY_SYSTEM, payload, verifySchema(), "q39_verify", 1500);
+        JsonNode verdicts = call(usedModels, VERIFY_SYSTEM, payload, verifySchema(), "q39_verify", 1500);
         Map<String, JsonNode> byKey = new LinkedHashMap<>();
         for (JsonNode v : verdicts.path("results")) byKey.put(v.path("key").asText(), v);
         List<JsonNode> kept = new ArrayList<>();
@@ -243,7 +266,7 @@ public class ReportAnalysisService {
         return kept;
     }
 
-    private List<Map<String, Object>> cards(ObjectNode storyContext, List<JsonNode> observations, Map<String, Map<String, Object>> turnsById) {
+    private List<Map<String, Object>> cards(Set<String> usedModels, ObjectNode storyContext, List<JsonNode> observations, Map<String, Map<String, Object>> turnsById) {
         ArrayNode items = objectMapper.createArrayNode();
         for (JsonNode o : observations) {
             ObjectNode item = items.addObject();
@@ -282,11 +305,11 @@ public class ReportAnalysisService {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.set("story", storyContext);
         payload.set("observations", items);
-        JsonNode generated = call(CARD_SYSTEM, payload, cardSchema(), "q39_cards", 3000);
+        JsonNode generated = call(usedModels, CARD_SYSTEM, payload, cardSchema(), "q39_cards", 3000);
         List<String> problems = textProblems(generated);
         if (!problems.isEmpty()) {
             payload.set("avoid", objectMapper.valueToTree(problems));
-            generated = call(CARD_SYSTEM, payload, cardSchema(), "q39_cards", 3000);
+            generated = call(usedModels, CARD_SYSTEM, payload, cardSchema(), "q39_cards", 3000);
             if (!textProblems(generated).isEmpty()) {
                 throw new IllegalStateException("cards still have problems: " + textProblems(generated));
             }
@@ -390,11 +413,14 @@ public class ReportAnalysisService {
         }
     }
 
-    private JsonNode call(String system, ObjectNode payload, ObjectNode schema, String name, int maxTokens) {
-        return openRouterClient.generateStructuredCompletion(
+    private JsonNode call(
+            Set<String> usedModels, String system, ObjectNode payload, ObjectNode schema, String name, int maxTokens) {
+        OpenRouterClient.StructuredCompletion completion = openRouterClient.structuredCompletion(
                 modelId, system, List.of(), payload.toString(), schema, name, maxTokens, 0.2,
                 ProviderErrorCode.OPENROUTER_RESPONSE_FAILED, "리포트 분석을 만들지 못했어요.",
                 RequestDeadline.startingNow(90_000));
+        if (completion.model() != null && !completion.model().isBlank()) usedModels.add(completion.model());
+        return completion.content();
     }
 
     // ── 스키마(strict) ─────────────────────────────────────────────────────
