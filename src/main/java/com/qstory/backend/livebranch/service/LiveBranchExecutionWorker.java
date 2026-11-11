@@ -196,7 +196,7 @@ public class LiveBranchExecutionWorker {
                 return;
             }
 
-            // 안전 규칙 조각을 못 읽으면(requirePrompt가 던짐) 안전 규칙 없이 초안을 만들지 않도록 바로 아래
+            // 안전 규칙 조각을 못 읽으면(requireCompanionSafetyFragment가 던짐) 안전 규칙 없이 초안을 만들지 않도록 바로 아래
             // catch로 빠져 GENERATION_FAILED가 된다 - 서브 작업 3개가 각자 같은 이유로 실패하는 것보다 한 번에 끝낸다.
             String safetyFragment = sharedSafetyFragment(job.getStoryId());
 
@@ -755,14 +755,14 @@ public class LiveBranchExecutionWorker {
      * 그레텔 대화 프롬프트(OpenRouterClient.companionSystemPrompt)에 들어가는 것과 같은 원문이다 - 새 선택지
      * 초안·검수가 그레텔과 다른 문장으로 위험을 판단하면, 그레텔은 피하는 내용을 새 선택지는 아이에게 보여 주는
      * 식으로 어긋날 수 있다. 버전도 그레텔과 같은 곳(StoryRegistry의 StoryManifest.routePromptVersion)에서 읽고,
-     * 프롬프트가 없으면 그레텔과 똑같이 requirePrompt가 예외를 던진다.
+     * 프롬프트가 없으면 그레텔과 똑같이 requireCompanionSafetyFragment가 예외를 던진다.
      */
     String sharedSafetyFragment(String storyId) {
         StoryManifest story = storyRegistry.get(storyId);
         if (story == null) {
             throw new IllegalStateException("story manifest missing: " + storyId);
         }
-        return routePromptService.requirePrompt(story.routePromptVersion()).companionSafetyFragment();
+        return routePromptService.requireCompanionSafetyFragment(story.routePromptVersion());
     }
 
     /**

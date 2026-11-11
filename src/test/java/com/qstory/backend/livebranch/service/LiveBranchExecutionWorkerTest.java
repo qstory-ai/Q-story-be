@@ -116,8 +116,7 @@ class LiveBranchExecutionWorkerTest {
     @Test
     void sharedSafetyFragmentUsesTheStoryRoutePromptVersion() {
         when(storyRegistry.get(STORY_ID)).thenReturn(manifest());
-        when(routePromptService.requirePrompt(PROMPT_VERSION))
-                .thenReturn(new RoutePromptService.Prompt("system", "instruction", SAFETY_FRAGMENT));
+        when(routePromptService.requireCompanionSafetyFragment(PROMPT_VERSION)).thenReturn(SAFETY_FRAGMENT);
 
         assertThat(worker.sharedSafetyFragment(STORY_ID)).isEqualTo(SAFETY_FRAGMENT);
     }
@@ -125,7 +124,7 @@ class LiveBranchExecutionWorkerTest {
     @Test
     void sharedSafetyFragmentFailsLikeGretelWhenPromptIsMissing() {
         when(storyRegistry.get(STORY_ID)).thenReturn(manifest());
-        when(routePromptService.requirePrompt(PROMPT_VERSION)).thenThrow(missingPrompt());
+        when(routePromptService.requireCompanionSafetyFragment(PROMPT_VERSION)).thenThrow(missingPrompt());
 
         assertThatThrownBy(() -> worker.sharedSafetyFragment(STORY_ID)).isInstanceOf(ApiException.class);
     }
@@ -147,7 +146,7 @@ class LiveBranchExecutionWorkerTest {
                 "generatedContent", Map.of("scenes", List.of(
                         Map.of("id", "HG-F04", "anchors", List.of("HG-F04-CANDY-HOUSE-REVEAL")))))));
         when(storyRegistry.get(STORY_ID)).thenReturn(manifest());
-        when(routePromptService.requirePrompt(PROMPT_VERSION)).thenThrow(missingPrompt());
+        when(routePromptService.requireCompanionSafetyFragment(PROMPT_VERSION)).thenThrow(missingPrompt());
 
         worker.run(jobId);
 
