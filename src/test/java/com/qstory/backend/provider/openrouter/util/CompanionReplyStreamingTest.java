@@ -96,6 +96,50 @@ class CompanionReplyStreamingTest {
         assertThat(reply.responseText()).isEqualTo(early.get(0));
         assertThat(reply.replyKind()).isEqualTo("ANSWER");
         assertThat(reply.childMeaning()).isEqualTo("누구인지 궁금함");
+        // 응답에 model이 없으면 요청한 기본 모델이 답한 것으로 남긴다.
+        assertThat(reply.modelId()).isEqualTo("google/gemini-3.6-flash");
+    }
+
+    private static final String VALID_CONTENT = "{\"interactionMode\": \"ANSWER\", \"responseText\": \"처음 보는 분이야.\","
+            + " \"speakerId\": \"HG-SPK-GRETEL\", \"topicTag\": null, \"toneTag\": null, \"valueTag\": null,"
+            + " \"replyKind\": \"ANSWER\", \"childWantsToEnd\": false, \"childMeaning\": \"궁금함\","
+            + " \"asksForHelp\": false, \"proposedActionFamilyId\": null}";
+
+    @Test
+    void theStreamedReplyCarriesTheModelThatActuallyAnswered() throws Exception {
+        String withModel = sse(VALID_CONTENT).replace("data: {\"choices\"", "data: {\"model\":\"anthropic/claude-haiku-4.5\",\"choices\"");
+        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+
+        OpenRouterClient.CompanionReply reply = client(withModel, captor)
+                .streamCompanionReply(request(), RequestDeadline.startingNow(10_000), text -> {});
+
+        assertThat(reply.modelId()).isEqualTo("anthropic/claude-haiku-4.5");
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void theWholeReplyCarriesTheModelThatActuallyAnswered() throws Exception {
+        AppProperties config = mock(AppProperties.class, RETURNS_DEEP_STUBS);
+        when(config.providers().openRouter().apiKey()).thenReturn("key");
+        when(config.providers().openRouter().llmModel()).thenReturn("google/gemini-3.6-flash");
+        RoutePromptService prompts = mock(RoutePromptService.class);
+        when(prompts.requireCompanionSafetyFragment(anyString())).thenReturn("안전 규칙");
+        HttpClient httpClient = mock(HttpClient.class);
+        HttpResponse<byte[]> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        String payload = objectMapper.createObjectNode()
+                .put("model", "anthropic/claude-haiku-4.5")
+                .set("choices", objectMapper.createArrayNode().add(objectMapper.createObjectNode()
+                        .set("message", objectMapper.createObjectNode().put("content", VALID_CONTENT))))
+                .toString();
+        when(response.body()).thenReturn(payload.getBytes(StandardCharsets.UTF_8));
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn((HttpResponse) response);
+        OpenRouterClient client = new OpenRouterClient(httpClient, objectMapper, new ResponseTextNormalizer(), prompts, config);
+
+        OpenRouterClient.CompanionReply reply = client.generateCompanionReply(request(), RequestDeadline.startingNow(10_000));
+
+        assertThat(reply.modelId()).isEqualTo("anthropic/claude-haiku-4.5");
+        assertThat(reply.responseText()).isEqualTo("처음 보는 분이야.");
     }
 
     @Test
