@@ -123,7 +123,7 @@ class CompanionReplyStreamingTest {
         when(config.providers().openRouter().apiKey()).thenReturn("key");
         when(config.providers().openRouter().llmModel()).thenReturn("google/gemini-3.6-flash");
         RoutePromptService prompts = mock(RoutePromptService.class);
-        when(prompts.requirePrompt(anyString())).thenReturn(new RoutePromptService.Prompt("system", "instruction", "안전 규칙"));
+        when(prompts.requireCompanionSafetyFragment(anyString())).thenReturn("안전 규칙");
         HttpClient httpClient = mock(HttpClient.class);
         HttpResponse<byte[]> response = mock(HttpResponse.class);
         when(response.statusCode()).thenReturn(200);
