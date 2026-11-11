@@ -34,6 +34,8 @@ import com.qstory.backend.story.repository.StoryAssetRepository;
 import com.qstory.backend.story.repository.StoryFallbackSegmentRepository;
 import com.qstory.backend.story.repository.StoryRepository;
 import com.qstory.backend.story.repository.StoryVisualReferencePackRepository;
+import com.qstory.backend.story.StoryManifest;
+import com.qstory.backend.story.service.RoutePromptService;
 import com.qstory.backend.story.service.StoryContentAssemblyService;
 import com.qstory.backend.story.service.StoryRegistry;
 import java.io.IOException;
@@ -106,6 +108,7 @@ public class LiveBranchExecutionWorker {
     private final FamilyDraftHarness harness;
     private final TransactionTemplate transactionTemplate;
     private final RealtimeImageService realtimeImageService;
+    private final RoutePromptService routePromptService;
 
     public LiveBranchExecutionWorker(
             LiveBranchJobRepository jobRepository, StoryRepository storyRepository,
@@ -117,8 +120,9 @@ public class LiveBranchExecutionWorker {
             StoryContentAssemblyService assemblyService,
             @Qualifier("liveBranchSubtaskExecutor") Executor liveBranchSubtaskExecutor,
             FamilyDraftHarness harness, PlatformTransactionManager transactionManager,
-            RealtimeImageService realtimeImageService) {
+            RealtimeImageService realtimeImageService, RoutePromptService routePromptService) {
         this.realtimeImageService = realtimeImageService;
+        this.routePromptService = routePromptService;
         this.jobRepository = jobRepository;
         this.storyRepository = storyRepository;
         this.anchorRepository = anchorRepository;
@@ -192,6 +196,10 @@ public class LiveBranchExecutionWorker {
                 return;
             }
 
+            // 안전 규칙 조각을 못 읽으면(requirePrompt가 던짐) 안전 규칙 없이 초안을 만들지 않도록 바로 아래
+            // catch로 빠져 GENERATION_FAILED가 된다 - 서브 작업 3개가 각자 같은 이유로 실패하는 것보다 한 번에 끝낸다.
+            String safetyFragment = sharedSafetyFragment(job.getStoryId());
+
             byte[] referenceBytes = readReferenceImage(anchor.getSlot());
             // 3개 서브 작업이 각자 조회하면 같은 앵커의 같은 라벨 풀을 최대 3번 DB에 왕복하게 되므로,
             // 앵커가 허용하는 화자 전체에 대해 한 번만 조회해 맵으로 넘긴다.
@@ -202,7 +210,8 @@ public class LiveBranchExecutionWorker {
                 int index = subIndex;
                 futures.add(CompletableFuture.supplyAsync(
                         () -> generateOneFamily(
-                                index, anchor, existingFamilies, rejoinCandidates, job, referenceBytes, visualFactsByLabel),
+                                index, anchor, existingFamilies, rejoinCandidates, job, referenceBytes, visualFactsByLabel,
+                                safetyFragment),
                         liveBranchSubtaskExecutor));
             }
             List<GeneratedFamily> generated = futures.stream()
@@ -246,19 +255,21 @@ public class LiveBranchExecutionWorker {
      */
     private GeneratedFamily generateOneFamily(
             int subIndex, StoryAnchor anchor, List<StoryActionFamily> existingFamilies, Set<String> rejoinCandidates,
-            LiveBranchJob job, byte[] referenceBytes, Map<String, List<String>> visualFactsByLabel) {
+            LiveBranchJob job, byte[] referenceBytes, Map<String, List<String>> visualFactsByLabel,
+            String safetyFragment) {
         try {
             JsonNode draft = null;
             List<String> revisionFeedback = List.of();
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
                 JsonNode attemptDraft =
-                        requestDraft(anchor, existingFamilies, rejoinCandidates, job, revisionFeedback, freshDeadline());
+                        requestDraft(anchor, existingFamilies, rejoinCandidates, job, revisionFeedback, safetyFragment,
+                                freshDeadline());
                 String issue = validationIssue(attemptDraft, anchor, rejoinCandidates);
                 if (issue != null) {
                     revisionFeedback = List.of(issue);
                     continue;
                 }
-                List<String> reviewIssues = reviewGateIssues(anchor, attemptDraft, freshDeadline());
+                List<String> reviewIssues = reviewGateIssues(anchor, attemptDraft, safetyFragment, freshDeadline());
                 if (!reviewIssues.isEmpty()) {
                     revisionFeedback = reviewIssues;
                     continue;
@@ -542,7 +553,7 @@ public class LiveBranchExecutionWorker {
 
     private JsonNode requestDraft(
             StoryAnchor anchor, List<StoryActionFamily> existingFamilies, Set<String> rejoinCandidates,
-            LiveBranchJob job, List<String> revisionFeedback, RequestDeadline deadline) {
+            LiveBranchJob job, List<String> revisionFeedback, String safetyFragment, RequestDeadline deadline) {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("jobId", job.getId().toString());
         payload.put("anchorSlot", anchor.getSlot());
@@ -566,16 +577,17 @@ public class LiveBranchExecutionWorker {
         }
 
         return openRouterClient.generateStructuredCompletion(
-                draftSystemPrompt(), payload.toString(),
+                draftSystemPrompt(safetyFragment), payload.toString(),
                 draftSchema(anchor.getAllowedSpeakerIds(), rejoinCandidates), "qstory_live_branch_draft_v1", 2_400,
                 ProviderErrorCode.OPENROUTER_RESPONSE_INVALID, "새 분기를 만들지 못했어요.", deadline);
     }
 
-    private List<String> reviewGateIssues(StoryAnchor anchor, JsonNode draft, RequestDeadline deadline) {
+    private List<String> reviewGateIssues(
+            StoryAnchor anchor, JsonNode draft, String safetyFragment, RequestDeadline deadline) {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("anchorSlot", anchor.getSlot());
         return harness.reviewGateIssues(
-                payload, draft, reviewSystemPrompt(), "qstory_live_branch_review_v1",
+                payload, draft, reviewSystemPrompt(safetyFragment), "qstory_live_branch_review_v1",
                 "새 분기 검수를 완료하지 못했어요.", deadline);
     }
 
@@ -738,8 +750,42 @@ public class LiveBranchExecutionWorker {
         return schema;
     }
 
-    private String draftSystemPrompt() {
-        return String.join("\n",
+    /**
+     * 이 이야기의 route_prompt_version에 묶인 안전 규칙 조각(route_prompt.companion_safety_fragment)을 읽는다.
+     * 그레텔 대화 프롬프트(OpenRouterClient.companionSystemPrompt)에 들어가는 것과 같은 원문이다 - 새 선택지
+     * 초안·검수가 그레텔과 다른 문장으로 위험을 판단하면, 그레텔은 피하는 내용을 새 선택지는 아이에게 보여 주는
+     * 식으로 어긋날 수 있다. 버전도 그레텔과 같은 곳(StoryRegistry의 StoryManifest.routePromptVersion)에서 읽고,
+     * 프롬프트가 없으면 그레텔과 똑같이 requirePrompt가 예외를 던진다.
+     */
+    String sharedSafetyFragment(String storyId) {
+        StoryManifest story = storyRegistry.get(storyId);
+        if (story == null) {
+            throw new IllegalStateException("story manifest missing: " + storyId);
+        }
+        return routePromptService.requirePrompt(story.routePromptVersion()).companionSafetyFragment();
+    }
+
+    /**
+     * 조각이 비어 있으면 그레텔(companionSystemPrompt)과 같이 그 줄을 빼고, 있으면 고유 규칙 뒤에 붙인다.
+     * leadLine(없으면 null)은 조각이 있을 때만 그 앞에 붙는 안내 문장이다.
+     */
+    private static String withSafetyFragment(List<String> lines, String leadLine, String safetyFragment) {
+        List<String> all = new ArrayList<>(lines);
+        if (safetyFragment != null && !safetyFragment.isBlank()) {
+            if (leadLine != null) {
+                all.add(leadLine);
+            }
+            all.add(safetyFragment);
+        }
+        return String.join("\n", all);
+    }
+
+    // 공통 위험 판단(위험·폭력 요청을 다시 꺼내거나 대안으로 바꿔 쓰지 않기, 공포·폭력·위험 행동을 구체적으로
+    // 설명하지 않기)은 그레텔과 공유하는 안전 규칙 조각이 맡아 두 쪽이 같은 기준으로 위험을 판단한다. 아래 문장은
+    // 새 선택지에만 필요한 규칙이라 그대로 둔다 - 새 증거를 지어내지 않기, 냄새·소리·말만으로 안전하다고
+    // 결론내지 않기, 아이가 따라 할 수 있는 폭력·상해·위험 도구 사용 금지 등.
+    static String draftSystemPrompt(String safetyFragment) {
+        return withSafetyFragment(List.of(
                 "너는 6~9세용 동화의 실시간 신규 분기 작가다. 이 결과는 사람 검수 없이 자동 게이트만",
                 "통과하면 곧바로 아이에게 노출되니 더욱 신중하게 작성하라.",
                 "아이의 질문 의미를 현재 장면(currentScene)에서 직접 느낄 수 있는 1~2개 행동 beat로 바꿔라.",
@@ -751,15 +797,16 @@ public class LiveBranchExecutionWorker {
                 "아동이 따라 할 수 있는 구체적 폭력·상해·위험 도구 사용을 쓰지 마라.",
                 "인물·장소·합류점(rejoinAnchorId)은 입력으로 주어진 허용 목록만 사용하라.",
                 "삽화에는 한 beat의 핵심 행동만 보이게 하고 글자·UI·말풍선은 넣지 마라.",
-                "reportSummary는 생성 과정이 아니라 아이가 고른 행동과 그 결과를 부모에게 요약하라.");
+                "reportSummary는 생성 과정이 아니라 아이가 고른 행동과 그 결과를 부모에게 요약하라."), null, safetyFragment);
     }
 
-    private String reviewSystemPrompt() {
-        return String.join("\n",
+    static String reviewSystemPrompt(String safetyFragment) {
+        return withSafetyFragment(List.of(
                 "너는 실시간으로 아이에게 바로 노출되는 신규 분기 초안의 자동 게이트다 - 뒤에 사람 검수가 없다.",
                 "아이 질문 의미와 직접 연결되지 않거나, currentScene에 없는 소품·증거·약속을 만들거나,",
                 "달콤한 냄새·조용한 소리·친절한 말만으로 안전을 결론내면 탈락이다.",
                 "choiceCopy 3개가 하나의 고정 beat의 엄격한 바꿔쓰기가 아니거나, 대본·삽화 action·rejoin이 서로 다르면 탈락이다.",
-                "인물·장소·소품·아동 안전을 모두 검사하고, 모든 점수가 2일 때만 pass=true로 하라.");
+                "인물·장소·소품·아동 안전을 모두 검사하고, 모든 점수가 2일 때만 pass=true로 하라."),
+                "아래 안전 규칙은 그레텔 대화와 같은 기준이다 - 초안이 이를 어기면 탈락이다.", safetyFragment);
     }
 }
