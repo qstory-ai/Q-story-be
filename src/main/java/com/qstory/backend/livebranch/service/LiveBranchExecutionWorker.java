@@ -85,6 +85,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class LiveBranchExecutionWorker {
 
     private static final Logger log = LoggerFactory.getLogger(LiveBranchExecutionWorker.class);
+
+    /**
+     * 초안·검수 시스템 프롬프트(draftSystemPrompt/reviewSystemPrompt)와 응답 스키마의 판 - live_branch_job.prompt_version에 남긴다.
+     * 글을 바꾸면 버전을 올린다.
+     */
+    public static final String PROMPT_VERSION = "LIVE_BRANCH_V1";
     private static final int MAX_ATTEMPTS = 3;
 
     /** 한 job이 만들어야 하는 최종 옵션 개수 - 새로 생성된 family + 기존 family로 채운 자리 = 이 값. */
@@ -171,6 +177,8 @@ public class LiveBranchExecutionWorker {
         }
         try {
             job.setStatus(LiveBranchJobStatus.GENERATING);
+            // 실제로 돌리는 판을 남긴다 - 배포 직전에 큐에 들어간 작업도 지금 판으로 만들어진다.
+            job.setPromptVersion(PROMPT_VERSION);
             job.setUpdatedAt(Instant.now());
             jobRepository.save(job);
 
