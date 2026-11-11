@@ -260,9 +260,8 @@ class CompanionDialogueEvalTest {
         String model = System.getenv().getOrDefault("OPENROUTER_LLM_MODEL", "google/gemini-3.6-flash");
         when(config.providers().openRouter().llmModel()).thenReturn(model);
         RoutePromptService prompts = mock(RoutePromptService.class);
-        when(prompts.requirePrompt(anyString())).thenReturn(new RoutePromptService.Prompt("system", "instruction",
-                "원래 발화가 위험·폭력·이야기 밖 요청·금지된 미래 정보 요구인 경우 안전한 대안을 제시할 수 있어도 "
-                        + "위험한 내용 자체를 다시 언급하거나 대안으로 재구성하지 않는다. 공포·폭력·위험 행동을 구체적으로 설명하지 않는다."));
+        when(prompts.requireCompanionSafetyFragment(anyString())).thenReturn("원래 발화가 위험·폭력·이야기 밖 요청·금지된 미래 정보 요구인 경우 안전한 대안을 제시할 수 있어도 "
+                        + "위험한 내용 자체를 다시 언급하거나 대안으로 재구성하지 않는다. 공포·폭력·위험 행동을 구체적으로 설명하지 않는다.");
         OpenRouterClient client = new OpenRouterClient(
                 HttpClient.newHttpClient(), objectMapper, new ResponseTextNormalizer(), prompts, config);
 

@@ -36,8 +36,7 @@ class CompanionTryAndFailTest {
 
     private OpenRouterClient client() {
         RoutePromptService prompts = mock(RoutePromptService.class);
-        when(prompts.requirePrompt(anyString()))
-                .thenReturn(new RoutePromptService.Prompt("system", "instruction", "위험한 행동은 막는다."));
+        when(prompts.requireCompanionSafetyFragment(anyString())).thenReturn("위험한 행동은 막는다.");
         return new OpenRouterClient(
                 HttpClient.newHttpClient(), objectMapper, new ResponseTextNormalizer(),
                 prompts, mock(AppProperties.class, RETURNS_DEEP_STUBS));
