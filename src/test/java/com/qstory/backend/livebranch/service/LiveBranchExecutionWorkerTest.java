@@ -166,4 +166,20 @@ class LiveBranchExecutionWorkerTest {
                 STORY_ID, "hansel-gretel", "헨젤과 그레텔", "content-v1", "PUBLIC", PROMPT_VERSION,
                 "policy-v1", "norm-v1", Map.of(), "cast-v1", Map.of(), false, null, null, null);
     }
+
+    @Test
+    void runRecordsThePromptVersionOnTheJobEvenWhenItFailsEarly() {
+        UUID jobId = UUID.randomUUID();
+        LiveBranchJob job = LiveBranchJob.builder()
+                .id(jobId).storyId(STORY_ID).anchorId("missing-anchor").status(LiveBranchJobStatus.QUEUED).build();
+        when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+        when(jobRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(anchorRepository.findById("missing-anchor")).thenReturn(Optional.empty());
+
+        worker.run(jobId);
+
+        assertThat(job.getPromptVersion()).isEqualTo(LiveBranchExecutionWorker.PROMPT_VERSION).isEqualTo("LIVE_BRANCH_V1");
+        assertThat(job.getStatus()).isEqualTo(LiveBranchJobStatus.FAILED);
+        assertThat(job.getErrorCode()).isEqualTo("ANCHOR_MISSING");
+    }
 }

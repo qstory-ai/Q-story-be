@@ -118,6 +118,7 @@ public class RealtimeImageService {
                 .storyId(storyId)
                 .anchorId(anchorId)
                 .kind(kind)
+                .promptVersion(RealtimeImagePrompts.versionFor(kind))
                 .status(RealtimeImageStatus.QUEUED)
                 .createdAt(now)
                 .updatedAt(now)
@@ -128,6 +129,7 @@ public class RealtimeImageService {
     public Generated generate(RealtimeImage reservation, String prompt, List<String> referenceUrls) {
         long startedAt = System.currentTimeMillis();
         reservation.setPromptHash(sha256(prompt).substring(0, 16));
+        reservation.setPromptVersion(RealtimeImagePrompts.versionFor(reservation.getKind()));
         update(reservation, RealtimeImageStatus.GENERATING, null);
         try {
             HiggsfieldImageClient.Image image = client.generate(
