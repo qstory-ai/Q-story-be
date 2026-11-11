@@ -982,7 +982,7 @@ public class OpenRouterClient {
      * 이어지도록 자연스러운 순간에 짧은 되질문을 던지게 한다 - 규칙이 아니라 성향이다.
      */
     String companionSystemPrompt(CompanionRequest request) {
-        String safetyFragment = routePromptService.requirePrompt(request.promptVersion()).companionSafetyFragment();
+        String safetyFragment = routePromptService.requireCompanionSafetyFragment(request.promptVersion());
         String storyTitle = request.storyTitle() == null || request.storyTitle().isBlank()
                 ? "이 동화" : "'" + request.storyTitle() + "'";
         List<String> lines = new ArrayList<>();
