@@ -133,7 +133,7 @@ class DiscordReportServiceTest {
     @Test
     void killSwitchStopsEverything() {
         DiscordProperties off = new DiscordProperties(false, "m", "d", "n", "1", "2", true, true, true, null, null,
-                100, "80,95", 5.0);
+                100, "80,95", 5.0, null);
         DiscordReportService disabled =
                 new DiscordReportService(off, notifier, metrics, state, Clock.fixed(NOW, ZoneOffset.UTC));
 

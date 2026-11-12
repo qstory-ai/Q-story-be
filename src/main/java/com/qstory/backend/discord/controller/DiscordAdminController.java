@@ -3,6 +3,7 @@ package com.qstory.backend.discord.controller;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.AdminTokenGuard;
+import com.qstory.backend.config.DiscordProperties;
 import com.qstory.backend.discord.service.DiscordChannel;
 import com.qstory.backend.discord.service.DiscordMention;
 import com.qstory.backend.discord.service.DiscordMessages;
@@ -31,16 +32,18 @@ public class DiscordAdminController {
     private final AdminTokenGuard adminTokenGuard;
     private final DiscordNotifier notifier;
     private final DiscordReportService reports;
+    private final DiscordProperties discordProperties;
 
-    public DiscordAdminController(
-            AdminTokenGuard adminTokenGuard, DiscordNotifier notifier, DiscordReportService reports) {
+    public DiscordAdminController(AdminTokenGuard adminTokenGuard, DiscordNotifier notifier,
+            DiscordReportService reports, DiscordProperties discordProperties) {
         this.adminTokenGuard = adminTokenGuard;
         this.notifier = notifier;
         this.reports = reports;
+        this.discordProperties = discordProperties;
     }
 
     @Operation(summary = "Send a connection test message to each Discord channel",
-            description = "#지표 @운영, #배포 @개발, #소식 @운영 @개발. Returns sent=true/false per channel "
+            description = "#지표 @운영, #배포 @개발, #소식 @운영 @개발, #경보 @개발(웹훅을 따로 둔 경우만). Returns sent=true/false per channel "
                     + "(false = webhook missing, kill switch off, or Discord refused).")
     @PostMapping("/v1/admin/discord/test")
     public Map<String, Object> test(HttpServletRequest request) {
@@ -52,6 +55,11 @@ public class DiscordAdminController {
                 List.of(DiscordMention.DEV)));
         body.put("news", notifier.sendNow(DiscordChannel.NEWS, DiscordMessages.connectionTest("#소식"),
                 List.of(DiscordMention.OPS, DiscordMention.DEV)));
+        // #경보 웹훅이 없으면 #소식으로 가므로, 같은 채널에 두 번 보내지 않게 따로 둔 경우만 시험한다.
+        if (DiscordProperties.notBlank(discordProperties.webhookAlerts())) {
+            body.put("alerts", notifier.sendNow(DiscordChannel.ALERTS, DiscordMessages.connectionTest("#경보"),
+                    List.of(DiscordMention.DEV)));
+        }
         return body;
     }
 

@@ -89,6 +89,7 @@ public class DiscordNotifier {
             case METRICS -> properties.webhookMetrics();
             case DEPLOY -> properties.webhookDeploy();
             case NEWS -> properties.webhookNews();
+            case ALERTS -> properties.alertsWebhook();
         };
     }
 
