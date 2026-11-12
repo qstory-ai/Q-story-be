@@ -1,12 +1,27 @@
 # 알림 말고 한눈에 보는 화면. 알림 규칙과 같은 로그 태그·같은 폴더를 쓴다. 유입 → 전환은 dashboards_growth.tf.
 #
 #   백엔드 상태   - 운영 개요. Loki 로그로 요청량·5xx 비율·응답 시간·외부 AI/음성 실패·TTS 사용량·브라우저 에러·
-#                   heartbeat·요청 상한 차단, 운영 DB로 오늘 이용(Postgres 연결이 있을 때)
+#                   heartbeat·요청 상한 차단·주요 API 상태, 운영 DB로 오늘 이용(Postgres 연결이 있을 때)
 #   대화 품질     - 운영 DB의 grafana 스키마 뷰로 그레텔 대화(Q-31)와 이야기 진행 지표. Postgres 연결이 있을 때만.
 
 locals {
   loki   = { type = "loki", uid = var.loki_datasource_uid }
   logsel = "{app=\"qstory-backend\", env=\"${var.app_env}\"}"
+
+  # 이용자 흐름에 꼭 필요한 API만 따로 본다: 로그인 → 이야기 목록·내용 → 재생 기록 → 그레텔 대화·음성 → 완주.
+  # 정규식에 안 걸린 요청 줄은 route가 비므로 route != ""로 거른다.
+  main_api_routes = join("|", [
+    "companion-chat/[^ ]+",
+    "narrations/stream",
+    "stories",
+    "stories/[{]storyId[}]/content",
+    "auth/login",
+    "auth/me",
+    "play-sessions/[{]sessionId[}]/turns",
+    "story-completions",
+    "interactions",
+  ])
+  main_api_sel = "${local.logsel} |= \"http.request\" | regexp `route=(?P<route>/v1/(${local.main_api_routes})) status=(?P<status>[0-9]+) duration_ms=(?P<d>[0-9]+)` | route != \"\""
 
   # 시계열 패널 하나. targets는 [{expr, legend}].
   loki_timeseries = { for key, panel in {
@@ -242,6 +257,71 @@ locals {
             queryType    = "range"
           },
         ]
+      },
+      {
+        id          = 27
+        type        = "table"
+        title       = "주요 API 상태 (선택한 기간)"
+        description = "이용자 흐름에 꼭 필요한 API만 모았다(main_api_routes). 실패 = 5xx(서버 잘못), 4xx는 대개 입력·권한 문제라 따로 센다. 호출이 0인 API는 줄이 없다. 그레텔 대화·음성은 외부 AI를 거쳐 p95가 수 초다."
+        datasource  = local.loki
+        gridPos     = { x = 0, y = 52, w = 14, h = 10 }
+        fieldConfig = {
+          defaults = { noValue = "0" }
+          overrides = [
+            {
+              matcher = { id = "byName", options = "실패(5xx)" }
+              properties = [
+                { id = "custom.cellOptions", value = { type = "color-background" } },
+                { id = "thresholds", value = { mode = "absolute", steps = [{ color = "green", value = null }, { color = "red", value = 1 }] } },
+              ]
+            },
+            { matcher = { id = "byName", options = "p95" }, properties = [{ id = "unit", value = "ms" }] },
+          ]
+        }
+        options = { showHeader = true, sortBy = [{ displayName = "호출", desc = true }] }
+        targets = [for t in [
+          { ref = "A", expr = "sum by (route) (count_over_time(${local.main_api_sel} [$__range]))" },
+          { ref = "B", expr = "sum by (route) (count_over_time(${local.main_api_sel} | status=~\"5..\" [$__range]))" },
+          { ref = "C", expr = "sum by (route) (count_over_time(${local.main_api_sel} | status=~\"4..\" [$__range]))" },
+          { ref = "D", expr = "max by (route) (quantile_over_time(0.95, ${local.main_api_sel} | unwrap d [$__range]))" },
+          ] : {
+          refId      = t.ref
+          datasource = local.loki
+          expr       = t.expr
+          queryType  = "instant"
+          format     = "table"
+        }]
+        transformations = [
+          { id = "merge", options = {} },
+          {
+            id = "organize"
+            options = {
+              excludeByName = { Time = true }
+              renameByName  = { route = "API", "Value #A" = "호출", "Value #B" = "실패(5xx)", "Value #C" = "4xx", "Value #D" = "p95" }
+              indexByName   = { route = 0, "Value #A" = 1, "Value #B" = 2, "Value #C" = 3, "Value #D" = 4 }
+            }
+          },
+        ]
+      },
+      {
+        id          = 28
+        type        = "timeseries"
+        title       = "주요 API 5xx (API별, 5분)"
+        description = "주요 API 상태 표와 같은 API. 막대가 없으면 실패가 없었던 것."
+        datasource  = local.loki
+        gridPos     = { x = 14, y = 52, w = 10, h = 10 }
+        fieldConfig = {
+          defaults  = { unit = "short", min = 0, noValue = "0", custom = { fillOpacity = 60, lineWidth = 1, drawStyle = "bars" } }
+          overrides = []
+        }
+        options = { legend = { displayMode = "list", placement = "bottom" } }
+        targets = [{
+          refId        = "A"
+          datasource   = local.loki
+          expr         = "sum by (route) (count_over_time(${local.main_api_sel} | status=~\"5..\" [5m]))"
+          legendFormat = "{{route}}"
+          queryType    = "range"
+        }]
       },
     ],
     # 운영 DB 연결이 있을 때만 - 오늘(한국 시간) 실제 이용자(BETA) 활동.
