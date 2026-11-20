@@ -87,21 +87,12 @@ public class ReportAnalysisStore {
     }
 
     /**
-     * 질문 분류와 개인화 문장(report-v4). 분류 근거(reason)는 검수·연구용이라 화면으로 보내지 않는다.
+     * 질문 분류와 개인화 문장(report-v4). 분류 근거(reason)도 그대로 보낸다 - 검수·연구 화면에서 왜 그 수준으로
+     * 나눴는지 볼 수 있게. 부모 화면에 띄울지는 프런트가 정한다.
      * 옛 분석에는 이 칸이 없어 빈 목록과 null로 채운다. 데모 리포트(DemoReportAnalysisStore)도 같은 모양을 쓴다.
      */
-    @SuppressWarnings("unchecked")
     static void putPersonal(Map<String, Object> analysis, Map<String, Object> parsed) {
-        List<Map<String, Object>> questions = new java.util.ArrayList<>();
-        if (parsed.get("questions") instanceof List<?> list) {
-            for (Object item : list) {
-                if (!(item instanceof Map<?, ?> q)) continue;
-                Map<String, Object> shown = new LinkedHashMap<>((Map<String, Object>) q);
-                shown.remove("reason");
-                questions.add(shown);
-            }
-        }
-        analysis.put("questions", questions);
+        analysis.put("questions", parsed.get("questions") instanceof List<?> list ? list : List.of());
         analysis.put("questionSummary", parsed.get("questionSummary"));
         analysis.put("personal", parsed.get("personal"));
     }
