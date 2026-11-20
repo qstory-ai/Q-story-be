@@ -48,6 +48,9 @@ public class DemoReportAnalysisService {
         none.put("observations", List.of());
         none.put("cards", List.of());
         none.put("commonScenes", List.of());
+        none.put("questions", List.of());
+        none.put("questionSummary", null);
+        none.put("personal", null);
         return none;
     }
 
