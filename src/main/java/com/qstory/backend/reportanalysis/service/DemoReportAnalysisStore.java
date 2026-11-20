@@ -101,6 +101,7 @@ public class DemoReportAnalysisStore {
                     analysis.put("observations", parsed.getOrDefault("observations", List.of()));
                     analysis.put("cards", parsed.getOrDefault("cards", List.of()));
                     analysis.put("commonScenes", parsed.getOrDefault("commonScenes", List.of()));
+                    ReportAnalysisStore.putPersonal(analysis, parsed);
                     return analysis;
                 },
                 sessionId);
