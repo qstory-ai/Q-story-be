@@ -3,6 +3,10 @@
 {$SITE_ADDRESS} {
 	encode gzip
 	reverse_proxy app:8080 {
+		# 무중단 배포 중에는 app:8080이 컨테이너 2개로 풀린다. 내려가는 쪽에 연결이 안 되면
+		# 바로 502를 주지 않고 10초 안에서 다시 시도한다(다시 연결할 때 살아 있는 쪽으로 간다).
+		lb_try_duration 10s
+		lb_try_interval 250ms
 		# prod 프로필은 rate limit 주소로 X-Real-IP를 읽는다. Railway 에지처럼 매 요청 실제 접속 주소로 덮어쓴다.
 		header_up X-Real-IP {remote_host}
 	}
