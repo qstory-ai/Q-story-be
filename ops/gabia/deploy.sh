@@ -12,7 +12,9 @@ git -C src fetch -q --depth 1 origin "$GIT_REF"
 git -C src checkout -q -B deploy FETCH_HEAD
 echo "deploying $(git -C src rev-parse --short HEAD) ($GIT_REF)"
 docker compose build app
-docker compose up -d
+# app 은 무중단 교체(새 것을 띄워 healthy 확인 후 옛 것을 내림), caddy 는 없을 때만 띄운다.
+./docker-rollout rollout -t 300 app
+docker compose up -d --no-recreate caddy
 mkdir -p .autodeploy
 git -C src rev-parse HEAD > .autodeploy/deployed
 docker image prune -f >/dev/null

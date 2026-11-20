@@ -7,9 +7,11 @@
 #   2. 다르면 그 커밋의 ci 워크플로 test 결과를 GitHub 공개 API로 본다.
 #      성공이면 배포. 실패면 배포하지 않고 알린다. 진행 중이면 다음 회차에 다시 본다.
 #      20분이 지나도 결과가 없으면 그냥 배포한다.
-#   3. 배포 = 이미지 빌드 → app 재시작 → /health/ready 확인(최대 5분).
+#   3. 배포 = 이미지 빌드 → 무중단 교체(docker-rollout) → /health/ready 확인.
 #      빌드가 실패하면 기존 컨테이너가 그대로 돈다.
-#      새 컨테이너가 준비되지 않으면 직전 이미지(qstory-be:prev)로 되돌린다.
+#      교체는 새 app 컨테이너를 옛 것 옆에 하나 더 띄우고, healthy(/health/ready)가 되면 옛 것을 내린다.
+#      그동안 Caddy가 app:8080을 둘 다로 보고 살아 있는 쪽에 넘기므로 502가 나지 않는다.
+#      새 컨테이너가 5분 안에 healthy가 안 되면 새 것만 지우고 옛 컨테이너는 계속 돈다.
 #   4. 결과를 디스코드 #배포 채널로 보낸다(notify.env). 성공은 알림음 없이, 실패는 @개발 멘션.
 #
 # notify.env (선택, 깃에 올리지 않음)
@@ -19,7 +21,8 @@
 #   NOTIFY_SUCCESS          0이면 실패만 알린다(개발 서버)
 #
 # 설치 (서버 /opt/qstory 기준)
-#   install -m 755 deploy.sh autodeploy.sh /opt/qstory/
+#   install -m 755 deploy.sh autodeploy.sh docker-rollout /opt/qstory/
+#   install -m 644 Caddyfile docker-compose.yml /opt/qstory/ && docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
 #   sudo install -m 644 qstory-autodeploy.service qstory-autodeploy.timer /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now qstory-autodeploy.timer
 # 운영
@@ -28,8 +31,9 @@
 #   cat /opt/qstory/.autodeploy/last.log              마지막 배포 로그
 #   sudo systemctl stop qstory-autodeploy.timer       자동 배포 멈춤 (다시: start)
 #   rm /opt/qstory/.autodeploy/held-<sha>             보류된 커밋 다시 시도
-#   docker image tag qstory-be:prev qstory-be:local && docker compose up -d app   직전 이미지로 되돌리기
-# Railway와 달리 app 컨테이너를 바꿔 끼우는 30초~1분 동안 502가 난다.
+#   docker image tag qstory-be:prev qstory-be:local && ./docker-rollout rollout -t 300 app   직전 이미지로 되돌리기(무중단)
+# docker-rollout(ops/gabia/docker-rollout)은 github.com/wowu/docker-rollout v0.14 를 그대로 넣은 것이다(MIT).
+# 교체하는 1~2분 동안 app 이 2개 떠 있다. 메모리가 두 JVM 분 필요하고, @Scheduled 작업이 그사이 두 번 돌 수 있다.
 set -uo pipefail
 cd /opt/qstory
 exec 9>/opt/qstory/.deploy.lock
@@ -132,20 +136,26 @@ if ! docker compose build app; then
   notify fail "[배포] $LABEL **실패** · $ref $title · 이미지 빌드 실패, 기존 서버 그대로 · 서버 $LOG"
   exit 1
 fi
-docker compose up -d app
-if ready; then
+if ./docker-rollout rollout -t "$READY_WAIT_MAX" app; then
+  if ready; then
+    echo "$remote" > "$STATE/deployed"
+    rm -f "$STATE"/seen-* "$STATE"/held-*
+    docker image prune -f >/dev/null
+    notify ok "[배포] $LABEL 성공 · $ref $title$note · <https://$SITE_ADDRESS>"
+    exit 0
+  fi
+  # 새 컨테이너는 healthy 인데 Caddy 쪽에서 닿지 않는 경우. 되돌릴 옛 컨테이너가 이미 없다.
+  # 배포는 된 것으로 적어 둬야 2분마다 같은 커밋을 다시 배포하지 않는다.
   echo "$remote" > "$STATE/deployed"
-  rm -f "$STATE"/seen-* "$STATE"/held-*
-  docker image prune -f >/dev/null
-  notify ok "[배포] $LABEL 성공 · $ref $title$note · <https://$SITE_ADDRESS>"
-  exit 0
+  notify fail "[배포] $LABEL **확인 필요** · $ref $title · 새 버전으로 바꿨지만 Caddy 너머 /health/ready 응답 없음 · 서버 $LOG"
+  exit 1
 fi
 
-echo "새 컨테이너가 ${READY_WAIT_MAX}초 안에 준비되지 않아 직전 이미지로 되돌린다"
-docker compose logs --no-color --tail 80 app || true
+# rollout 이 실패하면 새 컨테이너만 지워지고 옛 컨테이너가 그대로 돈다. 이미지 이름만 직전 것으로 돌려 둔다
+# (안 돌리면 서버 재부팅 때 실패한 이미지로 뜬다).
+echo "새 컨테이너가 ${READY_WAIT_MAX}초 안에 준비되지 않아 옛 컨테이너를 그대로 둔다"
 touch "$STATE/held-$remote"
 docker image tag qstory-be:prev qstory-be:local
-docker compose up -d app
-if ready; then back='직전 버전으로 되돌림'; else back='되돌린 버전도 응답 없음, 바로 확인 필요'; fi
+if ready; then back='기존 버전이 계속 응답 중'; else back='기존 버전도 응답 없음, 바로 확인 필요'; fi
 notify fail "[배포] $LABEL **실패** · $ref $title · 헬스체크 실패, $back · 서버 $LOG"
 exit 1

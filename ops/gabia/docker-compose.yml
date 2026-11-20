@@ -10,8 +10,21 @@ services:
     environment:
       JAVA_OPTS: ${JAVA_OPTS:-}
     restart: unless-stopped
+    # 무중단 배포(docker-rollout)는 app을 잠깐 2개로 늘렸다 줄인다. 그래서 app에는 container_name과
+    # ports를 두지 않는다(이름·포트가 고정되면 2개를 띄울 수 없다). 바깥 요청은 Caddy가 app:8080으로 넘긴다.
     expose:
       - "8080"
+    # 새 컨테이너가 DB까지 붙어야 healthy가 되고, rollout은 healthy를 확인한 뒤에야 옛 컨테이너를 내린다.
+    # Dockerfile의 HEALTHCHECK(/health, 30초 간격)는 프로세스만 보고 느려서 여기서 덮어쓴다.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null -T 3 http://127.0.0.1:8080/health/ready || exit 1"]
+      interval: 5s
+      timeout: 4s
+      retries: 3
+      start_period: 180s
+    # 옛 컨테이너를 내릴 때 하던 요청을 마저 끝낼 시간. Spring Boot 기본 graceful shutdown은 30초까지 기다린다.
+    # docker 기본(10초)이면 그 전에 강제 종료된다.
+    stop_grace_period: 40s
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
