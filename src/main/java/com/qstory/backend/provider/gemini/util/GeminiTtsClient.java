@@ -21,6 +21,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -31,8 +32,11 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 /**
- * Gemini TTS를 직접 호출하는 클라이언트. google/gemini-*-tts-preview 모델과 Sulafat 등 프리셋 목소리는
+ * Gemini TTS를 직접 호출하는 클라이언트. Gemini TTS 모델과 Sulafat 등 프리셋 목소리는
  * Gemini 자체 API 전용이라 OpenRouter를 거치지 않는다.
+ *
+ * <p>모델은 인스턴스마다 정한다. 기본 인스턴스(실시간 답 음성)는 qstory.providers.gemini.tts-model을,
+ * 나레이션 인스턴스(선택지 미리 만들기·관리자 다시 만들기, GeminiTtsConfig)는 narration-tts-model을 쓴다.
  *
  * <p>synthesize()(전체를 한 번에)는 Interactions API를 쓴다. synthesizeStream()은 스트리밍이 켜져 있으면
  * (qstory.voice-streaming.tts) models/{model}:streamGenerateContent?alt=sse로 소리를 만들어지는 대로 내보낸다 -
@@ -86,10 +90,17 @@ public class GeminiTtsClient {
     public GeminiTtsClient(
             HttpClient httpClient, ObjectMapper objectMapper, AppProperties config, String apiKey, boolean streaming,
             Double loudnessTargetLufs) {
+        this(httpClient, objectMapper, config, config.providers().gemini().ttsModel(), apiKey, streaming, loudnessTargetLufs);
+    }
+
+    /** @param ttsModel 이 인스턴스가 부를 모델 - 나레이션 인스턴스는 narration-tts-model을 넘긴다. */
+    public GeminiTtsClient(
+            HttpClient httpClient, ObjectMapper objectMapper, AppProperties config, String ttsModel, String apiKey,
+            boolean streaming, Double loudnessTargetLufs) {
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
         this.apiKey = apiKey;
-        this.ttsModel = config.providers().gemini().ttsModel();
+        this.ttsModel = ttsModel;
         this.ttsVoice = config.providers().gemini().ttsVoice();
         this.streaming = streaming;
         this.loudnessTargetLufs = loudnessTargetLufs;
@@ -238,8 +249,11 @@ public class GeminiTtsClient {
 
     /**
      * 응답 JSON에서 raw PCM(base64)을 뽑는다 - 실제 응답 구조는
-     * {"steps":[{"content":[{"data":"<base64 pcm>"}]}]} 다.
+     * {"steps":[{"type":"model_output","content":[{"type":"audio","mime_type":"audio/l16; rate=24000; channels=1","data":"<base64>"}]}]} 다.
      * steps/content 둘 다 배열이라 첫 번째 항목만 보지 않고 data가 채워진 첫 항목을 찾는다.
+     *
+     * <p>3.8 모델은 형식을 정하지 않으면 WAV(RIFF 헤더 포함)를 준다. 요청에 audio/l16을 넣어 raw PCM을 받고,
+     * 그래도 WAV가 오면 헤더를 벗긴다. 헤더를 소리로 이어 붙이면 앞에 잡음이 끼고 길이 계산이 틀어진다.
      */
     private byte[] decodeAudioData(byte[] responseBody) throws Exception {
         JsonNode payload = objectMapper.readTree(responseBody);
@@ -247,18 +261,54 @@ public class GeminiTtsClient {
             for (JsonNode content : step.path("content")) {
                 String base64 = content.path("data").asText(null);
                 if (base64 != null && !base64.isBlank()) {
-                    return Base64.getDecoder().decode(base64);
+                    return stripWavHeader(Base64.getDecoder().decode(base64));
                 }
             }
         }
         return new byte[0];
     }
 
+    /** RIFF/WAVE면 data 청크의 PCM만 돌려준다. 아니면 그대로 둔다(이미 raw PCM). */
+    static byte[] stripWavHeader(byte[] audio) {
+        if (audio.length < 12 || !hasTag(audio, 0, "RIFF") || !hasTag(audio, 8, "WAVE")) {
+            return audio;
+        }
+        int offset = 12;
+        while (offset + 8 <= audio.length) {
+            long size = (audio[offset + 4] & 0xffL) | (audio[offset + 5] & 0xffL) << 8
+                    | (audio[offset + 6] & 0xffL) << 16 | (audio[offset + 7] & 0xffL) << 24;
+            int start = offset + 8;
+            if (hasTag(audio, offset, "data")) {
+                // 스트리밍으로 만든 WAV는 크기 칸이 0이나 0xFFFFFFFF일 수 있다. 그러면 끝까지 읽는다.
+                int end = size == 0 || start + size > audio.length ? audio.length : (int) (start + size);
+                return Arrays.copyOfRange(audio, start, end);
+            }
+            if (start + size > audio.length) {
+                break;
+            }
+            offset = (int) (start + size + (size & 1));
+        }
+        return audio;
+    }
+
+    private static boolean hasTag(byte[] bytes, int offset, String tag) {
+        for (int i = 0; i < tag.length(); i++) {
+            if (bytes[offset + i] != tag.charAt(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private HttpRequest buildSpeechHttpRequest(String text, String voice, RequestDeadline deadline) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", ttsModel);
         body.put("input", text);
-        body.putObject("response_format").put("type", "audio");
+        // 형식을 비우면 3.8 모델은 WAV를 준다. synthesize()가 직접 WAV로 감싸고 음량도 맞추므로 raw PCM을 받는다.
+        body.putObject("response_format")
+                .put("type", "audio")
+                .put("mime_type", "audio/l16")
+                .put("sample_rate", PCM_SAMPLE_RATE);
         ObjectNode generationConfig = body.putObject("generation_config");
         generationConfig.putArray("speech_config").addObject().put("voice", voice == null ? ttsVoice : voice);
         return deadline.applyTo(HttpRequest.newBuilder(URI.create(BASE_URL))
