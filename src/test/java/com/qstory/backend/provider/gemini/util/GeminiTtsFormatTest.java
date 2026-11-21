@@ -23,7 +23,7 @@ import java.util.concurrent.Flow;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-/** 3.8 TTS 모델 이전(2026-11-21): 요청에 raw PCM 형식을 지정하고, WAV가 오면 헤더를 벗긴다. 모델은 인스턴스마다 정한다. */
+/** 3.8 TTS 모델 이전(2026-11-21): 3.8이 주는 WAV는 헤더를 벗기고 3.1이 주는 raw PCM은 그대로 둔다. 모델은 인스턴스마다 정한다. */
 class GeminiTtsFormatTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -55,9 +55,9 @@ class GeminiTtsFormatTest {
     }
 
     @Test
-    void synthesizeAsksForRawPcmWithTheInstanceModel() throws Exception {
+    void synthesizeStripsWavAndUsesTheInstanceModel() throws Exception {
         byte[] pcm = {10, 20, 30, 40};
-        // 형식 지정이 무시돼 WAV가 와도 소리 앞에 헤더가 끼지 않아야 한다.
+        // 3.8은 WAV를 준다. 다시 감쌀 때 원래 헤더가 소리 앞에 끼지 않아야 한다.
         String body = "{\"steps\":[{\"type\":\"model_output\",\"content\":[{\"type\":\"audio\",\"mime_type\":\"audio/wav\",\"data\":\""
                 + Base64.getEncoder().encodeToString(WavPcmUtil.wrapPcmAsWav(pcm, 24_000, 1, 16)) + "\"}]}]}";
         ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
@@ -70,8 +70,8 @@ class GeminiTtsFormatTest {
         assertThat(audio.audio()).containsExactly(WavPcmUtil.wrapPcmAsWav(pcm, 24_000, 1, 16));
         JsonNode sent = objectMapper.readTree(requestBody(captor.getValue()));
         assertThat(sent.path("model").asText()).isEqualTo("gemini-3.8-flash-tts");
-        assertThat(sent.path("response_format").path("mime_type").asText()).isEqualTo("audio/l16");
-        assertThat(sent.path("response_format").path("sample_rate").asInt()).isEqualTo(24_000);
+        // 3.1 preview는 mime_type audio/l16을 400으로 거절한다. 되돌려도 깨지지 않게 보내지 않는다.
+        assertThat(sent.path("response_format").has("mime_type")).isFalse();
         assertThat(sent.path("generation_config").path("speech_config").get(0).path("voice").asText()).isEqualTo("Sulafat");
     }
 

@@ -252,8 +252,8 @@ public class GeminiTtsClient {
      * {"steps":[{"type":"model_output","content":[{"type":"audio","mime_type":"audio/l16; rate=24000; channels=1","data":"<base64>"}]}]} 다.
      * steps/content 둘 다 배열이라 첫 번째 항목만 보지 않고 data가 채워진 첫 항목을 찾는다.
      *
-     * <p>3.8 모델은 형식을 정하지 않으면 WAV(RIFF 헤더 포함)를 준다. 요청에 audio/l16을 넣어 raw PCM을 받고,
-     * 그래도 WAV가 오면 헤더를 벗긴다. 헤더를 소리로 이어 붙이면 앞에 잡음이 끼고 길이 계산이 틀어진다.
+     * <p>3.8 모델은 WAV(RIFF 헤더 포함)를 주고 3.1 preview는 raw PCM을 준다. WAV면 헤더를 벗긴다.
+     * 헤더를 소리로 이어 붙이면 앞에 잡음이 끼고 길이 계산이 틀어진다.
      */
     private byte[] decodeAudioData(byte[] responseBody) throws Exception {
         JsonNode payload = objectMapper.readTree(responseBody);
@@ -304,11 +304,9 @@ public class GeminiTtsClient {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", ttsModel);
         body.put("input", text);
-        // 형식을 비우면 3.8 모델은 WAV를 준다. synthesize()가 직접 WAV로 감싸고 음량도 맞추므로 raw PCM을 받는다.
-        body.putObject("response_format")
-                .put("type", "audio")
-                .put("mime_type", "audio/l16")
-                .put("sample_rate", PCM_SAMPLE_RATE);
+        // mime_type은 넣지 않는다. 3.1 preview는 audio/l16을 400으로 거절한다(2026-11-21 실측).
+        // 그래서 env로 3.1에 되돌려도 깨지지 않게, 3.8이 주는 WAV는 decodeAudioData()에서 헤더를 벗긴다.
+        body.putObject("response_format").put("type", "audio");
         ObjectNode generationConfig = body.putObject("generation_config");
         generationConfig.putArray("speech_config").addObject().put("voice", voice == null ? ttsVoice : voice);
         return deadline.applyTo(HttpRequest.newBuilder(URI.create(BASE_URL))
