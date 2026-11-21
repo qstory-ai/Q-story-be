@@ -120,9 +120,9 @@ public record AppProperties(
         }
     }
 
-    /** TTS 전용 - OpenRouter 카탈로그에 없는 Gemini 자체 모델/목소리를 쓰므로 Gemini API를 직접 호출한다. */
     /**
-     * ttsModel은 실시간 답 음성(빠른 모델), narrationTtsModel은 선택지 미리 만들기·관리자 다시 만들기(음질 모델).
+     * TTS 전용 - OpenRouter 카탈로그에 없는 Gemini 자체 모델/목소리를 쓰므로 Gemini API를 직접 호출한다.
+     * ttsModel은 실시간 답 음성, narrationTtsModel은 선택지 미리 만들기·관리자 다시 만들기. 따로 바꿀 수 있게 나눠 두었다.
      * narrationTtsModel이 비면 ttsModel을 같이 쓴다.
      */
     public record Gemini(String apiKey, String ttsModel, String narrationTtsModel, String ttsVoice, String prefetchApiKey) {
