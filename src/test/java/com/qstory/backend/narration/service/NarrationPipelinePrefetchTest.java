@@ -35,7 +35,7 @@ class NarrationPipelinePrefetchTest {
 
     private NarrationPipelineService pipeline(String prefetchKey) {
         AppProperties config = mock(AppProperties.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
-        when(config.providers().gemini()).thenReturn(new AppProperties.Gemini("main-key", "model", "voice", prefetchKey));
+        when(config.providers().gemini()).thenReturn(new AppProperties.Gemini("main-key", "model", "narration-model", "voice", prefetchKey));
         when(voiceCast.buildGeminiTtsPerformanceInput(anyString(), anyString(), anyString())).thenReturn("input");
         when(cast.voice()).thenReturn("Sulafat");
         return new NarrationPipelineService(config, mainClient, prefetchClient, voiceCast);
