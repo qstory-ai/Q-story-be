@@ -24,14 +24,11 @@ import com.qstory.backend.story.repository.StoryPersonaRepository;
 import com.qstory.backend.story.AssetCategory;
 import com.qstory.backend.story.entity.StoryAsset;
 import com.qstory.backend.story.entity.RoutePrompt;
-import com.qstory.backend.story.entity.RoutePromptStage;
 import com.qstory.backend.story.entity.StoryVisualReferencePack;
 import com.qstory.backend.story.repository.RoutePromptRepository;
-import com.qstory.backend.story.repository.RoutePromptStageRepository;
 import com.qstory.backend.story.repository.StoryVisualReferencePackRepository;
 import com.qstory.backend.story.RevisionOperation;
 import com.qstory.backend.story.RevisionTarget;
-import com.qstory.backend.story.RoutePromptStageKind;
 import com.qstory.backend.story.VisualReferenceKind;
 import com.qstory.backend.story.service.RoutePromptService;
 import com.qstory.backend.story.repository.StoryAssetRepository;
@@ -81,7 +78,6 @@ public class StoryImportService {
     private final StoryCastRepository castRepository;
     private final StoryAssetRepository assetRepository;
     private final RoutePromptRepository routePromptRepository;
-    private final RoutePromptStageRepository routePromptStageRepository;
     private final StoryVisualReferencePackRepository visualReferencePackRepository;
     private final RoutePromptService routePromptService;
     private final StoryRevisionService revisionService;
@@ -98,7 +94,7 @@ public class StoryImportService {
             ObjectMapper objectMapper, StoryRepository storyRepository,
             StoryAnchorRepository anchorRepository, StoryActionFamilyRepository familyRepository,
             StoryCastRepository castRepository, StoryAssetRepository assetRepository,
-            RoutePromptRepository routePromptRepository, RoutePromptStageRepository routePromptStageRepository,
+            RoutePromptRepository routePromptRepository,
             StoryVisualReferencePackRepository visualReferencePackRepository, RoutePromptService routePromptService,
             StoryRevisionService revisionService,
             StorySceneRepository sceneRepository, StorySegmentRepository segmentRepository,
@@ -114,7 +110,6 @@ public class StoryImportService {
         this.castRepository = castRepository;
         this.assetRepository = assetRepository;
         this.routePromptRepository = routePromptRepository;
-        this.routePromptStageRepository = routePromptStageRepository;
         this.visualReferencePackRepository = visualReferencePackRepository;
         this.routePromptService = routePromptService;
         this.revisionService = revisionService;
@@ -407,7 +402,12 @@ public class StoryImportService {
         return assets.size();
     }
 
-    /** 스토리 단위가 아니라 버전 단위로 upsert된다: 여러 스토리가 동일한 정책을 참조할 수 있기 때문이다. */
+    /**
+     * 스토리 단위가 아니라 버전 단위로 upsert된다: 여러 스토리가 동일한 정책을 참조할 수 있기 때문이다.
+     *
+     * <p>system/instruction 텍스트는 런타임이 읽지 않지만 route_prompt의 NOT NULL 칸이라 그대로 저장한다.
+     * 옛 질문 라우팅의 단계별 프롬프트(prompt.stages)는 이제 아무도 읽지 않아 페이로드에 있어도 무시한다.
+     */
     private void importRoutePrompt(JsonNode prompt) {
         if (!prompt.isObject()) {
             throw ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요.");
@@ -418,51 +418,9 @@ public class StoryImportService {
         row.setSystemText(joinLines(prompt.path("system")));
         row.setInstructionText(joinLines(prompt.path("instruction")));
         routePromptRepository.save(row);
-        importRoutePromptStages(version, prompt.path("stages"));
         // 기존 버전을 다시 임포트하는 것이 정책을 그 자리에서 수정하는 방법이다 - 이 호출이 없으면
-        // 재시작 전까지는 버전별 캐시에서 계속 이전 텍스트가 서빙된다(단일 호출용/3단계 캐시 모두).
+        // 재시작 전까지는 버전별 캐시에서 계속 이전 텍스트가 서빙된다.
         routePromptService.invalidate(version);
-    }
-
-    /**
-     * 라우팅 프롬프트 YAML의 단계별(safety/classifier/generator) 프롬프트. 옛 질문 라우팅이 쓰던 것이고 지금은
-     * 저장만 한다. 콘텐츠 빌드 파이프라인이 아직 packageData.prompt.stages를 만들어 보내지 않을 수
-     * 있으므로 그 필드가 없으면 조용히 건너뛰고, 이미
-     * 시드 마이그레이션이 채워 둔 route_prompt_stage 행을 그대로 둔다. 기대하는 모양:
-     * {@code prompt.stages.{safety,classifier,generator} = {system: string[], examples: [{input, output}]}}.
-     */
-    private void importRoutePromptStages(String version, JsonNode stages) {
-        if (!stages.isObject()) {
-            return;
-        }
-        upsertStage(version, RoutePromptStageKind.SAFETY, stages.path("safety"));
-        upsertStage(version, RoutePromptStageKind.CLASSIFIER, stages.path("classifier"));
-        upsertStage(version, RoutePromptStageKind.GENERATOR, stages.path("generator"));
-    }
-
-    private void upsertStage(String version, RoutePromptStageKind stage, JsonNode stageNode) {
-        if (!stageNode.isObject()) {
-            throw ApiException.contractError(ErrorCode.INVALID_PAYLOAD, "요청 형식이 올바르지 않아요.");
-        }
-        RoutePromptStage row = routePromptStageRepository.findByRoutePromptVersionAndStage(version, stage)
-                .orElseGet(() -> RoutePromptStage.builder().routePromptVersion(version).stage(stage).build());
-        row.setSystemText(joinLines(stageNode.path("system")));
-        row.setExamples(toExampleMaps(stageNode.path("examples")));
-        routePromptStageRepository.save(row);
-    }
-
-    private List<Map<String, Object>> toExampleMaps(JsonNode arrayNode) {
-        if (!arrayNode.isArray()) {
-            return List.of();
-        }
-        List<Map<String, Object>> examples = new ArrayList<>();
-        for (JsonNode example : arrayNode) {
-            Map<String, Object> map = new LinkedHashMap<>();
-            map.put("input", toMap(example.path("input")));
-            map.put("output", toMap(example.path("output")));
-            examples.add(map);
-        }
-        return examples;
     }
 
     /**

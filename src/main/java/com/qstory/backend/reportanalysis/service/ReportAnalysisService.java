@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -27,12 +29,20 @@ import org.springframework.stereotype.Service;
  * 아이 말이 없거나 반 수업이면 개인 분석은 하지 않고, 읽은 질문 장면마다 "이 장면으로 나눌 수 있는 이야기"만 만든다.
  * 그림·아이 말·그레텔 답·실행 결과는 리포트가 저장값을 그대로 쓰므로 여기서 다시 만들지 않는다.
  *
+ * <p>가정 회차는 두 단계가 더 붙는다(노션 "[초안 v1] 부모 보고서 개편 · 개인화").
+ * (4) 아이 말마다 질문 여부·수준(Glaubman 1~4)·종류를 LLM이 한 번에 분류하고 코드가 회차 숫자로 센다(QuestionStats).
+ * (5) 같은 아이의 지난 회차 숫자(history)와 오늘 질문을 주고 "오늘 한 줄·지난번과 달라진 점·관심이 머문 곳·오늘 밤 이어갈
+ * 질문"을 쓴다. 숫자 비교는 코드가 넘긴 값만 쓰고, 지난 회차가 없으면 비교 문장은 코드가 지운다.
+ * (4)(5)가 실패해도 (1)~(3) 결과는 그대로 저장한다. 개인화 칸만 빈다.
+ *
  * <p>프롬프트는 scratchpad 시제품(세 번 돌려 고친 것)을 옮긴 것이다 - 바꾸면 PROMPT_VERSION을 올린다.
  */
 @Service
 public class ReportAnalysisService {
 
-    public static final String PROMPT_VERSION = "q39-report-v3";
+    private static final Logger log = LoggerFactory.getLogger(ReportAnalysisService.class);
+
+    public static final String PROMPT_VERSION = "report-v4-personal";
 
     static final Pattern TRAIT_WORDS = Pattern.compile(
             "성향|성격|기질|발달|능력|잘하는|뛰어난|타고난|좋아하는 아이|점수|향상|천재|똑똑|적극성|적극적|지혜로운|창의적|공감 능력|사고력|큰 호기심|친근감을 느끼|보여줘요|모습이 드러나");
@@ -84,6 +94,46 @@ public class ReportAnalysisService {
             '노파'라는 말은 쓰지 않는다. 과자집 주인은 정체가 드러나기 전 장면이면 '할머니', 드러난 뒤 장면이면 '마녀'라고 쓴다.
             actualPaths에 그 장면에서 실제로 진행된 행동이 있으면 그 길을 기준으로 쓴다(기본 줄거리가 아니라). 한국어로만.""";
 
+    private static final String CLASSIFY_SYSTEM = """
+            너는 아동 질문 연구의 코더다. 동화를 읽으며 아이가 한 말 하나하나를 분류한다.
+            targetTurnIds의 발화마다 결과를 하나씩 낸다. 다른 발화(캐릭터 말, 시스템 기록)는 앞뒤 맥락으로만 본다.
+            kind:
+            - QUESTION: 모르는 것을 알려고 묻는 말. 이야기 속 인물이나 상황, 낱말 뜻을 묻는 것.
+            - PROPOSAL: 행동 제안. "열쇠 가져오자", "문 열어 볼까?"처럼 물음표가 있어도 뭔가 하자는 말이면 여기.
+            - OTHER: 캐릭터 물음에 대한 대답, 인사, 감탄, 이야기 밖 요청("화장실 가도 돼?"), 알아들을 수 없는 말.
+            level(QUESTION일 때만 1~4, 아니면 0):
+            - 1 예/아니오로 답할 수 있는 질문. 예: "마녀야?", "집에 갈 수 있어?"
+            - 2 사실을 묻는 질문. 누가, 무엇, 어디, 언제, 몇. 예: "이거 누구 집이야?", "새는 어디 가?"
+            - 3 이유나 방법을 묻는 질문. 왜, 어떻게. 예: "왜 과자로 집을 만들었어?", "어떻게 나가?"
+            - 4 가설이나 예측을 묻는 질문. 만약, 앞으로 어떻게 될까. 예: "마녀가 깨면 어떻게 돼?", "빵 부스러기가 없었으면?"
+            - 형식이 예/아니오여도 이유를 짐작해 확인하는 말("배고파서 그런 거야?")은 3, 앞일을 짐작해 확인하는 말("그럼 잡히는 거야?")은 4.
+            category(QUESTION일 때만, 아니면 NONE):
+            - NARRATIVE: 다음에 무슨 일이 생기는지, 줄거리 전개
+            - FACT_CAUSE: 사물·세상의 사실이나 원인(과자집은 왜 안 녹아?, 새는 왜 빵을 먹어?)
+            - MIND_RELATION: 인물의 마음, 생각, 관계(헨젤은 무서웠어?, 엄마는 왜 그랬어?)
+            followUp: 바로 앞 캐릭터 답을 듣고 같은 화제를 이어서 다시 물은 질문이면 true.
+            topic: QUESTION이면 무엇에 대한 질문인지 2~6글자 명사구(예: "마녀의 집", "새", "엄마의 마음"). 아니면 빈 문자열.
+            reason: 그렇게 분류한 이유 한 줄. 연구자용이다.
+            '노파'라는 말은 쓰지 않는다. 과자집 주인은 정체가 드러나기 전 장면이면 '할머니', 드러난 뒤 장면이면 '마녀'라고 쓴다.""";
+
+    private static final String PERSONAL_SYSTEM = """
+            너는 동화 앱의 부모 리포트 맨 위 개인화 문장을 쓴다. 부모가 "우리 아이가 오늘 뭘 물었고 지난번과 뭐가 달랐는지"를
+            한눈에 보게 한다. 모든 문장은 해요체, 한국어로만.
+            - childName이 있으면 이름으로 부른다(예: "하은이는"). 없으면 "아이는".
+            - todayLine: 오늘 회차 한 문장. 이야기 제목과 오늘 질문 수(today.summary.questions)를 사실대로. 질문이 0이면 질문 이야기는 하지 않고
+              어떻게 함께했는지(대답, 제안)만 쓴다.
+            - changeLine: history(같은 아이의 지난 회차, 최근 것부터)와 오늘을 비교해 눈에 띄는 차이 하나를 한두 문장으로. history가 비었거나
+              차이가 작으면 null. 예: "지난 두 번은 질문이 없었는데 오늘은 처음으로 물어봤어요", "오늘은 처음으로 '왜'를 묻는 질문이 나왔어요".
+              숫자는 입력에 있는 값만 쓴다. 늘었다, 좋아졌다처럼 효과나 발전으로 단정하지 않는다. 다른 아이나 평균과 비교하지 않는다.
+            - interestLine: 오늘과 지난 회차의 topics, byCategory에서 여러 회차에 되풀이된 관심이 있으면 한 문장. 없거나 history가 비었으면 null.
+              예: "세 번 읽는 동안 인물이 왜 그렇게 했는지를 자주 물었어요".
+            - tonightQuestion: 오늘 아이가 한 질문(today.questions) 하나를 골라 부모가 오늘 밤 아이에게 되물을 말 한 개(반말).
+              정답을 알려 주지 말고 아이 생각을 묻는다. 이유·예측 질문이 있으면 그것을 먼저 고른다. basedOnTurnId는 고른 질문의 turnId.
+              오늘 질문이 없으면 null.
+            - 성향·성격·능력·발달 판정, 칭찬("똑똑", "창의적"), 점수, 교훈, 부모가 할 일 지시를 쓰지 않는다.
+            - 아이가 실제로 한 말 범위를 넘지 않는다. avoid 목록이 있으면 그 문제를 고친다.
+            '노파'라는 말은 쓰지 않는다. 과자집 주인은 정체가 드러나기 전 장면이면 '할머니', 드러난 뒤 장면이면 '마녀'라고 쓴다.""";
+
     private final OpenRouterClient openRouterClient;
     private final ObjectMapper objectMapper;
     private final String modelId;
@@ -94,17 +144,44 @@ public class ReportAnalysisService {
         this.modelId = config.providers().openRouter().llmModel();
     }
 
+    /** 설정된 기본 모델 - 분석이 실패해 실제로 답한 모델을 모를 때 기록에 쓴다. */
     public String modelId() {
         return modelId;
     }
 
+    /** report_analysis.model_id(varchar 120)·demo_report_analysis.model_id(varchar 128) 중 짧은 쪽. */
+    static final int MODEL_ID_MAX = 120;
+
+    /**
+     * 분석 결과와 실제로 답한 모델. 한 분석은 LLM을 여러 번 부르고 호출마다 예비 모델로 넘어갈 수 있어서, 답한 모델을
+     * 부른 순서대로 중복 없이 쉼표로 이어 남긴다(예: "a,b"). LLM을 한 번도 부르지 않았으면 설정된 모델.
+     */
+    public record Analysis(Map<String, Object> result, String modelId) {}
+
     /** 분석할 회차. turns는 PlaySessionService.listTurns 모양, content는 GET /v1/stories/{id}/content와 같은 꾸러미. */
     public record Input(
             SessionKind sessionKind, List<Map<String, Object>> turns, JsonNode content,
-            String readFromSceneId, String readThroughSceneId) {}
+            String readFromSceneId, String readThroughSceneId,
+            String childName, Integer durationSeconds, List<PastSession> history) {
+
+        /** 아이와 지난 회차를 모르는 경우(데모 회차). */
+        public Input(SessionKind sessionKind, List<Map<String, Object>> turns, JsonNode content,
+                String readFromSceneId, String readThroughSceneId) {
+            this(sessionKind, turns, content, readFromSceneId, readThroughSceneId, null, null, List.of());
+        }
+    }
+
+    /** 같은 아이의 지난 회차 하나. summary는 그 회차에 저장된 questionSummary(QuestionStats.summarize 모양). */
+    public record PastSession(String storyTitle, long daysAgo, Map<String, Object> summary) {}
 
     /** {observations, cards, commonScenes, notAnalyzed, rejected}. 할 게 없으면 빈 배열들. */
     public Map<String, Object> analyze(Input input) {
+        return analyzeWithModel(input).result();
+    }
+
+    /** analyze()와 같고, 실제로 답한 모델을 함께 돌려준다 - 저장할 때 model_id로 쓴다. */
+    public Analysis analyzeWithModel(Input input) {
+        Set<String> usedModels = new LinkedHashSet<>();
         StoryView story = StoryView.of(input.content());
         List<String> readScenes = story.readScenes(input.readFromSceneId(), input.readThroughSceneId(), input.turns());
         Map<String, Map<String, Object>> turnsById = new LinkedHashMap<>();
@@ -126,7 +203,7 @@ public class ReportAnalysisService {
             ObjectNode extractPayload = objectMapper.createObjectNode();
             extractPayload.set("story", storyContext);
             extractPayload.set("turns", turnsForPrompt(turnsById));
-            JsonNode extracted = call(EXTRACT_SYSTEM, extractPayload, extractSchema(), "q39_extract", 2500);
+            JsonNode extracted = call(usedModels, EXTRACT_SYSTEM, extractPayload, extractSchema(), "q39_extract", 2500);
             for (JsonNode n : extracted.path("notAnalyzed")) {
                 notAnalyzed.add(Map.of("seq", seqOf(n.path("turnId").asText()), "reason", n.path("reason").asText()));
             }
@@ -136,10 +213,24 @@ public class ReportAnalysisService {
                 if (problems.isEmpty()) candidates.add(o);
                 else rejected.add(Map.of("observation", o.path("observation").asText(), "stage", "code", "problems", problems));
             }
-            List<JsonNode> verified = verify(candidates, turnsById, rejected);
+            List<JsonNode> verified = verify(usedModels, candidates, turnsById, rejected);
             if (!verified.isEmpty()) {
                 observations = verified.stream().map(o -> observationOut(o)).toList();
-                cards = cards(storyContext, verified, turnsById);
+                cards = cards(usedModels, storyContext, verified, turnsById);
+            }
+        }
+
+        // 질문 분류와 개인화 문장(가정 회차만). 실패해도 위 관찰·카드는 그대로 남긴다.
+        List<Map<String, Object>> questions = List.of();
+        Map<String, Object> questionSummary = null;
+        Map<String, Object> personal = null;
+        if (input.sessionKind() == SessionKind.HOME) {
+            try {
+                questions = personalTurnIds.isEmpty() ? List.of() : classify(storyContext, turnsById, personalTurnIds);
+                questionSummary = QuestionStats.summarize(questions);
+                personal = personal(input, story, questions, questionSummary, turnsById, personalTurnIds);
+            } catch (RuntimeException error) {
+                log.warn("report-analysis.personal-failed reason={}", error.toString());
             }
         }
 
@@ -156,7 +247,7 @@ public class ReportAnalysisService {
             payload.set("story", storyContext);
             payload.set("sceneIds", objectMapper.valueToTree(commonFor));
             payload.set("actualPaths", actualPaths(input.turns(), story));
-            JsonNode common = call(COMMON_SYSTEM, payload, commonSchema(), "q39_common", 2500);
+            JsonNode common = call(usedModels, COMMON_SYSTEM, payload, commonSchema(), "q39_common", 2500);
             for (JsonNode scene : common.path("scenes")) {
                 if (!commonFor.contains(scene.path("sceneId").asText())) continue;
                 commonScenes.add(objectMapper.convertValue(scene, Map.class));
@@ -170,9 +261,20 @@ public class ReportAnalysisService {
         result.put("observations", renamedByScene(observations, o -> String.valueOf(o.get("sceneId"))));
         result.put("cards", renamedByScene(cards, card -> sceneByKey.get(String.valueOf(card.get("key")))));
         result.put("commonScenes", renamedByScene(commonScenes, scene -> String.valueOf(scene.get("sceneId"))));
+        result.put("questions", questions);
+        result.put("questionSummary", questionSummary);
+        result.put("personal", personal == null ? null
+                : renamedByScene(List.of(personal), p -> lastScene(input.turns())).get(0));
         result.put("notAnalyzed", notAnalyzed);
         result.put("rejected", rejected);
-        return result;
+        return new Analysis(result, joinedModelId(usedModels, modelId));
+    }
+
+    static String joinedModelId(Set<String> usedModels, String configured) {
+        if (usedModels.isEmpty()) return configured;
+        String joined = String.join(",", usedModels);
+        // 칸보다 길면 저장(finish) 자체가 실패해 작업이 RUNNING에 남는다 - 잘라서라도 남긴다.
+        return joined.length() <= MODEL_ID_MAX ? joined : joined.substring(0, MODEL_ID_MAX);
     }
 
     static List<Map<String, Object>> renamedByScene(
@@ -201,7 +303,7 @@ public class ReportAnalysisService {
 
     // ── 단계 ───────────────────────────────────────────────────────────────
 
-    private List<JsonNode> verify(List<JsonNode> candidates, Map<String, Map<String, Object>> turnsById, List<Map<String, Object>> rejected) {
+    private List<JsonNode> verify(Set<String> usedModels, List<JsonNode> candidates, Map<String, Map<String, Object>> turnsById, List<Map<String, Object>> rejected) {
         if (candidates.isEmpty()) return List.of();
         ArrayNode items = objectMapper.createArrayNode();
         for (JsonNode o : candidates) {
@@ -217,7 +319,7 @@ public class ReportAnalysisService {
         }
         ObjectNode payload = objectMapper.createObjectNode();
         payload.set("observations", items);
-        JsonNode verdicts = call(VERIFY_SYSTEM, payload, verifySchema(), "q39_verify", 1500);
+        JsonNode verdicts = call(usedModels, VERIFY_SYSTEM, payload, verifySchema(), "q39_verify", 1500);
         Map<String, JsonNode> byKey = new LinkedHashMap<>();
         for (JsonNode v : verdicts.path("results")) byKey.put(v.path("key").asText(), v);
         List<JsonNode> kept = new ArrayList<>();
@@ -243,7 +345,7 @@ public class ReportAnalysisService {
         return kept;
     }
 
-    private List<Map<String, Object>> cards(ObjectNode storyContext, List<JsonNode> observations, Map<String, Map<String, Object>> turnsById) {
+    private List<Map<String, Object>> cards(Set<String> usedModels, ObjectNode storyContext, List<JsonNode> observations, Map<String, Map<String, Object>> turnsById) {
         ArrayNode items = objectMapper.createArrayNode();
         for (JsonNode o : observations) {
             ObjectNode item = items.addObject();
@@ -282,11 +384,11 @@ public class ReportAnalysisService {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.set("story", storyContext);
         payload.set("observations", items);
-        JsonNode generated = call(CARD_SYSTEM, payload, cardSchema(), "q39_cards", 3000);
+        JsonNode generated = call(usedModels, CARD_SYSTEM, payload, cardSchema(), "q39_cards", 3000);
         List<String> problems = textProblems(generated);
         if (!problems.isEmpty()) {
             payload.set("avoid", objectMapper.valueToTree(problems));
-            generated = call(CARD_SYSTEM, payload, cardSchema(), "q39_cards", 3000);
+            generated = call(usedModels, CARD_SYSTEM, payload, cardSchema(), "q39_cards", 3000);
             if (!textProblems(generated).isEmpty()) {
                 throw new IllegalStateException("cards still have problems: " + textProblems(generated));
             }
@@ -294,6 +396,128 @@ public class ReportAnalysisService {
         List<Map<String, Object>> out = new ArrayList<>();
         for (JsonNode card : generated.path("cards")) out.add(objectMapper.convertValue(card, Map.class));
         return out;
+    }
+
+    /** 아이 말마다 {seq, kind, level, category, followUp, topic, reason}. */
+    private List<Map<String, Object>> classify(
+            ObjectNode storyContext, Map<String, Map<String, Object>> turnsById, List<String> personalTurnIds) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("story", storyContext);
+        payload.set("turns", turnsForPrompt(turnsById));
+        payload.set("targetTurnIds", objectMapper.valueToTree(personalTurnIds));
+        JsonNode classified = call(CLASSIFY_SYSTEM, payload, classifySchema(), "report_classify", 4000);
+        return classifiedOut(classified, personalTurnIds);
+    }
+
+    /** 개인 아이 말이 아닌 결과와 중복은 버리고, 질문이 아니면 수준·종류를 비운다. 순서는 대화 순서. */
+    static List<Map<String, Object>> classifiedOut(JsonNode classified, List<String> personalTurnIds) {
+        Map<String, Map<String, Object>> byTurn = new LinkedHashMap<>();
+        for (JsonNode item : classified.path("items")) {
+            String turnId = item.path("turnId").asText();
+            if (!personalTurnIds.contains(turnId) || byTurn.containsKey(turnId)) continue;
+            String kind = item.path("kind").asText("OTHER");
+            boolean question = "QUESTION".equals(kind);
+            int level = question ? Math.max(1, Math.min(4, item.path("level").asInt(1))) : 0;
+            String category = question && QuestionStats.CATEGORIES.contains(item.path("category").asText())
+                    ? item.path("category").asText() : null;
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("seq", seqOf(turnId));
+            out.put("kind", kind);
+            out.put("level", level);
+            out.put("category", category);
+            out.put("followUp", question && item.path("followUp").asBoolean(false));
+            out.put("topic", question ? item.path("topic").asText("").trim() : "");
+            out.put("reason", item.path("reason").asText(""));
+            byTurn.put(turnId, out);
+        }
+        List<Map<String, Object>> ordered = new ArrayList<>();
+        for (String turnId : personalTurnIds) if (byTurn.containsKey(turnId)) ordered.add(byTurn.get(turnId));
+        return ordered;
+    }
+
+    /** {todayLine, changeLine, interestLine, tonightQuestion}. 문제가 고쳐지지 않으면 null(개인화 칸만 비운다). */
+    private Map<String, Object> personal(Input input, StoryView story, List<Map<String, Object>> questions,
+            Map<String, Object> summary, Map<String, Map<String, Object>> turnsById, List<String> personalTurnIds) {
+        if (personalTurnIds.isEmpty()) return null;
+        ObjectNode payload = objectMapper.createObjectNode();
+        String childName = input.childName() == null || input.childName().isBlank() ? null : input.childName().trim();
+        if (childName == null) payload.putNull("childName");
+        else payload.put("childName", childName);
+        payload.put("storyTitle", story.title());
+        if (input.durationSeconds() == null) payload.putNull("minutes");
+        else payload.put("minutes", Math.max(1, Math.round(input.durationSeconds() / 60.0)));
+        ObjectNode today = payload.putObject("today");
+        today.set("summary", objectMapper.valueToTree(summary));
+        ArrayNode asked = today.putArray("questions");
+        for (Map<String, Object> q : questions) {
+            if (!"QUESTION".equals(q.get("kind"))) continue;
+            ObjectNode item = asked.addObject();
+            item.put("turnId", "t" + q.get("seq"));
+            item.put("text", String.valueOf(turnsById.get("t" + q.get("seq")).get("text")));
+            item.put("level", QuestionStats.level(q));
+            item.put("category", String.valueOf(q.get("category")));
+            item.put("followUp", Boolean.TRUE.equals(q.get("followUp")));
+            item.put("topic", String.valueOf(q.get("topic")));
+        }
+        List<PastSession> history = input.history() == null ? List.of() : input.history();
+        payload.set("history", objectMapper.valueToTree(history));
+
+        JsonNode generated = call(PERSONAL_SYSTEM, payload, personalSchema(), "report_personal", 1200);
+        List<String> problems = personalProblems(generated, childName);
+        if (!problems.isEmpty()) {
+            payload.set("avoid", objectMapper.valueToTree(problems));
+            generated = call(PERSONAL_SYSTEM, payload, personalSchema(), "report_personal", 1200);
+            problems = personalProblems(generated, childName);
+            if (!problems.isEmpty()) {
+                log.warn("report-analysis.personal-dropped problems={}", problems);
+                return null;
+            }
+        }
+        return personalOut(generated, questions, turnsById, !history.isEmpty());
+    }
+
+    /** 코드가 지키는 규칙. 지난 회차가 없으면 비교 문장을 버리고, 오늘 밤 질문은 실제 오늘 질문에 붙은 것만 남긴다. */
+    static Map<String, Object> personalOut(JsonNode generated, List<Map<String, Object>> questions,
+            Map<String, Map<String, Object>> turnsById, boolean hasHistory) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("todayLine", textOrNull(generated.path("todayLine")));
+        out.put("changeLine", hasHistory ? textOrNull(generated.path("changeLine")) : null);
+        out.put("interestLine", hasHistory ? textOrNull(generated.path("interestLine")) : null);
+        Map<String, Object> tonight = null;
+        JsonNode t = generated.path("tonightQuestion");
+        if (t.isObject() && textOrNull(t.path("text")) != null) {
+            int seq = seqOf(t.path("basedOnTurnId").asText());
+            boolean realQuestion = questions.stream()
+                    .anyMatch(q -> "QUESTION".equals(q.get("kind")) && Integer.valueOf(seq).equals(q.get("seq")));
+            if (realQuestion && turnsById.containsKey("t" + seq)) {
+                tonight = new LinkedHashMap<>();
+                tonight.put("seq", seq);
+                tonight.put("childQuestion", String.valueOf(turnsById.get("t" + seq).get("text")));
+                tonight.put("text", t.path("text").asText().trim());
+            }
+        }
+        out.put("tonightQuestion", tonight);
+        return out;
+    }
+
+    /** 아이 이름(로마자일 수 있다)은 빼고 외국어 섞임과 판정 표현을 본다. */
+    static List<String> personalProblems(JsonNode generated, String childName) {
+        if (childName == null || childName.isBlank()) return textProblems(generated);
+        try {
+            return textProblems(new ObjectMapper().readTree(generated.toString().replace(childName.trim(), "아이")));
+        } catch (Exception malformed) {
+            return textProblems(generated);
+        }
+    }
+
+    private static String textOrNull(JsonNode node) {
+        return node.isTextual() && !node.asText().isBlank() ? node.asText().trim() : null;
+    }
+
+    private static String lastScene(List<Map<String, Object>> turns) {
+        String scene = null;
+        for (Map<String, Object> turn : turns) if (turn.get("sceneId") != null) scene = String.valueOf(turn.get("sceneId"));
+        return scene;
     }
 
     // ── 검사 ───────────────────────────────────────────────────────────────
@@ -390,11 +614,14 @@ public class ReportAnalysisService {
         }
     }
 
-    private JsonNode call(String system, ObjectNode payload, ObjectNode schema, String name, int maxTokens) {
-        return openRouterClient.generateStructuredCompletion(
+    private JsonNode call(
+            Set<String> usedModels, String system, ObjectNode payload, ObjectNode schema, String name, int maxTokens) {
+        OpenRouterClient.StructuredCompletion completion = openRouterClient.structuredCompletion(
                 modelId, system, List.of(), payload.toString(), schema, name, maxTokens, 0.2,
                 ProviderErrorCode.OPENROUTER_RESPONSE_FAILED, "리포트 분석을 만들지 못했어요.",
                 RequestDeadline.startingNow(90_000));
+        if (completion.model() != null && !completion.model().isBlank()) usedModels.add(completion.model());
+        return completion.content();
     }
 
     // ── 스키마(strict) ─────────────────────────────────────────────────────
@@ -496,6 +723,39 @@ public class ReportAnalysisService {
         p.set("followUps", arrayOf(followUp("REASON", "POSSIBILITY", "EXPERIENCE", "LOOK_TOGETHER")));
         ObjectNode root = obj("cards");
         ((ObjectNode) root.get("properties")).set("cards", arrayOf(card));
+        return root;
+    }
+
+    private ObjectNode classifySchema() {
+        ObjectNode item = obj("turnId", "kind", "level", "category", "followUp", "topic", "reason");
+        ObjectNode p = (ObjectNode) item.get("properties");
+        p.set("turnId", str());
+        p.set("kind", enumOf("QUESTION", "PROPOSAL", "OTHER"));
+        ObjectNode level = objectMapper.createObjectNode();
+        level.put("type", "integer");
+        level.putArray("enum").add(0).add(1).add(2).add(3).add(4);
+        p.set("level", level);
+        p.set("category", enumOf("NARRATIVE", "FACT_CAUSE", "MIND_RELATION", "NONE"));
+        p.set("followUp", bool());
+        p.set("topic", str());
+        p.set("reason", str());
+        ObjectNode root = obj("items");
+        ((ObjectNode) root.get("properties")).set("items", arrayOf(item));
+        return root;
+    }
+
+    private ObjectNode personalSchema() {
+        ObjectNode tonight = obj("basedOnTurnId", "text");
+        ((ObjectNode) tonight.get("properties")).set("basedOnTurnId", str());
+        ((ObjectNode) tonight.get("properties")).set("text", str());
+        ObjectNode nullableTonight = objectMapper.createObjectNode();
+        nullableTonight.putArray("anyOf").add(tonight).add(objectMapper.createObjectNode().put("type", "null"));
+        ObjectNode root = obj("todayLine", "changeLine", "interestLine", "tonightQuestion");
+        ObjectNode p = (ObjectNode) root.get("properties");
+        p.set("todayLine", str());
+        p.set("changeLine", nullableStr());
+        p.set("interestLine", nullableStr());
+        p.set("tonightQuestion", nullableTonight);
         return root;
     }
 

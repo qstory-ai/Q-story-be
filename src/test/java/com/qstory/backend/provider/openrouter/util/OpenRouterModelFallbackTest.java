@@ -30,7 +30,7 @@ class OpenRouterModelFallbackTest {
         when(config.providers().openRouter().llmModel()).thenReturn(PRIMARY);
         when(config.providers().openRouter().llmFallbackModels()).thenReturn(fallbacks);
         RoutePromptService prompts = mock(RoutePromptService.class);
-        when(prompts.requirePrompt(anyString())).thenReturn(new RoutePromptService.Prompt("system", "instruction", "안전 규칙"));
+        when(prompts.requireCompanionSafetyFragment(anyString())).thenReturn("안전 규칙");
         return new OpenRouterClient(
                 mock(HttpClient.class), objectMapper, new ResponseTextNormalizer(),
                 prompts, config);

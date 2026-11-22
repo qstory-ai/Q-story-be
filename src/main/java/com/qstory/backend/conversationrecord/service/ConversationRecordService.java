@@ -86,6 +86,8 @@ public class ConversationRecordService {
                 .toneTag(reply.toneTag())
                 .valueTag(reply.valueTag())
                 .promptVersion(promptVersion)
+                // 설정한 기본 모델이 아니라 실제로 답한 모델 - 예비 모델이 답한 턴을 원장에서 가려 볼 수 있게(Q-67).
+                .modelId(reply.modelId())
                 .build());
     }
 

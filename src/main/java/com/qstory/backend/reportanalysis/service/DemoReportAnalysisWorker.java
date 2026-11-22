@@ -59,9 +59,11 @@ public class DemoReportAnalysisWorker {
                 store.finish(sessionId, "SKIPPED", null, ReportAnalysisService.PROMPT_VERSION, null, "기록 없음");
                 return;
             }
-            Map<String, Object> result = analysisService.analyze(new ReportAnalysisService.Input(
+            ReportAnalysisService.Analysis analysis = analysisService.analyzeWithModel(new ReportAnalysisService.Input(
                     SessionKind.HOME, turns, content, job.readFromSceneId(), job.readThroughSceneId()));
-            store.finish(sessionId, "READY", analysisService.modelId(), ReportAnalysisService.PROMPT_VERSION, result, null);
+            Map<String, Object> result = analysis.result();
+            // 설정된 모델이 아니라 실제로 답한 모델(예비 모델로 넘어갔으면 그 모델)을 남긴다(Q-67).
+            store.finish(sessionId, "READY", analysis.modelId(), ReportAnalysisService.PROMPT_VERSION, result, null);
             log.info("demo-report-analysis.ready observations={} duration_ms={}",
                     ((List<?>) result.get("observations")).size(), System.currentTimeMillis() - startedAt);
         } catch (RuntimeException error) {

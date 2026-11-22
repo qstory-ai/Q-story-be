@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,7 +53,7 @@ public class NarrationRerenderService {
     public NarrationRerenderService(
             StorySegmentRepository segmentRepository,
             StoryAssetRepository assetRepository,
-            GeminiTtsClient geminiTtsClient,
+            @Qualifier("narrationGeminiTtsClient") GeminiTtsClient geminiTtsClient,
             VoiceCastService voiceCastService,
             SupabaseStorageClient storageClient,
             StoryRevisionService revisionService,

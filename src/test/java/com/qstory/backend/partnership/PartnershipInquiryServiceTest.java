@@ -33,7 +33,7 @@ class PartnershipInquiryServiceTest {
     private final PartnershipInquiryRepository repository = mock(PartnershipInquiryRepository.class);
     private final DiscordNotifier notifier = mock(DiscordNotifier.class);
     private final DiscordProperties properties = new DiscordProperties(true, "m", "d", "n", "1", "2", true, true, true,
-            null, "https://admin.test/inquiries", 100, "80,95", 5.0);
+            null, "https://admin.test/inquiries", 100, "80,95", 5.0, null);
     private final PartnershipInquiryService service = new PartnershipInquiryService(repository, notifier, properties);
 
     private static PartnershipInquirySubmission submission(String role, String email, String phone, String message) {

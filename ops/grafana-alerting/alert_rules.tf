@@ -126,8 +126,8 @@ locals {
       severity    = "critical"
       summary     = "백엔드가 부팅에 실패했어요(APPLICATION FAILED TO START)."
       description = <<-EOT
-        새 배포가 뜨지 못함. Railway는 헬스체크를 통과하지 못한 배포를 트래픽에 붙이지 않지만, 재시작 루프나
-        마이그레이션 실패일 수 있으니 바로 확인. 원인은 로그의 'Description:' 줄에 있음.
+        새 배포가 뜨지 못함. 가비아 자동 배포(ops/gabia/autodeploy.sh)는 헬스체크에 실패하면 직전 이미지로
+        되돌리지만, 재시작 루프나 마이그레이션 실패일 수 있으니 바로 확인. 원인은 로그의 'Description:' 줄에 있음.
       EOT
       logql       = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |~ \"APPLICATION FAILED TO START|Application run failed\" [5m]))"
       threshold   = 0
@@ -138,7 +138,7 @@ locals {
       summary       = "백엔드 로그가 15분째 한 줄도 없어요(서버가 멈췄을 수 있어요)."
       description   = <<-EOT
         app.heartbeat는 요청이 없어도 5분마다 찍힌다. 15분 동안 하나도 없으면 프로세스가 죽었거나 Loki 전송이
-        끊긴 것. Railway 서비스 상태와 /health/ready를 먼저 확인.
+        끊긴 것. 가비아 서버의 docker compose ps와 /health/ready를 먼저 확인.
       EOT
       logql         = "sum(count_over_time({app=\"qstory-backend\", env=\"${var.app_env}\"} |= \"app.heartbeat\" [15m]))"
       threshold     = 1
@@ -224,9 +224,25 @@ locals {
     }
   }
 
+  # 주요 API(dashboards.tf의 main_api_routes) 5xx - 한 건만 나와도 울린다. API별로 따로 울려 메시지에 어느 API인지 나온다.
+  # 전체 비율 규칙(server-5xx-ratio)은 요청이 적은 시간에는 보지 않아, 한산할 때 핵심 기능이 깨져도 놓친다.
+  main_api_alerts = {
+    main-api-5xx = {
+      severity    = "critical"
+      summary     = "주요 API {{ $labels.route }}가 5분 안에 5xx로 {{ $values.B }}번 실패했어요."
+      description = <<-EOT
+        로그인·이야기·재생 기록·그레텔 대화·음성·완주 중 하나가 서버 오류를 냈다. 그라파나 '백엔드 상태'의 주요 API 상태 표와
+        최근 에러 로그에서 같은 시간대를 본다. 외부 AI·음성 규칙이 같이 울리면 의존 서비스 쪽, 아니면 uncaught-5xx·배포를 먼저 본다.
+      EOT
+      logql       = "sum by (route) (count_over_time(${local.main_api_sel} | status=~\"5..\" [5m]))"
+      threshold   = 0
+      pending     = "0s"
+    }
+  }
+
   # 규칙마다 다른 값만 위에 적고, 나머지는 기본값으로 채운다(대부분 "5분에 N건 넘으면").
   alerts = {
-    for name, rule in local.log_alerts : name => merge({
+    for name, rule in merge(local.log_alerts, local.main_api_alerts) : name => merge({
       comparison    = "gt"
       no_data_state = "OK"
       pending       = "5m"

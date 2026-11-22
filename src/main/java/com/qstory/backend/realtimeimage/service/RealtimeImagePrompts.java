@@ -1,6 +1,7 @@
 package com.qstory.backend.realtimeimage.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.qstory.backend.realtimeimage.RealtimeImageKind;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -15,6 +16,12 @@ import org.springframework.core.io.ClassPathResource;
  * Flare 상한 5,000자를 넘지 않게 장면 글은 자른다.
  */
 public final class RealtimeImagePrompts {
+
+    /** 새 선택지 그림 프롬프트 판. 글(공통 글·장면 칸 규칙 포함)을 바꾸면 버전을 올린다. */
+    public static final String BRANCH_PROMPT_VERSION = "REALTIME_IMAGE_BRANCH_V1";
+
+    /** 시도 장면 배경 그림 프롬프트 판. 글(공통 글·장면 칸 규칙 포함)을 바꾸면 버전을 올린다. */
+    public static final String ATTEMPT_PROMPT_VERSION = "REALTIME_IMAGE_ATTEMPT_V1";
 
     private static final int MAX_PROMPT_CHARS = 5_000;
     private static final int MAX_SCENE_CHARS = 700;
@@ -37,6 +44,17 @@ public final class RealtimeImagePrompts {
     private static final String COMMON = loadCommon();
 
     private RealtimeImagePrompts() {}
+
+    /** 그림 용도별 프롬프트 판 - realtime_image.prompt_version에 남긴다. */
+    public static String versionFor(RealtimeImageKind kind) {
+        if (kind == null) {
+            return null;
+        }
+        return switch (kind) {
+            case BRANCH -> BRANCH_PROMPT_VERSION;
+            case ATTEMPT -> ATTEMPT_PROMPT_VERSION;
+        };
+    }
 
     /**
      * 새 선택지(행동 전개) 그림 - LiveBranchExecutionWorker의 초안 imageBrief(characters/action/composition/continuityFacts/

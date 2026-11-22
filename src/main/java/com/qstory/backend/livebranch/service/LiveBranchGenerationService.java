@@ -91,6 +91,7 @@ public class LiveBranchGenerationService {
                 .childTranscriptRedacted(harness.redact(transcript, REDACTED_TRANSCRIPT_MAX_LENGTH))
                 .questionRound(questionRound)
                 .sessionId(sessionId)
+                .promptVersion(LiveBranchExecutionWorker.PROMPT_VERSION)
                 .status(LiveBranchJobStatus.QUEUED)
                 .createdAt(now)
                 .updatedAt(now)

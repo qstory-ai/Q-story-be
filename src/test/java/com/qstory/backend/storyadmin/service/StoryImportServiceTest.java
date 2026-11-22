@@ -16,7 +16,6 @@ import com.qstory.backend.story.entity.StoryAnchor;
 import com.qstory.backend.story.entity.StoryAsset;
 import com.qstory.backend.story.entity.StoryActionFamily;
 import com.qstory.backend.story.repository.RoutePromptRepository;
-import com.qstory.backend.story.repository.RoutePromptStageRepository;
 import com.qstory.backend.story.repository.StoryActionFamilyRepository;
 import com.qstory.backend.story.repository.StoryAnchorRepository;
 import com.qstory.backend.story.repository.StoryAssetRepository;
@@ -51,7 +50,6 @@ class StoryImportServiceTest {
     private final StoryCastRepository castRepository = mock(StoryCastRepository.class);
     private final StoryAssetRepository assetRepository = mock(StoryAssetRepository.class);
     private final RoutePromptRepository routePromptRepository = mock(RoutePromptRepository.class);
-    private final RoutePromptStageRepository routePromptStageRepository = mock(RoutePromptStageRepository.class);
     private final StoryVisualReferencePackRepository visualReferencePackRepository =
             mock(StoryVisualReferencePackRepository.class);
     private final RoutePromptService routePromptService = mock(RoutePromptService.class);
@@ -67,7 +65,7 @@ class StoryImportServiceTest {
 
     private final StoryImportService service = new StoryImportService(
             objectMapper, storyRepository, anchorRepository, familyRepository, castRepository, assetRepository,
-            routePromptRepository, routePromptStageRepository, visualReferencePackRepository, routePromptService,
+            routePromptRepository, visualReferencePackRepository, routePromptService,
             revisionService, sceneRepository, segmentRepository,
             fallbackSegmentRepository, storyRegistry, choiceCopyRegistry, assemblyService,
             personaRepository, personaRegistry);

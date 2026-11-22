@@ -63,6 +63,10 @@ public class RealtimeImage {
     @Column(name = "prompt_hash")
     private String promptHash;
 
+    /** 그림 프롬프트 판(RealtimeImagePrompts.versionFor) - 판끼리 결과를 비교하려고 남긴다. 예전 행은 null. */
+    @Column(name = "prompt_version", length = 64)
+    private String promptVersion;
+
     @Column(name = "error_code")
     private String errorCode;
 

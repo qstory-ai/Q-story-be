@@ -176,8 +176,8 @@ public class PlaySessionService {
                 "insert into play_turn (session_id, seq, occurred_at, received_at, scene_id, visual_id, anchor_id, entry_mode, "
                         + "role, speaker, character_speaker_id, text, input_mode, transcript_edited, fixed, help_step, reply_kind, "
                         + "proposed_family_id, reply_audio_played, event, family_id, via_suggestion, suggestion_label, result_visual_id, "
-                        + "latency_ms, error_code, attempt_turns) "
-                        + "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) on conflict (session_id, seq) do nothing",
+                        + "latency_ms, error_code, attempt_turns, speech_ms) "
+                        + "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) on conflict (session_id, seq) do nothing",
                 sessionId, seq, Timestamp.from(occurredAt(turn.path("occurredAt"), receivedAt)), Timestamp.from(receivedAt),
                 sceneId, shortText(turn.path("visualId"), 80), shortText(turn.path("anchorId"), 64),
                 oneOf(turn.path("entryMode"), ENTRY_MODES, null), role, speaker,
@@ -191,8 +191,18 @@ public class PlaySessionService {
                 turn.path("latencyMs").isInt() && turn.path("latencyMs").asInt() >= 0 ? turn.path("latencyMs").asInt() : null,
                 shortText(turn.path("errorCode"), 60),
                 turn.path("attemptTurns").isInt() && turn.path("attemptTurns").asInt() >= 0
-                        ? Math.min(turn.path("attemptTurns").asInt(), 50) : null);
+                        ? Math.min(turn.path("attemptTurns").asInt(), 50) : null,
+                speechMs(role, turn.path("speechMs")));
     }
+
+    /** 아이 줄(CHILD)의 녹음 길이(ms, Q-58) - 아이 줄이 아니거나 값이 없거나 음수면 null, 한 번에 10분을 넘으면 10분으로 자른다. */
+    static Integer speechMs(String role, JsonNode node) {
+        if (!"CHILD".equals(role) || node == null || !node.isInt() || node.asInt() < 0) return null;
+        return Math.min(node.asInt(), MAX_SPEECH_MS);
+    }
+
+    /** 한 줄의 녹음 길이 상한 - 아이 한 마디가 10분을 넘을 일은 없고, 멈추지 않은 마이크가 시간을 부풀리지 않게. */
+    static final int MAX_SPEECH_MS = 10 * 60 * 1000;
 
     /**
      * 리포트용 - 회차의 대화 전부를 seq 순으로. 프런트 계약(API-CONTRACT)의 turn 모양 그대로, 빈 값은 뺀다.
@@ -261,6 +271,7 @@ public class PlaySessionService {
         put(turn, "latencyMs", (Integer) rs.getObject("latency_ms"));
         put(turn, "errorCode", rs.getString("error_code"));
         put(turn, "attemptTurns", (Integer) rs.getObject("attempt_turns"));
+        put(turn, "speechMs", (Integer) rs.getObject("speech_ms"));
         return turn;
     }
 
