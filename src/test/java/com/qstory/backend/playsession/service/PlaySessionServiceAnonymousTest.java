@@ -151,6 +151,26 @@ class PlaySessionServiceAnonymousTest {
         assertThat(rows.get(1)[11]).isEqualTo("02-123-4567");
     }
 
+    /** Q-58: 아이 줄의 녹음 길이(speechMs)는 아이 줄에만, 0 이상만, 10분까지만 남는다. */
+    @Test
+    void speechMsIsKeptForChildTurnsOnlyAndCapped() throws Exception {
+        ownersReturn(List.of(new Owner(userId, null)));
+        JsonNode body = json.readTree("{\"storyId\":\"story-1\",\"turns\":["
+                + "{\"seq\":1,\"role\":\"CHILD\",\"sceneId\":\"s1\",\"text\":\"새는 어디 가?\",\"inputMode\":\"VOICE\",\"speechMs\":2300},"
+                + "{\"seq\":2,\"role\":\"CHARACTER\",\"sceneId\":\"s1\",\"text\":\"나도 몰라.\",\"speechMs\":999},"
+                + "{\"seq\":3,\"role\":\"CHILD\",\"sceneId\":\"s1\",\"text\":\"응\",\"speechMs\":-5},"
+                + "{\"seq\":4,\"role\":\"CHILD\",\"sceneId\":\"s1\",\"text\":\"길게\",\"speechMs\":99999999}]}");
+        service.appendTurns(parent, sessionId, body);
+        var args = org.mockito.ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc, org.mockito.Mockito.times(4)).update(startsWith("insert into play_turn"), args.capture());
+        List<Object[]> rows = args.getAllValues();
+        int speech = rows.get(0).length - 1;
+        assertThat(rows.get(0)[speech]).isEqualTo(2300);
+        assertThat(rows.get(1)[speech]).isNull();
+        assertThat(rows.get(2)[speech]).isNull();
+        assertThat(rows.get(3)[speech]).isEqualTo(PlaySessionService.MAX_SPEECH_MS);
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void ownersReturn(List<Owner> first, List<Owner>... next) {
         var stub = when(jdbc.query(startsWith(OWNER_SQL), any(RowMapper.class), eq(sessionId))).thenReturn((List) first);
