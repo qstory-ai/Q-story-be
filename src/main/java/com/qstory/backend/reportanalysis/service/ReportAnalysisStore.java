@@ -79,10 +79,45 @@ public class ReportAnalysisStore {
                     analysis.put("observations", parsed.getOrDefault("observations", List.of()));
                     analysis.put("cards", parsed.getOrDefault("cards", List.of()));
                     analysis.put("commonScenes", parsed.getOrDefault("commonScenes", List.of()));
+                    putPersonal(analysis, parsed);
                     return analysis;
                 },
                 completionId);
         return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /**
+     * 질문 분류와 개인화 문장(report-v4). 분류 근거(reason)도 그대로 보낸다 - 검수·연구 화면에서 왜 그 수준으로
+     * 나눴는지 볼 수 있게. 부모 화면에 띄울지는 프런트가 정한다.
+     * 옛 분석에는 이 칸이 없어 빈 목록과 null로 채운다. 데모 리포트(DemoReportAnalysisStore)도 같은 모양을 쓴다.
+     */
+    static void putPersonal(Map<String, Object> analysis, Map<String, Object> parsed) {
+        analysis.put("questions", parsed.get("questions") instanceof List<?> list ? list : List.of());
+        analysis.put("questionSummary", parsed.get("questionSummary"));
+        analysis.put("personal", parsed.get("personal"));
+    }
+
+    /** 지난 회차 하나 -같은 계정·같은 아이, 이 기록보다 먼저 끝났고 질문 요약이 있는 가정 회차. */
+    public record PastRow(String storyId, Instant completedAt, Map<String, Object> questionSummary) {}
+
+    /**
+     * 같은 아이의 지난 회차 질문 요약(최근 것부터 limit개). 아이가 정해지지 않은 기록(옛 기록·선생님 세션)은 묶지 않는다.
+     * 질문 분류가 없던 옛 분석(report-v4 이전)은 건너뛴다.
+     */
+    @Transactional(readOnly = true)
+    public List<PastRow> history(UUID completionId, int limit) {
+        return jdbc.query(
+                "select prev.story_id, prev.completed_at, ra.result -> 'questionSummary' as summary "
+                        + "from story_completion cur "
+                        + "join story_completion prev on prev.user_id = cur.user_id and prev.child_id = cur.child_id "
+                        + "and prev.completed_at < cur.completed_at and prev.id <> cur.id and not prev.group_session "
+                        + "join report_analysis ra on ra.completion_id = prev.id and ra.status = 'READY' "
+                        + "and jsonb_typeof(ra.result -> 'questionSummary') = 'object' "
+                        + "where cur.id = ? and cur.child_id is not null "
+                        + "order by prev.completed_at desc limit ?",
+                (rs, rowNum) -> new PastRow(
+                        rs.getString("story_id"), rs.getTimestamp("completed_at").toInstant(), read(rs.getString("summary"))),
+                completionId, limit);
     }
 
     private String write(Map<String, Object> value) {

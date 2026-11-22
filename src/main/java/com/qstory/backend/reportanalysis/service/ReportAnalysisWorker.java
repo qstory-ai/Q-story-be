@@ -4,6 +4,8 @@ import com.qstory.backend.playsession.service.PlaySessionService;
 import com.qstory.backend.story.service.StoryContentAssemblyService;
 import com.qstory.backend.storyreport.entity.StoryCompletion;
 import com.qstory.backend.storyreport.repository.StoryCompletionRepository;
+import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,6 +25,8 @@ public class ReportAnalysisWorker {
 
     private static final Logger log = LoggerFactory.getLogger(ReportAnalysisWorker.class);
     static final int BATCH = 3;
+    /** 지난번과 비교할 때 볼 같은 아이의 지난 회차 수. */
+    static final int HISTORY = 5;
 
     private final ReportAnalysisStore store;
     private final ReportAnalysisService analysisService;
@@ -90,6 +94,26 @@ public class ReportAnalysisWorker {
                 playSessionService.listTurns(completion.getSessionId(), completion.getUser().getId()),
                 content,
                 completion.getReadFromSceneId(),
-                completion.getReadThroughSceneId()));
+                completion.getReadThroughSceneId(),
+                completion.getChild() == null ? null : completion.getChild().getName(),
+                completion.getDurationSeconds(),
+                history(completion)));
+    }
+
+    /** 같은 아이의 지난 회차(최근 HISTORY개). 이야기 제목은 꾸러미에서 찾고, 못 찾으면 비운다. */
+    private List<ReportAnalysisService.PastSession> history(StoryCompletion completion) {
+        if (completion.getChild() == null) return List.of();
+        Map<String, String> titles = new HashMap<>();
+        return store.history(completion.getId(), HISTORY).stream()
+                .map(row -> new ReportAnalysisService.PastSession(
+                        titles.computeIfAbsent(row.storyId(), this::titleOf),
+                        Math.max(0, Duration.between(row.completedAt(), completion.getCompletedAt()).toDays()),
+                        row.questionSummary()))
+                .toList();
+    }
+
+    private String titleOf(String storyId) {
+        var content = contentAssemblyService.get(storyId);
+        return content == null ? "" : StoryView.of(content).title();
     }
 }
