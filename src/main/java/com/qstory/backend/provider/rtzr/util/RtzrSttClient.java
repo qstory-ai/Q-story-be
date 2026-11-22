@@ -1,11 +1,11 @@
 package com.qstory.backend.provider.rtzr.util;
 import com.qstory.backend.provider.rtzr.RtzrTranscriptionResult;
+import com.qstory.backend.provider.ProviderHttp;
 import com.qstory.backend.common.log.LogEvents;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.config.AppProperties;
-import com.qstory.backend.common.error.AbortException;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.error.ProviderErrorCode;
@@ -15,7 +15,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -30,8 +29,6 @@ import org.springframework.stereotype.Component;
 public class RtzrSttClient {
 
     private static final Logger log = LoggerFactory.getLogger(RtzrSttClient.class);
-    /** OpenRouterClient.FAILURE_BODY_LOG_LIMIT과 같은 이유로 잘라 남긴다 - 응답 본문이 길면 로그 부담. */
-    private static final int FAILURE_BODY_LOG_LIMIT = 500;
     /** 400이어도 오디오 문제가 아니라 업체 계정·결제 문제인 RTZR 오류 코드(H0001: 카드 등록 필요). */
     private static final java.util.Set<String> BILLING_ACCOUNT_CODES = java.util.Set.of("H0001");
     private static final String BASE_URL = "https://openapi.vito.ai";
@@ -73,16 +70,8 @@ public class RtzrSttClient {
             // 단계별 지연을 Grafana에서 나눠 보려고 남긴다(문장은 남기지 않는다).
             log.info("rtzr-stt.ok poll_ms={} audio_bytes={}", (System.nanoTime() - started) / 1_000_000, audio.length);
             return result;
-        } catch (ProviderException | AbortException | ApiException known) {
-            throw known;
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw new AbortException("request-timeout");
-        } catch (HttpTimeoutException timeout) {
-            throw new AbortException("request-timeout");
         } catch (Exception error) {
-            throw new ProviderException(
-                    ProviderErrorCode.RTZR_NETWORK_FAILED, "한국어 음성 인식 서버에 연결하지 못했어요.", true, error);
+            throw ProviderHttp.asProviderFailure(error, ProviderErrorCode.RTZR_NETWORK_FAILED, "한국어 음성 인식 서버에 연결하지 못했어요.");
         }
     }
 
@@ -93,14 +82,8 @@ public class RtzrSttClient {
     public String accessToken(RequestDeadline deadline) {
         try {
             return authenticate(deadline);
-        } catch (ProviderException | AbortException | ApiException known) {
-            throw known;
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw new AbortException("request-timeout");
         } catch (Exception error) {
-            throw new ProviderException(
-                    ProviderErrorCode.RTZR_NETWORK_FAILED, "한국어 음성 인식 서버에 연결하지 못했어요.", true, error);
+            throw ProviderHttp.asProviderFailure(error, ProviderErrorCode.RTZR_NETWORK_FAILED, "한국어 음성 인식 서버에 연결하지 못했어요.");
         }
     }
 
@@ -120,7 +103,7 @@ public class RtzrSttClient {
         HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
         JsonNode payload = safeJson(response.body());
         if (response.statusCode() / 100 != 2 || payload == null || !payload.hasNonNull("access_token")) {
-            logRtzrHttpFailure("authenticate", response.statusCode(), response.body());
+            ProviderHttp.logHttpFailure(log, LogEvents.RTZR_HTTP_FAILED, "authenticate", response.statusCode(), response.body());
             throwIfProviderUnavailable("authenticate", response.statusCode(), payload);
             throw new ProviderException(
                     ProviderErrorCode.RTZR_AUTH_FAILED, "한국어 음성 인식 인증에 실패했어요.", response.statusCode() >= 500);
@@ -158,7 +141,7 @@ public class RtzrSttClient {
         HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
         JsonNode payload = safeJson(response.body());
         if (response.statusCode() / 100 != 2 || payload == null || !payload.hasNonNull("id")) {
-            logRtzrHttpFailure("submit", response.statusCode(), response.body());
+            ProviderHttp.logHttpFailure(log, LogEvents.RTZR_HTTP_FAILED, "submit", response.statusCode(), response.body());
             throwIfProviderUnavailable("submit", response.statusCode(), payload);
             throw new ProviderException(
                     ProviderErrorCode.RTZR_SUBMIT_FAILED, "녹음을 음성 인식기에 전달하지 못했어요.", response.statusCode() >= 429);
@@ -179,7 +162,7 @@ public class RtzrSttClient {
             HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
             JsonNode result = safeJson(response.body());
             if (response.statusCode() / 100 != 2) {
-                logRtzrHttpFailure("poll", response.statusCode(), response.body());
+                ProviderHttp.logHttpFailure(log, LogEvents.RTZR_HTTP_FAILED, "poll", response.statusCode(), response.body());
                 throwIfProviderUnavailable("poll", response.statusCode(), result);
                 throw new ProviderException(
                         ProviderErrorCode.RTZR_RESULT_FAILED, "음성 인식 결과를 가져오지 못했어요.", response.statusCode() >= 429);
@@ -234,30 +217,12 @@ public class RtzrSttClient {
     }
 
     /**
-     * OpenRouterClient.logProviderHttpFailure와 같은 취지 - 인증/제출/폴링 HTTP 실패에 공통 태그
-     * (rtzr-http.failed)를 붙여 Grafana에서 `|= LogEvents.RTZR_HTTP_FAILED` 하나로 모든 Rtzr HTTP 실패를 모아
-     * 볼 수 있게 한다. Rtzr 응답 본문은 인증 토큰을 포함하지 않으므로(토큰은 헤더에만) 잘라 남긴다.
-     */
-    private void logRtzrHttpFailure(String context, int statusCode, byte[] responseBody) {
-        String bodySnippet = new String(responseBody, StandardCharsets.UTF_8);
-        if (bodySnippet.length() > FAILURE_BODY_LOG_LIMIT) {
-            bodySnippet = bodySnippet.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)";
-        }
-        log.warn(
-                LogEvents.RTZR_HTTP_FAILED + " context={} status={} retryable={} responseBody={}",
-                context, statusCode, statusCode >= 429, bodySnippet);
-    }
-
-    /**
      * 200 응답 안에서 status="failed"를 낸 케이스 전용 태그 - HTTP 실패와 원인이 다르고(서버 쪽 처리
      * 실패) 사용자 재시도로 잘 안 풀리므로, Grafana에서 별도 규칙으로 관찰 가능하도록 태그를 분리한다.
      */
     private void logRtzrTranscriptionFailed(String submissionId, byte[] responseBody) {
-        String bodySnippet = new String(responseBody, StandardCharsets.UTF_8);
-        if (bodySnippet.length() > FAILURE_BODY_LOG_LIMIT) {
-            bodySnippet = bodySnippet.substring(0, FAILURE_BODY_LOG_LIMIT) + "...(truncated)";
-        }
-        log.warn(LogEvents.RTZR_TRANSCRIPTION_FAILED + " submissionId={} responseBody={}", submissionId, bodySnippet);
+        log.warn(LogEvents.RTZR_TRANSCRIPTION_FAILED + " submissionId={} responseBody={}",
+                submissionId, ProviderHttp.snippet(responseBody));
     }
 
     private JsonNode safeJson(byte[] body) {
