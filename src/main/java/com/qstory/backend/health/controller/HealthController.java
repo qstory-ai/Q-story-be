@@ -49,13 +49,14 @@ public class HealthController {
     }
 
     /**
-     * 바깥에서 1분마다 두드리는 준비 상태 확인(Grafana Synthetic Monitoring). /health는 프로세스가 떠 있으면
-     * 항상 200이라 Railway 배포 확인에 쓰고, 이건 DB까지 붙는지 본다 - DB가 안 되면 503.
+     * 준비 상태 확인 - DB까지 붙는지 본다(안 되면 503). 배포 확인과 바깥 생존 확인(Grafana Synthetic
+     * Monitoring)이 같이 쓴다: 새 서버가 DB에 못 붙으면 트래픽이 넘어가지 않고 옛 서버가 계속 받는다.
+     * /health는 프로세스가 떠 있으면 늘 200이라 이 판단에 쓸 수 없다.
      */
     @Operation(
             summary = "Readiness - process up and database reachable",
-            description = "200 when a trivial query succeeds, 503 otherwise. Used by the external uptime check, "
-                    + "not by the Railway deploy healthcheck (that stays on /health).")
+            description = "200 when a trivial query succeeds, 503 otherwise. Used by the deploy healthcheck "
+                    + "and the external uptime check.")
     @ApiResponse(responseCode = "200", description = "Ready",
             content = @Content(schema = @Schema(example = "{\"ok\":true,\"db\":\"up\"}")))
     @ApiResponse(responseCode = "503", description = "Database unreachable",
