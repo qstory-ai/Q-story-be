@@ -59,7 +59,7 @@ class LimitAlertServiceTest {
         service.countGeminiCall();
         service.countGeminiCall();
 
-        verify(notifier).send(eq(DiscordChannel.NEWS), contains("80/100회"), eq(List.of(DiscordMention.DEV)));
+        verify(notifier).send(eq(DiscordChannel.ALERTS), contains("80/100회"), eq(List.of(DiscordMention.DEV)));
     }
 
     @Test
@@ -70,7 +70,7 @@ class LimitAlertServiceTest {
 
         service.countGeminiCall();
 
-        verify(notifier).send(eq(DiscordChannel.NEWS), contains("95회 넘음"), eq(List.of(DiscordMention.DEV)));
+        verify(notifier).send(eq(DiscordChannel.ALERTS), contains("95회 넘음"), eq(List.of(DiscordMention.DEV)));
         verify(notifier, never()).send(any(), contains("80회 넘음"), anyList());
     }
 
@@ -89,7 +89,7 @@ class LimitAlertServiceTest {
         service.checkOpenRouterBalance();
         service.checkOpenRouterBalance();
 
-        verify(notifier).send(eq(DiscordChannel.NEWS), contains("$3.20"),
+        verify(notifier).send(eq(DiscordChannel.ALERTS), contains("$3.20"),
                 eq(List.of(DiscordMention.DEV, DiscordMention.OPS)));
     }
 
