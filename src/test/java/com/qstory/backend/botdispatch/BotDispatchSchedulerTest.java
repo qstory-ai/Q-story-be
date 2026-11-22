@@ -46,7 +46,7 @@ class BotDispatchSchedulerTest {
 
     @BeforeEach
     void setUp() {
-        when(notifier.configured(DiscordChannel.NEWS)).thenReturn(true);
+        when(notifier.configured(DiscordChannel.ALERTS)).thenReturn(true);
         when(notifier.send(any(), anyString(), anyList())).thenReturn(true);
     }
 
@@ -98,7 +98,7 @@ class BotDispatchSchedulerTest {
         scheduler.run(SYNC);
 
         verify(state, times(2)).markOnce("bot-dispatch-linear-notion-sync.yml", KST_DAY);
-        verify(notifier, times(1)).send(eq(DiscordChannel.NEWS), contains("status=403"), eq(List.of(DiscordMention.DEV)));
+        verify(notifier, times(1)).send(eq(DiscordChannel.ALERTS), contains("status=403"), eq(List.of(DiscordMention.DEV)));
     }
 
     @Test
@@ -109,7 +109,7 @@ class BotDispatchSchedulerTest {
 
         scheduler(null, "token", SYNC).run(SYNC);
 
-        verify(notifier).send(eq(DiscordChannel.NEWS), contains("HttpTimeoutException"), anyList());
+        verify(notifier).send(eq(DiscordChannel.ALERTS), contains("HttpTimeoutException"), anyList());
     }
 
     @Test
@@ -128,7 +128,7 @@ class BotDispatchSchedulerTest {
     void newsChannelOffSkipsAlertBookkeeping() {
         when(client.dispatch(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(new GitHubDispatchClient.Result(500, null));
-        when(notifier.configured(DiscordChannel.NEWS)).thenReturn(false);
+        when(notifier.configured(DiscordChannel.ALERTS)).thenReturn(false);
 
         scheduler(null, "token", SYNC).run(SYNC);
 

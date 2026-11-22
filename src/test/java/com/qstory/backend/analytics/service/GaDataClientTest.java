@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.config.GaProperties;
+import com.qstory.backend.common.util.ServiceAccountJson;
 import java.io.ByteArrayOutputStream;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -161,9 +162,9 @@ class GaDataClientTest {
     @Test
     void serviceAccountMayBeRawJsonOrBase64() {
         String json = "{\"type\":\"service_account\"}";
-        assertEquals(json, GaDataClient.decodeServiceAccount("  " + json + "\n"));
-        assertEquals(json, GaDataClient.decodeServiceAccount(Base64.getEncoder().encodeToString(json.getBytes(StandardCharsets.UTF_8))));
-        assertNull(GaDataClient.decodeServiceAccount("plain text"));
+        assertEquals(json, ServiceAccountJson.decode("  " + json + "\n"));
+        assertEquals(json, ServiceAccountJson.decode(Base64.getEncoder().encodeToString(json.getBytes(StandardCharsets.UTF_8))));
+        assertNull(ServiceAccountJson.decode("plain text"));
     }
 
     @Test

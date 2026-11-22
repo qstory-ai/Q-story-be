@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.qstory.backend.common.enums.EventName;
+import com.qstory.backend.betaevents.EventName;
 import com.qstory.backend.common.error.ApiException;
 import java.time.Instant;
 import java.util.UUID;

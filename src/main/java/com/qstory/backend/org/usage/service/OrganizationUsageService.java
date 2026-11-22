@@ -1,6 +1,7 @@
 package com.qstory.backend.org.usage.service;
 
 import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.org.OrganizationAccess;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.org.entity.Organization;
@@ -69,7 +70,7 @@ public class OrganizationUsageService {
                                         ? completion.getClassGroup().getName()
                                         : completion.getUser().getDisplayName(),
                         completion.getCompletedAt(),
-                        completion.sessionKind(),
+                        completion.sessionKind().name(),
                         completion.getClassGroup() == null ? null : completion.getClassGroup().getName()))
                 .toList();
 
@@ -83,9 +84,7 @@ public class OrganizationUsageService {
     }
 
     private Organization requireOwnedByCaller(CurrentUser caller, UUID organizationId) {
-        if (caller.orgId() == null || !caller.orgId().equals(organizationId)) {
-            throw ApiException.contractError(ErrorCode.FORBIDDEN, "이 기관에 접근할 권한이 없어요.", 403);
-        }
+        OrganizationAccess.requireDirectorOf(caller, organizationId);
         return organizationRepository.findById(organizationId)
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "기관을 찾을 수 없어요.", 404));
     }

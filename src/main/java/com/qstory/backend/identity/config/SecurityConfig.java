@@ -94,7 +94,7 @@ public class SecurityConfig {
     }
 
     /**
-     * 환경별 allowed-origins(프로필 yml 또는 ALLOWED_ORIGINS 환경변수가 통째로 결정) + 네이티브 앱
+     * allowed-origins(배포 환경은 ALLOWED_ORIGINS 환경변수가 통째로 결정) + 네이티브 앱
      * WebView 출처(application.yml의 qstory.native-origins, 환경과 무관하게 항상).
      */
     List<String> effectiveAllowedOrigins() {

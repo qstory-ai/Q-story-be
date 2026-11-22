@@ -9,9 +9,8 @@ import com.qstory.backend.betaevents.entity.StoryEvent;
 import com.qstory.backend.betaevents.entity.StorySession;
 import com.qstory.backend.betaevents.repository.BetaEventRepository;
 import com.qstory.backend.betaevents.util.BetaEventValidator;
-import com.qstory.backend.common.enums.EventName;
-import com.qstory.backend.common.enums.EventSource;
-import com.qstory.backend.shadow.service.ShadowIntentCollectionService;
+import com.qstory.backend.betaevents.EventName;
+import com.qstory.backend.betaevents.EventSource;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,7 +33,7 @@ class BetaEventServiceBatchTest {
         }
     };
     private final BetaEventService service =
-            new BetaEventService(repository, mock(ShadowIntentCollectionService.class), transactions);
+            new BetaEventService(repository, transactions);
     private final List<StoryEvent> saved = new ArrayList<>();
 
     private BetaEventIngestQueue.Pending pending(Instant receivedAt) {

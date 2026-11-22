@@ -1,6 +1,7 @@
 package com.qstory.backend.ratelimit;
 
 import com.qstory.backend.common.util.DigestUtil;
+import com.qstory.backend.common.log.LogEvents;
 import com.qstory.backend.identity.security.CurrentUser;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Clock;
@@ -158,7 +159,7 @@ public class RateLimitService {
             suppressedLogs.incrementAndGet();
             return;
         }
-        log.warn("rate-limit.blocked group={} key={} suppressed={}", group, hashKey(key), suppressedLogs.getAndSet(0));
+        log.warn(LogEvents.RATE_LIMIT_BLOCKED + " group={} key={} suppressed={}", group, hashKey(key), suppressedLogs.getAndSet(0));
     }
 
     /** 로그용 키 - 주소·계정 id 원문을 남기지 않는다. 같은 키는 같은 값이라 한 클라이언트가 반복하는지는 보인다. */
@@ -180,8 +181,8 @@ public class RateLimitService {
     static String safeDetail(RateLimitRule rule, long retryAfterSeconds) {
         String wait = waitPhrase(retryAfterSeconds);
         return switch (rule) {
-            case TTS, TTS_ANONYMOUS_HOURLY, COMPANION_CHAT, COMPANION_CHAT_GLOBAL, STT, STT_GLOBAL,
-                    QUESTION_ROUTE, QUESTION_ROUTE_GLOBAL -> "그레텔이 잠깐 쉬고 있어. 잠시 후에 다시 말해 줘.";
+            case TTS, TTS_ANONYMOUS_HOURLY, COMPANION_CHAT, COMPANION_CHAT_GLOBAL, STT, STT_GLOBAL ->
+                    "그레텔이 잠깐 쉬고 있어. 잠시 후에 다시 말해 줘.";
             case LOGIN_CLIENT, LOGIN_ACCOUNT, LOGIN_ID ->
                     "로그인 시도가 너무 많아요. " + wait + " 다시 시도해 주세요.";
             case SIGNUP, SIGNUP_STAFF -> "가입 요청이 너무 많아요. " + wait + " 다시 시도해 주세요.";

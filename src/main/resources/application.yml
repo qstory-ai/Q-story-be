@@ -11,7 +11,7 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 40s
   # No SPRING_PROFILES_ACTIVE set -> falls back to "dev" (see application-dev.yml/-staging.yml/-prod.yml
-  # for what differs per environment: allowed-origins, log level, SQL logging).
+  # for what differs per environment: log level, SQL logging, rate-limit client IP header).
   profiles:
     default: dev
   servlet:
@@ -67,6 +67,8 @@ spring:
 qstory:
   # dev·staging·prod 프로필 yml이 각자 덮어쓰므로 이 기본값은 그 밖의 프로필로 띄울 때만 쓰인다. 옛 출처(chatgpt.site 시범판,
   # start.·dev.·demo.api.)는 뺐다 - 운영 값은 application-prod.yml과 Railway의 ALLOWED_ORIGINS가 정한다.
+  # 브라우저 출처 허용 목록 - 배포 환경은 Railway의 ALLOWED_ORIGINS가 통째로 정한다(프로필 yml에는 없다). 아래는 그 변수가
+  # 없을 때(로컬)의 기본값. 네이티브 앱 출처는 native-origins에 따로 두고 SecurityConfig가 합친다.
   allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006,http://localhost:5173,http://127.0.0.1:5173,https://qstory.ai.kr,https://www.qstory.ai.kr,https://play.qstory.ai.kr,https://demo.qstory.ai.kr}
   # 태블릿·폰 네이티브 앱(Capacitor WebView)의 출처 - fe/q-story-web/capacitor.config.ts의
   # server.hostname(app.qstory.ai.kr)에 Android는 https, iOS는 capacitor 스킴이 붙는다.
@@ -129,8 +131,6 @@ qstory:
       companion-chat-global: { requests: 1200, window: 1h }
       stt: { requests: 40, window: 5m }
       stt-global: { requests: 1500, window: 1h }
-      question-route: { requests: 30, window: 5m }
-      question-route-global: { requests: 1200, window: 1h }
       login-client: { requests: 30, window: 15m }
       login-account: { requests: 10, window: 15m }
       login-id: { requests: 50, window: 1h }
@@ -145,6 +145,7 @@ qstory:
       play-session-turns: { requests: 60, window: 1m }
       beta-events: { requests: 120, window: 1m }
       client-errors: { requests: 120, window: 1m }
+      client-errors-global: { requests: 600, window: 1m }
       recording-consents: { requests: 30, window: 1h }
       launch-notifications: { requests: 10, window: 1h }
       completion-surveys: { requests: 10, window: 1h }
@@ -159,19 +160,22 @@ qstory:
     open-router:
       api-key: ${OPENROUTER_API_KEY:}
       llm-model: ${OPENROUTER_LLM_MODEL:google/gemini-3.6-flash}
-      # 3단계 라우팅 파이프라인의 1단계(safety_scope_gate) 전용 - 빠르고 저렴한 모델. 따로 지정하지
-      # 않으면 llm-model과 같은 모델을 쓴다.
-      safety-model: ${OPENROUTER_SAFETY_MODEL:${OPENROUTER_LLM_MODEL:google/gemini-3.6-flash}}
       image-model: ${OPENROUTER_IMAGE_MODEL:google/gemini-3.1-flash-image}
       # 텍스트(JSON 스키마) 호출의 대체 모델(쉼표로 구분, 순서대로). 기본 모델이 한도 초과·장애로 실패하면
       # OpenRouter가 다음 모델로 넘긴다. 비우면 대체 없이 기본 모델만 쓴다. 이미지 모델에는 쓰지 않는다.
       # gpt-oss-120b는 뺐다 - 그레텔 답 스트리밍에서 글을 돌려주지 않아(추론만) 아이에게 오류가 떴다(10/25).
       llm-fallback-models: ${OPENROUTER_LLM_FALLBACK_MODELS:anthropic/claude-haiku-4.5}
-    # TTS는 OpenRouter를 거치지 않고 Gemini의 Interactions API(generativelanguage.googleapis.com)를
-    # 직접 호출한다 - gemini-*-tts-preview 모델과 Sulafat 등 프리셋 목소리는 OpenRouter 카탈로그에 없다.
+    # TTS는 OpenRouter를 거치지 않고 Gemini API(generativelanguage.googleapis.com)를
+    # 직접 호출한다 - Gemini TTS 모델과 Sulafat 등 프리셋 목소리는 OpenRouter 카탈로그에 없다.
+    # gemini-3.1-flash-tts-preview가 2026-12-18 종료라 3.8로 옮겼다.
+    # 2026-11-21 dev 실측 첫 소리: 3.1 1.1초, 3.8-lite 0.8초, 3.8-flash 1.0초.
     gemini:
       api-key: ${GEMINI_API_KEY:}
-      tts-model: ${GEMINI_TTS_MODEL:gemini-3.1-flash-tts-preview}
+      # 실시간 답 음성(큐돌이·그레텔 답). lite가 더 빠르지만 고정 나레이션과 목소리가 달라 flash로 맞췄다(2026-11-21 청취).
+      # 빠르기가 더 중요해지면 gemini-3.8-flash-lite-tts로 바꾼다.
+      tts-model: ${GEMINI_TTS_MODEL:gemini-3.8-flash-tts}
+      # 선택지 음성 미리 만들기와 관리자 나레이션 다시 만들기. 고정 나레이션 사이에 끼므로 음질 모델. 비우면 tts-model.
+      narration-tts-model: ${GEMINI_NARRATION_TTS_MODEL:gemini-3.8-flash-tts}
       tts-voice: ${GEMINI_TTS_VOICE:Sulafat}
       # 선택지 음성 미리 만들기 전용 키(기본 키의 하루 한도와 분리). 비면 prefetch 요청은 TTS 호출 없이 409.
       prefetch-api-key: ${GEMINI_TTS_PREFETCH_API_KEY:}
@@ -198,7 +202,6 @@ qstory:
     url: ${SUPABASE_URL:}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
     voice-research-bucket: ${SUPABASE_VOICE_RESEARCH_BUCKET:qstory-voice-research}
-    shadow-assets-bucket: ${SUPABASE_SHADOW_ASSETS_BUCKET:qstory-shadow-assets}
     # 임포트된 정적 내레이션/브릿지 오디오(`<slug>/audio/x.mp3`, fe `npm run assets:upload`가 올림)와
     # 편집된 문장에서 재렌더링된 내레이션(`<storyId>/<segmentId>.mp3`)이 함께 사는 공개 버킷.
     # GET /v1/stories/{id}/content의 asset.url은 여기 공개 URL이다(StoryAssetUrls).
@@ -208,7 +211,8 @@ qstory:
     story-image-bucket: ${SUPABASE_STORY_IMAGE_BUCKET:qstory-story-images}
     profile-image-bucket: ${SUPABASE_PROFILE_IMAGE_BUCKET:qstory-profile-images}
   admin:
-    story-import-token: ${QSTORY_STORY_IMPORT_TOKEN:}
+    # 운영자 엔드포인트(X-Admin-Token)의 공유 비밀값. 예전 이름(QSTORY_STORY_IMPORT_TOKEN)도 당분간 읽는다.
+    token: ${QSTORY_ADMIN_TOKEN:${QSTORY_STORY_IMPORT_TOKEN:}}
   conversation-record:
     # 아이의 발화 원문·캐릭터 답을 남기는 conversation_record(db/schema/052)의 보존 일수.
     # ConversationRecordRetentionScheduler가 매일 이보다 오래된 행을 지운다. 0 이하 = 삭제 안 함.
@@ -246,6 +250,8 @@ qstory:
     webhook-metrics: ${DISCORD_WEBHOOK_METRICS:}
     webhook-deploy: ${DISCORD_WEBHOOK_DEPLOY:}
     webhook-news: ${DISCORD_WEBHOOK_NEWS:}
+    # #경보(한도·비용 경고, 봇 실행 실패). 비우면 #소식으로 보낸다.
+    webhook-alerts: ${DISCORD_WEBHOOK_ALERTS:}
     # 역할 멘션(<@&ID>). 비어 있으면 멘션 없이 보낸다. 운영 = 경영·영업, 개발 = 개발.
     role-ops-id: ${DISCORD_ROLE_OPS_ID:}
     role-dev-id: ${DISCORD_ROLE_DEV_ID:}

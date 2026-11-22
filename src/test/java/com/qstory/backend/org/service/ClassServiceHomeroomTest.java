@@ -14,13 +14,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.identity.service.AuthService;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
-import com.qstory.backend.identity.security.JwtService;
-import com.qstory.backend.identity.service.UserSummaryFactory;
-import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.dto.ClassReportResponse;
 import com.qstory.backend.org.dto.ClassStudentReportResponse;
@@ -47,7 +45,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * 담임 변경 정책(Q-35): 지난 수업·리포트는 그때 선생님 것으로 남고, 명단 학생과 아직 시작하지 않은 수업만 새
@@ -64,11 +61,19 @@ class ClassServiceHomeroomTest {
     private final NotificationPublisher notificationPublisher = mock(NotificationPublisher.class);
     private final StudentClassHistoryService classHistoryService = mock(StudentClassHistoryService.class);
     private final ClassService service = new ClassService(
-            classGroupRepository, tutorStudentRepository, organizationTutorRepository, mock(AppUserRepository.class),
-            mock(OrganizationService.class), mock(JoinCodeGenerator.class), mock(AuthValidator.class),
-            mock(PasswordEncoder.class), mock(JwtService.class), mock(TutorStudentService.class),
-            mock(UserSummaryFactory.class), storyCompletionRepository, lessonRepository, historyService,
-            mock(com.qstory.backend.identity.service.ConsentService.class), notificationPublisher, classHistoryService);
+            classGroupRepository,
+            tutorStudentRepository,
+            organizationTutorRepository,
+            mock(AppUserRepository.class),
+            mock(OrganizationService.class),
+            mock(JoinCodeGenerator.class),
+            mock(AuthService.class),
+            mock(TutorStudentService.class),
+            storyCompletionRepository,
+            lessonRepository,
+            historyService,
+            notificationPublisher,
+            classHistoryService);
 
     private final Organization organization = Organization.builder().id(UUID.randomUUID()).name("햇살유치원").build();
     private final CurrentUser director = new CurrentUser(UUID.randomUUID(), Role.DIRECTOR, organization.getId());

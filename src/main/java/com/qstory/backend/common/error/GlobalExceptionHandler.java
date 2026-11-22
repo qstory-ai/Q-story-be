@@ -1,6 +1,7 @@
 package com.qstory.backend.common.error;
 
 import com.qstory.backend.common.web.RequestIdFilter;
+import com.qstory.backend.common.log.LogEvents;
 import com.qstory.backend.ratelimit.RateLimitedException;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -44,7 +45,7 @@ public class GlobalExceptionHandler {
         // 등)이며, respond()는 그 safeDetail을 숨긴다 - 그러므로 이 로그가 없으면 실제로 무엇이
         // 고장났는지 설명하는 그 한 문장이 양쪽 어디에도 도달하지 못한다.
         if (error.statusCode() >= 500) {
-            log.error("request.failed requestId={} code={} safeDetail={}",
+            log.error(LogEvents.REQUEST_FAILED + " requestId={} code={} safeDetail={}",
                     currentRequestId(), error.code(), error.safeDetail(), error);
         }
         return respond(error.statusCode(), error.code(), error.safeDetail());
@@ -100,7 +101,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<FailureBody> handleUnexpected(Exception error) {
-        log.error("request.failed requestId={}", currentRequestId(), error);
+        log.error(LogEvents.REQUEST_FAILED + " requestId={}", currentRequestId(), error);
         return respond(500, ErrorCode.INTERNAL_ERROR, null);
     }
 

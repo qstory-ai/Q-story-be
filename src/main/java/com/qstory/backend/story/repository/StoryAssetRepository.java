@@ -1,6 +1,6 @@
 package com.qstory.backend.story.repository;
 
-import com.qstory.backend.common.enums.AssetCategory;
+import com.qstory.backend.story.AssetCategory;
 import com.qstory.backend.story.entity.StoryAsset;
 import java.util.List;
 import java.util.Optional;

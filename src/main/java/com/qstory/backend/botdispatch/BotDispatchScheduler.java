@@ -97,12 +97,12 @@ public class BotDispatchScheduler implements SchedulingConfigurer {
         String key = ALERT_KEY_PREFIX + workflow;
         LocalDate day = LocalDate.now(clock.withZone(KST));
         try {
-            if (!notifier.configured(DiscordChannel.NEWS) || !state.markOnce(key, day)) {
+            if (!notifier.configured(DiscordChannel.ALERTS) || !state.markOnce(key, day)) {
                 return;
             }
             String text = "**[봇]** `" + workflow + "` 정시 실행 요청이 실패했어요 (" + reason + "). "
                     + "예비 schedule로 늦게 돌 수 있어요. 이 워크플로 알림은 오늘 다시 보내지 않아요.";
-            if (!notifier.send(DiscordChannel.NEWS, text, List.of(DiscordMention.DEV))) {
+            if (!notifier.send(DiscordChannel.ALERTS, text, List.of(DiscordMention.DEV))) {
                 state.unmark(key, day);
             }
         } catch (RuntimeException failure) {

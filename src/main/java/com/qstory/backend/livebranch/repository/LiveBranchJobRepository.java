@@ -1,6 +1,6 @@
 package com.qstory.backend.livebranch.repository;
 
-import com.qstory.backend.common.enums.LiveBranchJobStatus;
+import com.qstory.backend.livebranch.LiveBranchJobStatus;
 import com.qstory.backend.livebranch.entity.LiveBranchJob;
 import java.time.Instant;
 import java.util.List;

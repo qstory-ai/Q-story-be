@@ -1,7 +1,7 @@
 package com.qstory.backend.story.entity;
 
-import com.qstory.backend.common.enums.RevisionOperation;
-import com.qstory.backend.common.enums.RevisionTarget;
+import com.qstory.backend.story.RevisionOperation;
+import com.qstory.backend.story.RevisionTarget;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

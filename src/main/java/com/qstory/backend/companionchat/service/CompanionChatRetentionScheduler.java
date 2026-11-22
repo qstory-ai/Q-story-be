@@ -1,6 +1,7 @@
 package com.qstory.backend.companionchat.service;
 
 import com.qstory.backend.companionchat.repository.CompanionChatTurnRepository;
+import com.qstory.backend.common.log.LogEvents;
 import java.time.Duration;
 import java.time.Instant;
 import org.slf4j.Logger;
@@ -37,7 +38,7 @@ public class CompanionChatRetentionScheduler {
         } catch (Exception error) {
             // 스케줄러 예외를 삼키지 않고 로그로 남긴다 - Spring이 자동 재시도를 하지 않으므로 이 태그가
             // 없으면 하루 지나 다시 돌 때까지 실패가 조용히 묻힌다. 며칠 이어지면 90일 보존 원칙이 깨진다.
-            log.error("companion-chat-retention.failed reason={}", error.toString(), error);
+            log.error(LogEvents.COMPANION_CHAT_RETENTION_FAILED + " reason={}", error.toString(), error);
             throw error;
         }
     }

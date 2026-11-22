@@ -1,7 +1,7 @@
 package com.qstory.backend.conversationrecord.entity;
 
-import com.qstory.backend.common.enums.ConversationInputMode;
-import com.qstory.backend.common.enums.ConversationRecordKind;
+import com.qstory.backend.conversationrecord.ConversationInputMode;
+import com.qstory.backend.conversationrecord.ConversationRecordKind;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

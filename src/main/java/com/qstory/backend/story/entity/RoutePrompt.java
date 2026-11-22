@@ -36,11 +36,11 @@ public class RoutePrompt {
     @Column(nullable = false, unique = true)
     private String version;
 
-    /** 공백으로 이어붙인 줄들이 system 메시지를 이룬다. 버전 줄은 요청 시점에 맨 앞에 덧붙는다. */
+    /** 옛 질문 라우팅의 system 프롬프트. 런타임은 읽지 않지만 NOT NULL 칸이라 임포트가 계속 채운다. */
     @Column(name = "system_text", nullable = false, columnDefinition = "text")
     private String systemText;
 
-    /** 공백으로 이어붙인 줄들이 요청 페이로드의 "instruction" 필드를 이룬다. */
+    /** 옛 질문 라우팅의 instruction 텍스트. systemText와 같은 이유로 저장만 한다. */
     @Column(name = "instruction_text", nullable = false, columnDefinition = "text")
     private String instructionText;
 

@@ -36,6 +36,10 @@ final class StoryView {
         this.familyMeanings = familyMeanings;
     }
 
+    String title() {
+        return title;
+    }
+
     static StoryView of(JsonNode content) {
         JsonNode packageData = content.path("packageData");
         JsonNode story = packageData.path("story");

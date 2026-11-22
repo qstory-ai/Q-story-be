@@ -69,7 +69,7 @@ class DemoReportAnalysisServiceTest {
         worker.runOne(SESSION);
 
         verify(store).finish(eq(SESSION), eq("SKIPPED"), any(), any(), any(), any());
-        verify(analysis, never()).analyze(any());
+        verify(analysis, never()).analyzeWithModel(any());
     }
 
     @Test
@@ -80,13 +80,18 @@ class DemoReportAnalysisServiceTest {
         when(store.job(SESSION)).thenReturn(new DemoReportAnalysisStore.Job(SESSION, "HG", "HG-F01", "HG-F10"));
         when(content.get("HG")).thenReturn(JsonNodeFactory.instance.objectNode());
         when(playSessions.listAnonymousTurns(SESSION)).thenReturn(List.of(Map.of("seq", 1, "role", "CHILD", "text", "왜?")));
-        when(analysis.analyze(any())).thenReturn(Map.of("observations", List.of(), "cards", List.of()));
+        when(analysis.modelId()).thenReturn("google/gemini-3.6-flash");
+        when(analysis.analyzeWithModel(any())).thenReturn(new ReportAnalysisService.Analysis(
+                Map.of("observations", List.of(), "cards", List.of()), "google/gemini-3.6-flash,anthropic/claude-haiku-4.5"));
 
         worker.runOne(SESSION);
-        verify(store).finish(eq(SESSION), eq("READY"), any(), any(), any(), eq(null));
+        // 설정된 모델이 아니라 실제로 답한 모델들을 남긴다.
+        verify(store).finish(eq(SESSION), eq("READY"), eq("google/gemini-3.6-flash,anthropic/claude-haiku-4.5"),
+                any(), any(), eq(null));
 
-        when(analysis.analyze(any())).thenThrow(new IllegalStateException("model down"));
+        when(analysis.analyzeWithModel(any())).thenThrow(new IllegalStateException("model down"));
         worker.runOne(SESSION);
-        verify(store).finish(eq(SESSION), eq("FAILED"), any(), any(), eq(null), anyString());
+        // 실패하면 누가 답했는지 모르므로 설정된 모델.
+        verify(store).finish(eq(SESSION), eq("FAILED"), eq("google/gemini-3.6-flash"), any(), eq(null), anyString());
     }
 }

@@ -1,7 +1,7 @@
 package com.qstory.backend.betaevents.entity;
 
-import com.qstory.backend.common.enums.EntrySource;
-import com.qstory.backend.common.enums.TrafficType;
+import com.qstory.backend.betaevents.EntrySource;
+import com.qstory.backend.betaevents.TrafficType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

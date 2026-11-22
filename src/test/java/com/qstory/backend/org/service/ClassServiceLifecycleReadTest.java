@@ -11,15 +11,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.identity.service.AuthService;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
-import com.qstory.backend.identity.security.JwtService;
-import com.qstory.backend.identity.service.ConsentService;
-import com.qstory.backend.identity.service.UserSummaryFactory;
-import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassReportResponse;
@@ -48,7 +45,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * 076 읽기 규칙: 지난 반의 반 코드는 410, 원장 목록은 기본으로 지난 반을 뺀다, 졸업생은 지금 명단에서 빠지고
@@ -67,11 +63,19 @@ class ClassServiceLifecycleReadTest {
     private final TutorStudentService tutorStudentService = mock(TutorStudentService.class);
     private final AppUserRepository userRepository = mock(AppUserRepository.class);
     private final ClassService service = new ClassService(
-            classGroupRepository, tutorStudentRepository, organizationTutorRepository, userRepository,
-            organizationService, mock(JoinCodeGenerator.class), mock(AuthValidator.class),
-            mock(PasswordEncoder.class), mock(JwtService.class), tutorStudentService,
-            mock(UserSummaryFactory.class), completionRepository, mock(LessonRepository.class), homeroomHistoryService,
-            mock(ConsentService.class), mock(NotificationPublisher.class), classHistoryService);
+            classGroupRepository,
+            tutorStudentRepository,
+            organizationTutorRepository,
+            userRepository,
+            organizationService,
+            mock(JoinCodeGenerator.class),
+            mock(AuthService.class),
+            tutorStudentService,
+            completionRepository,
+            mock(LessonRepository.class),
+            homeroomHistoryService,
+            mock(NotificationPublisher.class),
+            classHistoryService);
 
     private final Organization organization = Organization.builder().id(UUID.randomUUID()).name("햇살유치원").build();
     private final CurrentUser director = new CurrentUser(UUID.randomUUID(), Role.DIRECTOR, organization.getId());

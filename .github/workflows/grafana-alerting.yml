@@ -1,4 +1,4 @@
-# Grafana Cloud 알림 규칙 파이프라인 - Railway가 굴리는 앱 배포와는 완전히 독립.
+# Grafana Cloud 알림 규칙 파이프라인 - 가비아 서버의 앱 배포(ops/gabia)와는 완전히 독립.
 # 이 워크플로는 `ops/grafana-alerting/**`가 바뀔 때만 돌고, Grafana Cloud API를 호출해
 # 알림 규칙/컨택트 포인트를 조정한다. 앱 코드/DB 마이그레이션과 서로 재배포를 유발하지 않는다.
 #

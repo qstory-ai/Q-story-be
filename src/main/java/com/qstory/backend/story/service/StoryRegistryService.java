@@ -8,7 +8,7 @@ import com.qstory.backend.story.CastEntry;
 import com.qstory.backend.story.CompanionPersona;
 import com.qstory.backend.story.Anchor;
 
-import com.qstory.backend.common.enums.StoryAvailability;
+import com.qstory.backend.story.StoryAvailability;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.entitlement.service.EntitlementService;

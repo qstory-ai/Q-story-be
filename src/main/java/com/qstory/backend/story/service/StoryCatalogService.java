@@ -1,7 +1,7 @@
 package com.qstory.backend.story.service;
 import com.qstory.backend.story.StoryManifest;
 
-import com.qstory.backend.common.enums.StoryAvailability;
+import com.qstory.backend.story.StoryAvailability;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.entitlement.service.EntitlementService;

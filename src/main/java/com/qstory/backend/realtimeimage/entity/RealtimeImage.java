@@ -1,7 +1,7 @@
 package com.qstory.backend.realtimeimage.entity;
 
-import com.qstory.backend.common.enums.RealtimeImageKind;
-import com.qstory.backend.common.enums.RealtimeImageStatus;
+import com.qstory.backend.realtimeimage.RealtimeImageKind;
+import com.qstory.backend.realtimeimage.RealtimeImageStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -62,6 +62,10 @@ public class RealtimeImage {
 
     @Column(name = "prompt_hash")
     private String promptHash;
+
+    /** 그림 프롬프트 판(RealtimeImagePrompts.versionFor) - 판끼리 결과를 비교하려고 남긴다. 예전 행은 null. */
+    @Column(name = "prompt_version", length = 64)
+    private String promptVersion;
 
     @Column(name = "error_code")
     private String errorCode;

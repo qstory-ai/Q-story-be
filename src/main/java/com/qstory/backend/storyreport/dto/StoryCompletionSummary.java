@@ -42,7 +42,7 @@ public record StoryCompletionSummary(
                 completion.getCompanionChatSummary(),
                 completion.getTutorStudent() == null ? null : completion.getTutorStudent().getId(),
                 completion.getLesson() == null ? null : completion.getLesson().getId(),
-                completion.sessionKind(),
+                completion.sessionKind().name(),
                 completion.getParticipants().size(),
                 completion.getEndStatus(),
                 completion.classNameSnapshot());

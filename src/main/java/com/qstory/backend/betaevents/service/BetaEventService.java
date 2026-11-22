@@ -2,13 +2,12 @@ package com.qstory.backend.betaevents.service;
 import com.qstory.backend.betaevents.repository.BetaEventRepository;
 import com.qstory.backend.betaevents.util.BetaEventValidator;
 
-import com.qstory.backend.common.enums.EntrySource;
-import com.qstory.backend.common.enums.EventName;
-import com.qstory.backend.common.enums.EventSource;
-import com.qstory.backend.common.enums.TrafficType;
+import com.qstory.backend.betaevents.EntrySource;
+import com.qstory.backend.betaevents.EventName;
+import com.qstory.backend.betaevents.EventSource;
+import com.qstory.backend.betaevents.TrafficType;
 import com.qstory.backend.betaevents.entity.StoryEvent;
 import com.qstory.backend.betaevents.entity.StorySession;
-import com.qstory.backend.shadow.service.ShadowIntentCollectionService;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -20,7 +19,7 @@ import org.springframework.transaction.support.TransactionOperations;
 
 /**
  * 베타 이벤트의 세션 upsert와 이벤트 insert를 하나의 트랜잭션 안에서 처리한다. 요청 스레드가 아니라
- * BetaEventIngestQueue의 저장 스레드가 묶음으로 부른다. 세션당 보내기 한도(429)는 요청에서 BetaEventRateLimiter가 본다.
+ * BetaEventIngestQueue의 저장 스레드가 묶음으로 부른다. 보내기 한도(429)는 요청에서 RateLimitFilter가 본다.
  */
 @Service
 public class BetaEventService {
@@ -29,14 +28,12 @@ public class BetaEventService {
     private static final String STORY_ID = "hansel-gretel";
 
     private final BetaEventRepository repository;
-    private final ShadowIntentCollectionService shadowIntentCollectionService;
     private final TransactionOperations transactions;
 
     public BetaEventService(
-            BetaEventRepository repository, ShadowIntentCollectionService shadowIntentCollectionService,
+            BetaEventRepository repository,
             TransactionOperations transactions) {
         this.repository = repository;
-        this.shadowIntentCollectionService = shadowIntentCollectionService;
         this.transactions = transactions;
     }
 
@@ -94,7 +91,7 @@ public class BetaEventService {
         }
         repository.saveSession(session);
 
-        StoryEvent savedEvent = repository.saveEvent(StoryEvent.builder()
+        repository.saveEvent(StoryEvent.builder()
                 .id(event.eventId())
                 .session(session)
                 .eventName(event.eventName())
@@ -103,10 +100,6 @@ public class BetaEventService {
                 .receivedAt(now)
                 .metadata(event.metadata())
                 .build());
-
-        if (event.eventName() == EventName.QUESTION_RESULT) {
-            shadowIntentCollectionService.collectFromQuestionResultEvent(savedEvent, session);
-        }
     }
 
     private void applyEventToSession(StorySession session, BetaEventValidator.ParsedEvent event, Instant now) {

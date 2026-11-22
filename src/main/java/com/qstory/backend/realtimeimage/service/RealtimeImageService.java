@@ -1,11 +1,11 @@
 package com.qstory.backend.realtimeimage.service;
 
-import com.qstory.backend.common.enums.RealtimeImageKind;
-import com.qstory.backend.common.enums.RealtimeImageStatus;
+import com.qstory.backend.realtimeimage.RealtimeImageKind;
+import com.qstory.backend.realtimeimage.RealtimeImageStatus;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.config.RealtimeImageProperties;
 import com.qstory.backend.provider.higgsfield.util.HiggsfieldImageClient;
-import com.qstory.backend.common.util.SupabaseStorageClient;
+import com.qstory.backend.common.storage.SupabaseStorageClient;
 import com.qstory.backend.realtimeimage.entity.RealtimeImage;
 import com.qstory.backend.realtimeimage.repository.RealtimeImageRepository;
 import com.qstory.backend.story.entity.Story;
@@ -118,6 +118,7 @@ public class RealtimeImageService {
                 .storyId(storyId)
                 .anchorId(anchorId)
                 .kind(kind)
+                .promptVersion(RealtimeImagePrompts.versionFor(kind))
                 .status(RealtimeImageStatus.QUEUED)
                 .createdAt(now)
                 .updatedAt(now)
@@ -128,6 +129,7 @@ public class RealtimeImageService {
     public Generated generate(RealtimeImage reservation, String prompt, List<String> referenceUrls) {
         long startedAt = System.currentTimeMillis();
         reservation.setPromptHash(sha256(prompt).substring(0, 16));
+        reservation.setPromptVersion(RealtimeImagePrompts.versionFor(reservation.getKind()));
         update(reservation, RealtimeImageStatus.GENERATING, null);
         try {
             HiggsfieldImageClient.Image image = client.generate(

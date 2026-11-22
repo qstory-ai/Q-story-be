@@ -1,5 +1,6 @@
 package com.qstory.backend.companionchat.controller;
 
+import com.qstory.backend.companionchat.CompanionAudioRequest;
 import com.qstory.backend.companionchat.DialogueInput;
 import com.qstory.backend.story.Anchor;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -15,10 +16,9 @@ import com.qstory.backend.companionchat.repository.CompanionChatTurnRepository;
 import com.qstory.backend.companionchat.service.CompanionChatPipelineService;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.security.CurrentUserResolver;
-import com.qstory.backend.common.enums.ConversationInputMode;
+import com.qstory.backend.conversationrecord.ConversationInputMode;
 import com.qstory.backend.conversationrecord.ConversationAttribution;
 import com.qstory.backend.conversationrecord.util.ConversationAttributionParser;
-import com.qstory.backend.question.util.QuestionContractValidator;
 import com.qstory.backend.story.service.StoryRegistryService;
 import com.qstory.backend.story.service.StoryRegistryService.ResolvedCompanionContext;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,7 +35,6 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -54,7 +53,6 @@ public class CompanionChatController {
 
     private final AppProperties config;
     private final ObjectMapper objectMapper;
-    private final QuestionContractValidator contractValidator;
     private final StoryRegistryService storyRegistryService;
     private final CompanionChatPipelineService pipeline;
     private final CompanionChatTurnRepository turnRepository;
@@ -63,20 +61,18 @@ public class CompanionChatController {
     private final boolean replyStreaming;
 
     public CompanionChatController(
-            AppProperties config, ObjectMapper objectMapper, QuestionContractValidator contractValidator,
+            AppProperties config, ObjectMapper objectMapper,
             StoryRegistryService storyRegistryService, CompanionChatPipelineService pipeline,
             CompanionChatTurnRepository turnRepository, CurrentUserResolver currentUserResolver,
-            ConversationAttributionParser attributionParser,
-            @Value("${qstory.voice-streaming.companion-reply:true}") boolean replyStreaming) {
+            ConversationAttributionParser attributionParser) {
         this.config = config;
         this.objectMapper = objectMapper;
-        this.contractValidator = contractValidator;
         this.storyRegistryService = storyRegistryService;
         this.pipeline = pipeline;
         this.turnRepository = turnRepository;
         this.currentUserResolver = currentUserResolver;
         this.attributionParser = attributionParser;
-        this.replyStreaming = replyStreaming;
+        this.replyStreaming = config.voiceStreaming().companionReply();
     }
 
     @Operation(
@@ -182,9 +178,8 @@ public class CompanionChatController {
 
     @Operation(
             summary = "Transcribe a base64-encoded audio recording for companion chat",
-            description = "JSON body {audioBase64, mimeType, storyId, sceneId} - the anchor-free counterpart of "
-                    + "POST /v1/transcriptions/base64. No anchorId/questionRound field (companion chat never "
-                    + "branches).")
+            description = "JSON body {audioBase64, mimeType, storyId, sceneId}. No anchorId/questionRound field "
+                    + "(companion chat never branches).")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Transcript"),
             @ApiResponse(responseCode = "400", description = "Malformed base64, empty audio, or invalid/missing context fields",
@@ -200,8 +195,7 @@ public class CompanionChatController {
             HttpServletRequest request, HttpServletResponse response) throws IOException {
         HttpBodyReader.DecodedAudio decoded =
                 HttpBodyReader.readBase64AudioBody(request, objectMapper, config.maxAudioBytes());
-        QuestionContractValidator.CompanionAudioContext header =
-                contractValidator.parseCompanionAudioContextFromBody(decoded.body(), decoded.mimeType());
+        CompanionAudioRequest header = CompanionAudioRequest.fromBody(decoded.body(), decoded.mimeType());
         var caller = currentUserResolver.currentOrNull();
         ResolvedCompanionContext context = storyRegistryService.resolveCompanionChatContext(
                 header.storyId(), header.sceneId(), null, caller);

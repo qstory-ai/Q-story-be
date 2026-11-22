@@ -1,0 +1,12 @@
+[Unit]
+Description=Q-Story backend autodeploy (origin main -> docker compose)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/qstory
+ExecStart=/opt/qstory/autodeploy.sh
+TimeoutStartSec=40min
+Nice=5

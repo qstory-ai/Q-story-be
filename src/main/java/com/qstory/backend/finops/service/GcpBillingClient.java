@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.ServiceAccountCredentials;
-import com.qstory.backend.analytics.service.GaDataClient;
+import com.qstory.backend.common.util.ServiceAccountJson;
 import com.qstory.backend.config.GaProperties;
 import java.io.ByteArrayInputStream;
 import java.net.URI;
@@ -56,7 +56,7 @@ public class GcpBillingClient {
         GoogleCredentials creds = null;
         String project = null;
         String json = ga == null || ga.serviceAccountJson() == null || ga.serviceAccountJson().isBlank()
-                ? null : GaDataClient.decodeServiceAccount(ga.serviceAccountJson());
+                ? null : ServiceAccountJson.decode(ga.serviceAccountJson());
         if (json != null) {
             try {
                 project = objectMapper.readTree(json).path("project_id").asText(null);

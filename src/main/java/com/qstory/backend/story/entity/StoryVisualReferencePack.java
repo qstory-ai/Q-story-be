@@ -1,6 +1,6 @@
 package com.qstory.backend.story.entity;
 
-import com.qstory.backend.common.enums.VisualReferenceKind;
+import com.qstory.backend.story.VisualReferenceKind;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

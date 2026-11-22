@@ -1,7 +1,4 @@
 # Set SPRING_PROFILES_ACTIVE=staging on the deployed instance (e.g. Railway) to activate this.
-qstory:
-  allowed-origins: ${ALLOWED_ORIGINS:https://q-story-f07-pilot.kaangaa.chatgpt.site}
-
 logging:
   level:
     root: INFO

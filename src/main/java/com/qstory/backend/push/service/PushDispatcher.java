@@ -1,6 +1,7 @@
 package com.qstory.backend.push.service;
 
 import com.qstory.backend.push.repository.PushDeviceTokenRepository;
+import com.qstory.backend.common.log.LogEvents;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -57,7 +58,7 @@ public class PushDispatcher {
             executor.execute(() -> deliver(userId, message));
         } catch (RejectedExecutionException full) {
             // 대기열이 찼거나 종료 중 - 인앱 알림은 이미 저장됐으니 푸시 한 건만 놓친다.
-            log.warn("fcm.send-failed status=0 reason=queue-full disabled=false kind={}", message.kind());
+            log.warn(LogEvents.FCM_SEND_FAILED + " status=0 reason=queue-full disabled=false kind={}", message.kind());
         }
     }
 
@@ -82,7 +83,7 @@ public class PushDispatcher {
             log.info("fcm.sent count={} tokens={} disabled={} kind={} notificationId={}",
                     sent, tokens.size(), disabled, message.kind(), message.notificationId());
         } catch (RuntimeException error) {
-            log.warn("fcm.send-failed status=0 reason=dispatch-error disabled=false kind={} error={}",
+            log.warn(LogEvents.FCM_SEND_FAILED + " status=0 reason=dispatch-error disabled=false kind={} error={}",
                     message.kind(), error.getClass().getSimpleName());
         }
     }

@@ -61,8 +61,7 @@ public final class HttpBodyReader {
         }
     }
 
-    /** JSON 바디 {audioBase64, mimeType}를 읽고 디코딩한다 - /v1/transcriptions/base64와
-     * /v1/companion-chat/transcriptions/base64가 공유하는 로직. */
+    /** JSON 바디 {audioBase64, mimeType}를 읽고 디코딩한다 - /v1/companion-chat/transcriptions/base64가 쓴다. */
     public static DecodedAudio readBase64AudioBody(
             HttpServletRequest request, ObjectMapper objectMapper, long maxAudioBytes) throws IOException {
         long maxBase64RequestBytes = ((maxAudioBytes + 2) / 3) * 4 + 2_048;

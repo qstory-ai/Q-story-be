@@ -1,6 +1,7 @@
 package com.qstory.backend.storyreport.entity;
 
 import com.qstory.backend.identity.entity.AppUser;
+import com.qstory.backend.storyreport.SessionKind;
 import com.qstory.backend.org.entity.ClassGroup;
 import com.qstory.backend.org.entity.Organization;
 import com.qstory.backend.parent.child.entity.Child;
@@ -180,10 +181,10 @@ public class StoryCompletion {
         return classGroup == null ? null : classGroup.getName();
     }
 
-    /** 리포트 화면의 구분 - CLASS(반 수업), TUTOR(선생님 개별 수업), HOME(집에서 읽은 기록). */
-    public String sessionKind() {
-        if (groupSession) return "CLASS";
-        if (lesson != null || tutorStudent != null || !participants.isEmpty()) return "TUTOR";
-        return "HOME";
+    /** 리포트 화면의 구분(SessionKind) - 반 수업, 선생님 개별 수업, 집에서 읽은 기록. */
+    public SessionKind sessionKind() {
+        if (groupSession) return SessionKind.CLASS;
+        if (lesson != null || tutorStudent != null || !participants.isEmpty()) return SessionKind.TUTOR;
+        return SessionKind.HOME;
     }
 }

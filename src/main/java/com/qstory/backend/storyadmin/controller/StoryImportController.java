@@ -63,7 +63,7 @@ public class StoryImportController {
                     content = @Content(schema = @Schema(implementation = FailureBody.class))),
             @ApiResponse(responseCode = "413", description = "Body exceeds 4MB",
                     content = @Content(schema = @Schema(implementation = FailureBody.class))),
-            @ApiResponse(responseCode = "500", description = "qstory.admin.story-import-token is not configured on this instance",
+            @ApiResponse(responseCode = "500", description = "qstory.admin.token is not configured on this instance",
                     content = @Content(schema = @Schema(implementation = FailureBody.class)))
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(

@@ -3,8 +3,8 @@ package com.qstory.backend.betaevents.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.qstory.backend.betaevents.util.BetaEventValidator;
-import com.qstory.backend.common.enums.EventName;
-import com.qstory.backend.common.enums.EventSource;
+import com.qstory.backend.betaevents.EventName;
+import com.qstory.backend.betaevents.EventSource;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;

@@ -1,8 +1,8 @@
 package com.qstory.backend.betaevents.util;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.qstory.backend.common.enums.EventName;
-import com.qstory.backend.common.enums.EventSource;
+import com.qstory.backend.betaevents.EventName;
+import com.qstory.backend.betaevents.EventSource;
 import com.qstory.backend.common.error.ApiException;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.ValidationSupport;

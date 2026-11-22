@@ -1,6 +1,6 @@
 package com.qstory.backend.voiceresearch.entity;
 
-import com.qstory.backend.common.enums.CoverageStatus;
+import com.qstory.backend.voiceresearch.CoverageStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

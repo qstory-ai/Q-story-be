@@ -16,16 +16,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.qstory.backend.common.error.ApiException;
+import com.qstory.backend.identity.service.AuthService;
 import com.qstory.backend.common.error.ErrorCode;
 import com.qstory.backend.common.util.SecureTokenGenerator;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
 import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
-import com.qstory.backend.identity.security.JwtService;
-import com.qstory.backend.identity.service.ConsentService;
-import com.qstory.backend.identity.service.UserSummaryFactory;
-import com.qstory.backend.identity.util.AuthValidator;
 import com.qstory.backend.notification.service.NotificationPublisher;
 import com.qstory.backend.org.dto.ClassHomeroomInvitePreviewResponse;
 import com.qstory.backend.org.dto.ClassHomeroomInviteResponse;
@@ -55,7 +52,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * 반 담임 초대(074): 발급은 원장만, 새로 발급하면 이전 초대는 못 쓴다. 선생님이 수락하면 기관 소속(기관 초대 수락과 같은
@@ -73,11 +69,19 @@ class ClassHomeroomInviteServiceTest {
     private final NotificationPublisher notificationPublisher = mock(NotificationPublisher.class);
 
     private final ClassService classService = new ClassService(
-            classGroupRepository, tutorStudentRepository, organizationTutorRepository, userRepository,
-            mock(OrganizationService.class), new JoinCodeGenerator(), mock(AuthValidator.class),
-            mock(PasswordEncoder.class), mock(JwtService.class), mock(TutorStudentService.class),
-            mock(UserSummaryFactory.class), mock(StoryCompletionRepository.class), lessonRepository, historyService,
-            mock(ConsentService.class), notificationPublisher, mock(StudentClassHistoryService.class));
+            classGroupRepository,
+            tutorStudentRepository,
+            organizationTutorRepository,
+            userRepository,
+            mock(OrganizationService.class),
+            new JoinCodeGenerator(),
+            mock(AuthService.class),
+            mock(TutorStudentService.class),
+            mock(StoryCompletionRepository.class),
+            lessonRepository,
+            historyService,
+            notificationPublisher,
+            mock(StudentClassHistoryService.class));
     private final OrganizationTutorService organizationTutorService = new OrganizationTutorService(
             organizationTutorRepository, mock(OrganizationTutorInviteRepository.class), mock(OrganizationRepository.class),
             userRepository, new SecureTokenGenerator(), new JoinCodeGenerator(), notificationPublisher,

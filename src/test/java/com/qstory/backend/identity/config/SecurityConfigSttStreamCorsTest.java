@@ -13,9 +13,7 @@ import org.springframework.web.cors.CorsConfiguration;
 class SecurityConfigSttStreamCorsTest {
 
     private final SecurityConfig config = new SecurityConfig(
-            new AppProperties(
-                    List.of("https://dev.qstory.ai.kr"), List.of("https://app.qstory.ai.kr", "capacitor://app.qstory.ai.kr"),
-                    0, 0, null, null, null, null, null, null, null),
+            new AppProperties(List.of("https://dev.qstory.ai.kr"), List.of("https://app.qstory.ai.kr", "capacitor://app.qstory.ai.kr"), 0, 0, null, null, null, null, null, null, null, null, null, null),
             null);
 
     private CorsConfiguration corsFor(String path) {

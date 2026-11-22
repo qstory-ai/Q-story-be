@@ -12,7 +12,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.qstory.backend.common.util.SupabaseStorageClient;
+import com.qstory.backend.common.storage.SupabaseStorageClient;
 import com.qstory.backend.config.AppProperties;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.entity.AppUser;
@@ -48,7 +48,7 @@ class AuthServiceProfileImageTest {
 
     AuthServiceProfileImageTest() {
         when(config.supabase()).thenReturn(
-                new AppProperties.Supabase("https://example.supabase.co", "key", null, null, null, null, "profiles-bucket"));
+                new AppProperties.Supabase("https://example.supabase.co", "key", null, null, null, "profiles-bucket"));
         when(users.findByIdAndDeletedAtIsNull(tutor.getId())).thenReturn(Optional.of(tutor));
         when(storage.upload(anyString(), anyString(), any(), anyString())).thenReturn(true);
     }

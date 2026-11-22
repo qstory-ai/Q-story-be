@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qstory.backend.companionchat.service.CompanionChatPipelineService;
 import com.qstory.backend.provider.higgsfield.util.HiggsfieldImageClient;
 import com.qstory.backend.provider.openrouter.util.OpenRouterClient;
+import com.qstory.backend.realtimeimage.RealtimeImageKind;
 import com.qstory.backend.story.Anchor;
 import java.util.List;
 import java.util.Map;
@@ -93,5 +94,12 @@ class RealtimeImagePromptsTest {
     void labelsAreNormalizedFromSpeakerIds() {
         assertThat(RealtimeImageService.normalizeLabels(List.of("HG-SPK-GRETEL", "HANSEL", "HG-SPK-GRETEL", "witch")))
                 .containsExactly("GRETEL", "HANSEL", "WITCH");
+    }
+
+    @Test
+    void eachImageKindHasItsOwnPromptVersion() {
+        assertThat(RealtimeImagePrompts.versionFor(RealtimeImageKind.BRANCH)).isEqualTo("REALTIME_IMAGE_BRANCH_V1");
+        assertThat(RealtimeImagePrompts.versionFor(RealtimeImageKind.ATTEMPT)).isEqualTo("REALTIME_IMAGE_ATTEMPT_V1");
+        assertThat(RealtimeImagePrompts.versionFor(null)).isNull();
     }
 }
