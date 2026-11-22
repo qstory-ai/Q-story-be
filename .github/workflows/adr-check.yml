@@ -1,0 +1,51 @@
+# PR마다 docs/adr 기록이 있는지 본다. 규칙은 docs/adr/README.md.
+#
+# 이 PR에서 추가하거나 고친 docs/adr/YYYY-MM-DD-*.md가 하나도 없으면 실패한다.
+# 바뀐 파일마다 상태·맥락·결정·작업 내용·확인 방법 제목이 있는지, 작업 내용이 비어 있지 않은지도 본다.
+# 배포 판단(autodeploy.sh)은 ci 워크플로의 test 결과만 보므로 이 검사는 배포에 영향을 주지 않는다.
+name: adr
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  adr:
+    name: adr
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: ADR 기록 확인
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          changed=$(git -c core.quotePath=false diff --name-only --diff-filter=AM "$BASE_SHA" HEAD -- docs/adr \
+            | grep -E '^docs/adr/[0-9]{4}-[0-9]{2}-[0-9]{2}-[^/]+\.md$' || true)
+          if [ -z "$changed" ]; then
+            echo "::error::docs/adr에 이 PR의 기록이 없다. _template.md를 복사해 YYYY-MM-DD-제목.md로 추가한다 (docs/adr/README.md)"
+            exit 1
+          fi
+          failed=0
+          for f in $changed; do
+            for h in "## 상태" "## 맥락" "## 결정" "## 작업 내용" "## 확인 방법"; do
+              if ! grep -qxF "$h" "$f"; then
+                echo "::error file=$f::'$h' 항목이 없다"
+                failed=1
+              fi
+            done
+            body=$(awk '/^## 작업 내용$/{on=1; next} /^## /{on=0} on' "$f" \
+              | sed -e 's/<!--.*-->//g' | grep -vE '^[[:space:]]*$' || true)
+            if [ -z "$body" ]; then
+              echo "::error file=$f::'## 작업 내용'이 비어 있다. 실제로 바꾼 것을 적는다"
+              failed=1
+            fi
+            echo "확인: $f"
+          done
+          exit $failed

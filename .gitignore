@@ -9,4 +9,7 @@ out/
 
 # 문서(md)는 저장소에 올리지 않는다 - 팀 문서는 노션 위키 "개발 저장소 문서 모음"
 *.md
+# 예외: 작업·결정 기록(docs/adr)과 PR 템플릿은 저장소에 둔다 (docs/adr/README.md)
+!docs/**/*.md
+!.github/pull_request_template.md
 bin/
