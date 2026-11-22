@@ -224,9 +224,25 @@ locals {
     }
   }
 
+  # 주요 API(dashboards.tf의 main_api_routes) 5xx - 한 건만 나와도 울린다. API별로 따로 울려 메시지에 어느 API인지 나온다.
+  # 전체 비율 규칙(server-5xx-ratio)은 요청이 적은 시간에는 보지 않아, 한산할 때 핵심 기능이 깨져도 놓친다.
+  main_api_alerts = {
+    main-api-5xx = {
+      severity    = "critical"
+      summary     = "주요 API {{ $labels.route }}가 5분 안에 5xx로 {{ $values.B }}번 실패했어요."
+      description = <<-EOT
+        로그인·이야기·재생 기록·그레텔 대화·음성·완주 중 하나가 서버 오류를 냈다. 그라파나 '백엔드 상태'의 주요 API 상태 표와
+        최근 에러 로그에서 같은 시간대를 본다. 외부 AI·음성 규칙이 같이 울리면 의존 서비스 쪽, 아니면 uncaught-5xx·배포를 먼저 본다.
+      EOT
+      logql       = "sum by (route) (count_over_time(${local.main_api_sel} | status=~\"5..\" [5m]))"
+      threshold   = 0
+      pending     = "0s"
+    }
+  }
+
   # 규칙마다 다른 값만 위에 적고, 나머지는 기본값으로 채운다(대부분 "5분에 N건 넘으면").
   alerts = {
-    for name, rule in local.log_alerts : name => merge({
+    for name, rule in merge(local.log_alerts, local.main_api_alerts) : name => merge({
       comparison    = "gt"
       no_data_state = "OK"
       pending       = "5m"
