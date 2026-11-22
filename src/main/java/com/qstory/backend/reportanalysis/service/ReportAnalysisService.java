@@ -226,9 +226,9 @@ public class ReportAnalysisService {
         Map<String, Object> personal = null;
         if (input.sessionKind() == SessionKind.HOME) {
             try {
-                questions = personalTurnIds.isEmpty() ? List.of() : classify(storyContext, turnsById, personalTurnIds);
+                questions = personalTurnIds.isEmpty() ? List.of() : classify(usedModels, storyContext, turnsById, personalTurnIds);
                 questionSummary = QuestionStats.summarize(questions);
-                personal = personal(input, story, questions, questionSummary, turnsById, personalTurnIds);
+                personal = personal(usedModels, input, story, questions, questionSummary, turnsById, personalTurnIds);
             } catch (RuntimeException error) {
                 log.warn("report-analysis.personal-failed reason={}", error.toString());
             }
@@ -400,12 +400,12 @@ public class ReportAnalysisService {
 
     /** 아이 말마다 {seq, kind, level, category, followUp, topic, reason}. */
     private List<Map<String, Object>> classify(
-            ObjectNode storyContext, Map<String, Map<String, Object>> turnsById, List<String> personalTurnIds) {
+            Set<String> usedModels, ObjectNode storyContext, Map<String, Map<String, Object>> turnsById, List<String> personalTurnIds) {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.set("story", storyContext);
         payload.set("turns", turnsForPrompt(turnsById));
         payload.set("targetTurnIds", objectMapper.valueToTree(personalTurnIds));
-        JsonNode classified = call(CLASSIFY_SYSTEM, payload, classifySchema(), "report_classify", 4000);
+        JsonNode classified = call(usedModels, CLASSIFY_SYSTEM, payload, classifySchema(), "report_classify", 4000);
         return classifiedOut(classified, personalTurnIds);
     }
 
@@ -436,7 +436,7 @@ public class ReportAnalysisService {
     }
 
     /** {todayLine, changeLine, interestLine, tonightQuestion}. 문제가 고쳐지지 않으면 null(개인화 칸만 비운다). */
-    private Map<String, Object> personal(Input input, StoryView story, List<Map<String, Object>> questions,
+    private Map<String, Object> personal(Set<String> usedModels, Input input, StoryView story, List<Map<String, Object>> questions,
             Map<String, Object> summary, Map<String, Map<String, Object>> turnsById, List<String> personalTurnIds) {
         if (personalTurnIds.isEmpty()) return null;
         ObjectNode payload = objectMapper.createObjectNode();
@@ -462,11 +462,11 @@ public class ReportAnalysisService {
         List<PastSession> history = input.history() == null ? List.of() : input.history();
         payload.set("history", objectMapper.valueToTree(history));
 
-        JsonNode generated = call(PERSONAL_SYSTEM, payload, personalSchema(), "report_personal", 1200);
+        JsonNode generated = call(usedModels, PERSONAL_SYSTEM, payload, personalSchema(), "report_personal", 1200);
         List<String> problems = personalProblems(generated, childName);
         if (!problems.isEmpty()) {
             payload.set("avoid", objectMapper.valueToTree(problems));
-            generated = call(PERSONAL_SYSTEM, payload, personalSchema(), "report_personal", 1200);
+            generated = call(usedModels, PERSONAL_SYSTEM, payload, personalSchema(), "report_personal", 1200);
             problems = personalProblems(generated, childName);
             if (!problems.isEmpty()) {
                 log.warn("report-analysis.personal-dropped problems={}", problems);
