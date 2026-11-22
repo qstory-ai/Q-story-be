@@ -30,6 +30,8 @@
 - `.gitignore`: `*.md` 규칙은 그대로 두고 `docs/` 아래 md와 PR 템플릿만 예외로 올린다.
 - 개발 서버는 2026-11-22부터 `/opt/qstory/.env`의 `GIT_REF=develop`으로 develop을 따른다.
 
+- GitHub 저장소 기본 브랜치를 main에서 develop으로 바꿨다(`gh repo edit --default-branch develop`). 서버는 `.env`의 `GIT_REF`로, Vercel은 프로젝트의 Production Branch(main)로 배포 브랜치를 정한다. 그래서 배포 대상은 바뀌지 않는다.
+
 ## 확인 방법
 
 - `git check-ignore`로 docs/adr 파일과 PR 템플릿이 더 이상 무시되지 않는 것을 확인했다.
@@ -41,4 +43,4 @@
 - 아직 main에 안 간 커밋은 `git cherry -v origin/main origin/develop`으로 본다. `+`는 main에 없는 커밋이고, `-`는 같은 변경이 이미 main에 있는 커밋이다.
 - 마이그레이션은 번호 순서대로 main에 옮긴다. Flyway는 out-of-order가 꺼져 있다. 운영 DB에 105가 먼저 들어간 뒤 104가 오면 검증에 걸려 앱이 뜨지 않는다. 앞 번호가 아직 확인 전이면 뒤 번호도 같이 기다린다.
 - 서로 얽힌 커밋 하나만 골라 옮기면 충돌하거나 빌드가 깨질 수 있다. 체리픽 PR도 CI를 통과해야 머지한다.
-- GitHub 기본 브랜치는 아직 main이다. PR을 열 때 base를 develop으로 골라야 한다.
+- GitHub 기본 브랜치가 develop이라서 새 PR의 base는 develop으로 잡힌다. main으로 가는 체리픽 PR만 base를 main으로 바꾼다.
