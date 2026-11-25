@@ -28,9 +28,13 @@ public class VoiceCastService {
     }
 
     /**
-     * 실시간 음성(그레텔 답·도움·선택지 미리 만들기·이름이 들어간 대사)의 TTS 입력. 미리 녹음한 고정 음성
-     * (fe assets/.../fixed-narration-metadata.json, Q-30·Q-31)을 만들 때와 같은 문장 형식이다 - 형식이 다르면
-     * 같은 목소리(voice)·모델이어도 말투가 달라져, 녹음한 대사와 실시간 답이 다른 사람처럼 들렸다.
+     * 실시간 음성(그레텔 답·도움·선택지 미리 만들기·이름이 들어간 대사, 관리자 나레이션 다시 만들기)의 TTS 입력.
+     *
+     * <p>대사만 보낸다. 예전에는 캐릭터 설명(profile)·연기 지시(direction)와 "Read the following Korean line aloud..."
+     * 문장을 앞에 붙였다. 3.1 preview는 이걸 지시로만 썼지만 3.8(#123, 2026-11-21)은 영어 문장을 그대로 소리 내어
+     * 읽는다(2026-11-25 데모에서 확인, 받아 적기로 재현). 목소리 자체는 cast.voice()로 정해지므로 대사만 보내도
+     * 캐릭터마다 다른 목소리는 그대로다. 말투를 더 주고 싶으면 "[warmly] 대사"처럼 한두 단어 대괄호 태그만 쓴다.
+     * 문장형 지시는 다시 읽힌다.
      */
     public String buildGeminiTtsPerformanceInput(String storyId, String speaker, String text) {
         CastEntry cast = voiceCastForSpeaker(storyId, speaker);
@@ -41,8 +45,6 @@ public class VoiceCastService {
     }
 
     static String performanceInput(CastEntry cast, String text) {
-        return cast.profile() + " " + cast.direction() + "\n"
-                + "Read the following Korean line aloud exactly as written, in natural Korean, and say nothing else:\n"
-                + text.trim();
+        return text.trim();
     }
 }
