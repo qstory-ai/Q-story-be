@@ -106,6 +106,14 @@ public class TutorStudent {
     private Instant linkedAt;
 
     /**
+     * 체험 모드에서 선생님이 현장에서 이름만 올린 학생의 보호자 연결 코드(104). 아이가 이야기를 마친 태블릿 화면의 QR에만
+     * 실린다. 보호자가 이 코드로 가입하면 이 학생에 잇고, 연결 전에 남긴 체험 기록도 보게 한다 - 코드를 가진 사람만 그 화면을
+     * 본 보호자라서다. 연결되면 지운다(한 번만 쓴다).
+     */
+    @Column(name = "parent_claim_code")
+    private String parentClaimCode;
+
+    /**
      * 소프트 삭제(053). 선생님이 지운 학생은 목록·일정·수업에서 사라지지만 행은 남는다 - story_completion이
      * 이 학생을 계속 가리켜야 부모가 선생님 리포트를 잃지 않는다. 모든 조회는 deletedAt is null로 거른다.
      */
