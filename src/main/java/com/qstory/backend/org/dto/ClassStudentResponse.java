@@ -13,7 +13,9 @@ import java.util.UUID;
  */
 public record ClassStudentResponse(
         UUID id, String name, String ageBand, String status, String parentDisplayName, String parentEmail,
-        Instant createdAt, Instant graduatedAt, Instant endedAt, String endReason) {
+        Instant createdAt, Instant graduatedAt, Instant endedAt, String endReason,
+        /** 체험 모드에서 현장에 올린, 아직 보호자가 없는 학생의 보호자 연결 코드(104). 그 밖엔 null. */
+        String parentClaimCode) {
 
     public static ClassStudentResponse of(TutorStudent student) {
         return of(student, null, null);
@@ -28,6 +30,8 @@ public record ClassStudentResponse(
                 student.getId(), student.getName(), student.currentAgeBand(), student.getStatus().name(),
                 student.getLinkedParentUser() == null ? null : student.getLinkedParentUser().getDisplayName(),
                 student.getLinkedParentUser() == null ? null : student.getLinkedParentUser().getEmail(),
-                student.getCreatedAt(), student.getGraduatedAt(), endedAt, endReason);
+                student.getCreatedAt(), student.getGraduatedAt(), endedAt, endReason,
+                student.getLinkedParentUser() == null ? student.getParentClaimCode() : null);
+
     }
 }
