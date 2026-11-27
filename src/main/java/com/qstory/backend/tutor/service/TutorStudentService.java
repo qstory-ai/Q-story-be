@@ -21,6 +21,7 @@ import com.qstory.backend.tutor.lesson.LessonStatus;
 import com.qstory.backend.tutor.lesson.entity.Lesson;
 import com.qstory.backend.tutor.lesson.repository.LessonRepository;
 import com.qstory.backend.tutor.repository.TutorStudentRepository;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +43,14 @@ public class TutorStudentService {
     private static final String DEFAULT_CHILD_AVATAR_KEY = "fox";
 
     private static final Pattern DIGITS = Pattern.compile("\\d+");
+
+    /** 보호자 연결 코드 글자 - 헷갈리는 0/O, 1/I/L은 뺀다. */
+    private static final String CLAIM_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    private static final int CLAIM_CODE_LENGTH = 10;
+    private static final int WALK_IN_NAME_MAX = 20;
+    /** 출생연도 없이 현장에서 올린 학생의 나이 칸 - 보호자가 이어 출생연도를 적으면 그 나이로 바뀐다. */
+    static final String UNKNOWN_AGE_BAND = "나이 미입력";
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final TutorStudentRepository tutorStudentRepository;
     private final AppUserRepository userRepository;
@@ -73,6 +82,18 @@ public class TutorStudentService {
     public TutorStudent enrollParentInClass(
             AppUser parent, ClassGroup classGroup, String childNameInput, Integer birthYearInput, UUID childId,
             UUID rosterStudentId) {
+        return enrollParentInClass(parent, classGroup, childNameInput, birthYearInput, childId, rosterStudentId, null);
+    }
+
+    /**
+     * claimCode가 있으면 체험 모드에서 현장에 올린 그 학생에 잇는다(104). 코드는 아이가 이야기를 마친 태블릿의 QR에만 있으므로
+     * 이 보호자가 그 자리에 있었다는 뜻이다. 그래서 연결 시각을 학생을 올린 시각으로 두어 연결 전 체험 기록도 보이게 하고,
+     * 선생님에게 연결 확인을 부탁하지 않는다. 코드는 한 번 쓰면 지운다.
+     */
+    @Transactional
+    public TutorStudent enrollParentInClass(
+            AppUser parent, ClassGroup classGroup, String childNameInput, Integer birthYearInput, UUID childId,
+            UUID rosterStudentId, String claimCode) {
         // 이미 등록한 아이를 고르면 이름·출생연도는 그 아이 프로필에서 가져온다.
         Child chosenChild = childId == null ? null : childRepository.findByIdAndParent_Id(childId, parent.getId())
                 .orElseThrow(() -> ApiException.contractError(ErrorCode.NOT_FOUND, "아이 프로필을 찾을 수 없어요.", 404));
@@ -91,9 +112,12 @@ public class TutorStudentService {
         // 선생님이 미리 올려 둔(아직 학부모가 없는) 같은 이름의 학생이 있으면 새로 만들지 않고 그 학생에 잇는다 -
         // 일괄 등록 뒤 반 코드를 공유했거나, 학부모가 아이를 뺐다가 다시 올린 경우 명단에 같은 아이가 둘 생기지 않게.
         // 학부모가 명단에서 직접 고른 학생이 있으면 그 학생, 아니면 같은 이름의 학생에 잇는다.
-        TutorStudent pending = rosterStudentId != null
-                ? requirePendingRosterStudent(classGroup, rosterStudentId)
-                : findPendingClassmate(classGroup, childName, birthYear);
+        TutorStudent claimed = isBlank(claimCode) ? null : requireClaimedStudent(classGroup, claimCode);
+        TutorStudent pending = claimed != null
+                ? claimed
+                : rosterStudentId != null
+                        ? requirePendingRosterStudent(classGroup, rosterStudentId)
+                        : findPendingClassmate(classGroup, childName, birthYear);
         TutorStudent student;
         if (pending != null) {
             student = pending;
@@ -123,8 +147,9 @@ public class TutorStudentService {
         }
         student.setStatus(TutorStudentStatus.CONFIRMED);
         student.setLinkedParentUser(parent);
-        student.setLinkedAt(now);
+        student.setLinkedAt(claimed != null ? student.getCreatedAt() : now);
         student.setChild(child);
+        if (claimed != null) student.setParentClaimCode(null);
         try {
             student = tutorStudentRepository.saveAndFlush(student);
         } catch (DataIntegrityViolationException duplicate) {
@@ -136,7 +161,7 @@ public class TutorStudentService {
         if (tutor != null) {
             addToScheduledClassLessons(tutor.getId(), student, classGroup);
         }
-        if (pending != null) {
+        if (pending != null && claimed == null) {
             notifyRosterLinkToVerify(parent, student, classGroup);
         } else {
             notifyClassEnrollment(parent, student, classGroup);
@@ -165,7 +190,64 @@ public class TutorStudentService {
                 .orElse(null);
     }
 
-    /** 학부모가 고른 명단 학생 - 이 반의, 아직 학부모가 없는 학생이어야 한다. 잠가서 두 학부모가 동시에 잇지 못하게 한다. */
+    /**
+     * 체험 모드(도서관 행사 등)에서 미리 가입하지 않은 아이를 그 자리에서 반 명단에 올린다. 이름만 받는다. 보호자는 아직 없고
+     * (PENDING_PARENT), 아이가 이야기를 마치면 태블릿이 이 학생의 보호자 연결 코드를 QR로 보여 준다.
+     */
+    @Transactional
+    public TutorStudent addWalkInStudent(ClassGroup classGroup, String nameInput) {
+        String name = nameInput == null ? "" : nameInput.trim();
+        if (name.isEmpty()) {
+            throw ApiException.contractError(ErrorCode.CHILD_INFO_REQUIRED, "아이 이름을 입력해 주세요.");
+        }
+        if (name.length() > WALK_IN_NAME_MAX) {
+            throw ApiException.contractError(ErrorCode.VALIDATION_FAILED, "이름은 20자 안으로 적어 주세요.", 400);
+        }
+        Instant now = Instant.now();
+        TutorStudent student = TutorStudent.builder()
+                .tutor(classGroup.getTutor())
+                .name(name)
+                .ageBand(UNKNOWN_AGE_BAND)
+                .lessonType(TutorLessonType.CLASS)
+                .classGroup(classGroup)
+                .status(TutorStudentStatus.PENDING_PARENT)
+                .parentClaimCode(newClaimCode())
+                .createdAt(now)
+                .build();
+        student = tutorStudentRepository.saveAndFlush(student);
+        classHistoryService.recordJoined(student, classGroup, now);
+        if (classGroup.getTutor() != null) {
+            addToScheduledClassLessons(classGroup.getTutor().getId(), student, classGroup);
+        }
+        return student;
+    }
+
+    private String newClaimCode() {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            StringBuilder code = new StringBuilder(CLAIM_CODE_LENGTH);
+            for (int i = 0; i < CLAIM_CODE_LENGTH; i++) {
+                code.append(CLAIM_CODE_ALPHABET.charAt(RANDOM.nextInt(CLAIM_CODE_ALPHABET.length())));
+            }
+            String candidate = code.toString();
+            if (!tutorStudentRepository.existsByParentClaimCode(candidate)) return candidate;
+        }
+        throw new IllegalStateException("보호자 연결 코드를 만들지 못했어요");
+    }
+
+    /** 보호자 연결 코드(104)의 학생. 이 반의, 아직 보호자가 없는 학생이어야 한다. 잠가서 두 보호자가 동시에 잇지 못하게 한다. */
+    private TutorStudent requireClaimedStudent(ClassGroup classGroup, String claimCode) {
+        String code = claimCode.trim().toUpperCase(java.util.Locale.ROOT);
+        return tutorStudentRepository
+                .findByClassGroup_IdAndParentClaimCodeAndLinkedParentUserIsNullAndDeletedAtIsNull(classGroup.getId(), code)
+                .flatMap(found -> tutorStudentRepository.lockById(found.getId()))
+                .filter(locked -> locked.getLinkedParentUser() == null && locked.getDeletedAt() == null
+                        && code.equals(locked.getParentClaimCode()))
+                .orElseThrow(() -> ApiException.contractError(
+                        ErrorCode.NOT_FOUND, "체험 기록을 찾을 수 없어요. 이미 연결됐거나 코드가 맞지 않아요.", 404));
+    }
+
+    /** 학부모가 고른 명단 학생 - 이 반의, 아직 학부모가 없는 학생이어야 한다.
+ 잠가서 두 학부모가 동시에 잇지 못하게 한다. */
     private TutorStudent requirePendingRosterStudent(ClassGroup classGroup, UUID rosterStudentId) {
         return tutorStudentRepository.lockById(rosterStudentId)
                 .filter(student -> student.getDeletedAt() == null

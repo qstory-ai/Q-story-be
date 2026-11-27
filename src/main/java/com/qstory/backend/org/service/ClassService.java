@@ -11,6 +11,7 @@ import com.qstory.backend.identity.repository.AppUserRepository;
 import com.qstory.backend.identity.security.CurrentUser;
 import com.qstory.backend.identity.service.AuthService;
 import com.qstory.backend.notification.service.NotificationPublisher;
+import com.qstory.backend.org.dto.AddClassStudentRequest;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassReportResponse;
 import com.qstory.backend.org.dto.ClassPreviewResponse;
@@ -352,7 +353,8 @@ public class ClassService {
                 "CLASS_JOIN_SIGNUP");
 
         tutorStudentService.enrollParentInClass(
-                parent, classGroup, request.childName(), request.childBirthYear(), null, request.rosterStudentId());
+                parent, classGroup, request.childName(), request.childBirthYear(), null, request.rosterStudentId(),
+                request.studentClaimCode());
         return authResponse(parent);
     }
 
@@ -365,7 +367,7 @@ public class ClassService {
         ClassGroup classGroup = resolveClassGroup(request.classCode());
         tutorStudentService.enrollParentInClass(
                 parent, classGroup, request.childName(), request.childBirthYear(), request.childId(),
-                request.rosterStudentId());
+                request.rosterStudentId(), request.studentClaimCode());
         return authResponse(parent, caller.rememberMe(), caller.authTime());
     }
 
@@ -418,7 +420,22 @@ public class ClassService {
     }
 
     /**
-     * 담임·원장이 반 학생의 보호자 연결을 끊는다(보안 점검 H3). 반 코드만 알면 명단에서 남의 아이를 골라 이을 수 있어서, 확인
+     * 체험 모드에서 담임·원장이 미리 가입하지 않은 아이를 그 자리에서 반 명단에 올린다(104). 응답의 parentClaimCode는 아이가
+     * 이야기를 마친 태블릿에 QR로 보여 줄 보호자 연결 코드다. 지난 담임과 보관된 반은 올릴 수 없다.
+     */
+    @Transactional
+    public ClassStudentResponse addWalkInStudent(CurrentUser caller, UUID classId, AddClassStudentRequest request) {
+        Access access = requireAccess(caller, classId);
+        if (access.level() == AccessLevel.FORMER_HOMEROOM || access.classGroup().getArchivedAt() != null) {
+            throw forbidden();
+        }
+        return ClassStudentResponse.of(
+                tutorStudentService.addWalkInStudent(access.classGroup(), request == null ? null : request.name()));
+    }
+
+    /**
+     * 담임·원장이 반 학생의 보호자 연결을 끊는다(보안 점검 H3).
+ 반 코드만 알면 명단에서 남의 아이를 골라 이을 수 있어서, 확인
      * 알림(TutorStudentService.notifyRosterLinkToVerify)을 받은 선생님이 잘못된 연결을 되돌리는 경로다. 학생은 명단에 그대로
      * 남고(PENDING_PARENT) 실제 보호자가 다시 이을 수 있다. 학부모가 스스로 빠질 때(leaveClass)와 달리 지난 리포트 열람권은
      * 남기지 않는다 - 애초에 잘못된 연결이다. 지난 담임은 끊을 수 없다.
