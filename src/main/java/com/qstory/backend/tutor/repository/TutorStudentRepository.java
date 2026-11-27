@@ -138,4 +138,10 @@ public interface TutorStudentRepository extends JpaRepository<TutorStudent, UUID
     @Query("delete from TutorStudentClassHistory h where h.classGroup.id in "
             + "(select g.id from ClassGroup g where g.tutor.id = :tutorId and g.organization is null)")
     int deleteClassHistoryOfPersonalClasses(@Param("tutorId") UUID tutorId);
+
+    /** 보호자 연결 코드(104)로 이 반의, 아직 보호자가 없는 학생 - 가입 경로가 잠근 뒤 다시 확인한다. */
+    Optional<TutorStudent> findByClassGroup_IdAndParentClaimCodeAndLinkedParentUserIsNullAndDeletedAtIsNull(
+            UUID classGroupId, String parentClaimCode);
+
+    boolean existsByParentClaimCode(String parentClaimCode);
 }

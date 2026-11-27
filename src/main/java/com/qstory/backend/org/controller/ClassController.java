@@ -3,6 +3,7 @@ package com.qstory.backend.org.controller;
 import com.qstory.backend.identity.Role;
 import com.qstory.backend.identity.dto.AuthResponse;
 import com.qstory.backend.identity.security.CurrentUserResolver;
+import com.qstory.backend.org.dto.AddClassStudentRequest;
 import com.qstory.backend.org.dto.AssignHomeroomRequest;
 import com.qstory.backend.org.dto.ClassMembershipResponse;
 import com.qstory.backend.org.dto.ClassPreviewResponse;
@@ -135,7 +136,19 @@ public class ClassController {
         return service.listStudents(currentUserResolver.require(), classId, includePast);
     }
 
+    @Operation(summary = "Add a walk-in student to a class",
+            description = "The owning DIRECTOR or the class's homeroom TUTOR. Kiosk mode (e.g. a library event): adds a "
+                    + "child who did not sign up beforehand by name only. parentClaimCode in the response is the one-time "
+                    + "code the tablet shows as a QR after the child finishes, so the parent can join with "
+                    + "studentClaimCode and see the records made before linking.")
+    @PostMapping("/v1/classes/{classId}/students")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ClassStudentResponse addStudent(@PathVariable UUID classId, @RequestBody AddClassStudentRequest request) {
+        return service.addWalkInStudent(currentUserResolver.require(), classId, request);
+    }
+
     @Operation(summary = "Assign or change the homeroom tutor",
+
             description = "Owning DIRECTOR only. The tutor must belong to the organization. The class's roster students "
                     + "become the new tutor's students and the previous tutor's not-yet-started (SCHEDULED) lessons of this "
                     + "class move to the new tutor. Past lessons and reports stay with the tutor who ran them.")

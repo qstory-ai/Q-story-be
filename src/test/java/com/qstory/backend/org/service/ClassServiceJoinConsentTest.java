@@ -48,7 +48,7 @@ class ClassServiceJoinConsentTest {
                 .thenThrow(ApiException.contractError(ErrorCode.CONSENT_REQUIRED, "x"));
         ApiException e = assertThrows(ApiException.class, () -> service.join(request(null)));
         assertEquals(ErrorCode.CONSENT_REQUIRED, e.code());
-        verify(students, never()).enrollParentInClass(any(), any(), any(), any(), any(), any());
+        verify(students, never()).enrollParentInClass(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -65,7 +65,7 @@ class ClassServiceJoinConsentTest {
         verify(authService).registerAccount(eq(Role.PARENT), signup.capture(), eq("CLASS_JOIN_SIGNUP"));
         assertEquals("loginid", signup.getValue().loginId());
         assertEquals(ok, signup.getValue().consents());
-        verify(students).enrollParentInClass(eq(parent), eq(classGroup), eq("아이"), eq(2020), isNull(), isNull());
+        verify(students).enrollParentInClass(eq(parent), eq(classGroup), eq("아이"), eq(2020), isNull(), isNull(), isNull());
         verify(authService).issueResponse(parent, true, null);
     }
 }
